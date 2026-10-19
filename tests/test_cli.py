@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -39,6 +40,10 @@ def test_cli_persists_a_conversation_across_processes(repository, tmp_path):
         "--json",
     ]
     environment = dict(os.environ)
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "git").symlink_to(shutil.which("git"))
+    environment["PATH"] = str(tools)
 
     def call(*command):
         result = subprocess.run(
@@ -76,10 +81,27 @@ def test_doctor_without_checkout_only_checks_tools_and_backends(tmp_path, monkey
             return [(True, "Backend ready")]
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("hydra_harness.cli.shutil.which", lambda name: "/tool/" + name)
+    monkeypatch.setattr(
+        "hydra_harness.cli.shutil.which", lambda name: "/tool/git" if name == "git" else None
+    )
     assert doctor(parser().parse_args(["doctor"]), Agent()) == 0
     assert "No target checkout selected" in capsys.readouterr().out
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("target_flag", ["--repo", "--nix-flake"])
+def test_doctor_requires_nix_for_target_validation(target_flag, tmp_path, monkeypatch, capsys):
+    class Agent:
+        def doctor(self, cwd):
+            return [(True, "Backend ready")]
+
+    (tmp_path / "flake.nix").write_text("{}")
+    monkeypatch.setattr(
+        "hydra_harness.cli.shutil.which", lambda name: "/tool/git" if name == "git" else None
+    )
+    args = parser().parse_args([target_flag, str(tmp_path), "doctor"])
+    assert doctor(args, Agent()) == 1
+    assert "nix: missing" in capsys.readouterr().out
 
 
 def test_nonexistent_explicit_checkout_fails_before_backend_use(tmp_path, capsys):

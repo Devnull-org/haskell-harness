@@ -13,7 +13,9 @@ from .workflow import Harness
 
 
 def parser():
-    result = argparse.ArgumentParser(description="Local, human-guided TDD workflows for Hydra")
+    result = argparse.ArgumentParser(
+        description="Haskell Harness: local, human-guided TDD workflows"
+    )
     result.add_argument(
         "--repo", type=Path, help="Target Git checkout (required for task commands)"
     )
@@ -139,10 +141,15 @@ def conversation(harness, view):
 
 def doctor(args, agent):
     okay = True
-    for executable in ("git", "nix"):
+    tools = ["git"]
+    if args.repo or args.nix_flake:
+        tools.append("nix")
+    for executable in tools:
         found = shutil.which(executable)
         print(f"{executable}: {found or 'missing'}")
         okay = okay and bool(found)
+        if executable == "nix" and not found:
+            print("Nix is required for the target's validation, not for running the harness")
     if args.repo:
         repository = args.repo.expanduser().resolve()
         if not repository.is_dir():

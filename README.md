@@ -1,4 +1,4 @@
-# Hydra harness
+# Haskell Harness
 
 An optional local development harness built with LangGraph and selectable model backends. It interviews
 the developer, writes failing Haskell tests, waits for the developer to approve

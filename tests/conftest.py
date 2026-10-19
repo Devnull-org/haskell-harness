@@ -162,3 +162,8 @@ def reach_test_review(harness, *, walkthrough=False):
 def approve_tests(harness, view):
     assert view.get("stage") == "test_review", view
     return harness.respond("increment", "approve", approval_token=view["prompt"]["approval_token"])
+
+
+@pytest.fixture(autouse=True)
+def isolated_backend_configuration(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "user-config"))

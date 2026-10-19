@@ -1,0 +1,164 @@
+"""Backends share schema validation, process controls, and prompt semantics."""
+
+import json
+
+import pytest
+
+from hydra_harness.backends import Backend, CommandAgent
+from hydra_harness.config import load_settings
+
+from .conftest import SPECIFICATION
+from .helpers import executable
+
+REPLY = {"specification": SPECIFICATION, "questions": []}
+
+
+def profile(name, script):
+    backend = load_settings().backends[name]
+    return backend.model_copy(update={"command": [script, *backend.command[1:]]})
+
+
+def test_local_profile_preserves_saved_login_and_read_only_mode(tmp_path, monkeypatch):
+    capture = tmp_path / "invocation.json"
+    backend = load_settings().backends["local"]
+    for key in backend.unset_env:
+        monkeypatch.setenv(key, "test-only-value")
+    envelope = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": json.dumps(REPLY),
+    }
+    script = executable(
+        tmp_path,
+        "import json, os, sys\nfrom pathlib import Path\n"
+        f"Path({str(capture)!r}).write_text(json.dumps({{\n"
+        "'argv': sys.argv[1:], 'prompt': sys.stdin.read(), 'cwd': os.getcwd(),\n"
+        f"'has_credentials': any(key in os.environ for key in {backend.unset_env!r})\n"
+        "}))\n"
+        f"print({json.dumps(envelope)!r})\n",
+    )
+    assert (
+        CommandAgent(profile("local", script))("interviewer", {"request": "Fix addOne"}, tmp_path)
+        == REPLY
+    )
+    invocation = json.loads(capture.read_text())
+    assert not invocation["has_credentials"]
+    assert invocation["cwd"] == str(tmp_path)
+    assert "--print" in invocation["argv"]
+    assert invocation["argv"][invocation["argv"].index("--mode") + 1] == "ask"
+    assert invocation["argv"][invocation["argv"].index("--output-format") + 1] == "json"
+    assert "--force" not in invocation["argv"]
+    assert "Fix addOne" in invocation["prompt"]
+
+
+def test_claude_profile_supplies_read_tools_schema_and_model(tmp_path):
+    capture = tmp_path / "invocation.json"
+    script = executable(
+        tmp_path,
+        "import json, sys\nfrom pathlib import Path\n"
+        f"Path({str(capture)!r}).write_text(json.dumps(sys.argv[1:]))\n"
+        f"print({json.dumps({'is_error': False, 'structured_output': REPLY, 'result': ''})!r})\n",
+    )
+    agent = CommandAgent(profile("claude-code", script), model="opus")
+    assert agent("interviewer", {"request": "Fix addOne"}, tmp_path) == REPLY
+    args = json.loads(capture.read_text())
+    assert args[args.index("--tools") + 1] == "Read,Glob,Grep"
+    assert args[args.index("--permission-mode") + 1] == "plan"
+    assert args[args.index("--model") + 1] == "opus"
+    assert json.loads(args[args.index("--json-schema") + 1])["type"] == "object"
+    assert "--strict-mcp-config" in args
+    assert "--dangerously-skip-permissions" not in args
+
+
+def test_json_bridge_receives_versioned_request_and_returns_direct_response(tmp_path):
+    capture = tmp_path / "request.json"
+    script = executable(
+        tmp_path,
+        "import sys\nfrom pathlib import Path\n"
+        f"Path({str(capture)!r}).write_text(sys.stdin.read())\n"
+        f"print({json.dumps(REPLY)!r})\n",
+    )
+    agent = CommandAgent(Backend(command=[script], input_format="json"), model="hosted-model")
+    assert agent("interviewer", {"request": "Fix addOne"}, tmp_path) == REPLY
+    request = json.loads(capture.read_text())
+    assert request["version"] == 1
+    assert request["role"] == "interviewer"
+    assert request["model"] == "hosted-model"
+    assert request["context"] == {"request": "Fix addOne"}
+    assert "specification" in request["schema"]["properties"]
+    assert "Fix addOne" in request["prompt"]
+
+
+@pytest.mark.parametrize(
+    "body, message",
+    [
+        ("import sys\nprint('Not logged in', file=sys.stderr)\nsys.exit(1)\n", "logged in"),
+        ("print('not json')\n", "JSON|json"),
+        ("print('[]')\n", "JSON object"),
+        ("print('{\"is_error\": true}')\n", "error|failed"),
+        ('print(\'{"subtype": "error_max_turns", "is_error": false}\')\n', "error|failed"),
+        ('print(\'{"result": "{\\"unexpected\\": 1}"}\')\n', "schema|valid|specification"),
+    ],
+)
+def test_backend_errors_do_not_advance_the_workflow(tmp_path, body, message):
+    agent = CommandAgent(Backend(command=[executable(tmp_path, body)], response_fields=["result"]))
+    with pytest.raises((RuntimeError, ValueError), match=message):
+        agent("interviewer", {"request": "Fix addOne"}, tmp_path)
+
+
+def test_backend_timeout_stops_the_process(tmp_path):
+    marker = tmp_path / "finished"
+    script = executable(
+        tmp_path,
+        "import time\nfrom pathlib import Path\ntime.sleep(2)\n"
+        f"Path({str(marker)!r}).write_text('unexpected completion')\n",
+    )
+    with pytest.raises(RuntimeError, match="timed out|timeout"):
+        CommandAgent(Backend(command=[script]), timeout=0.05)("interviewer", {}, tmp_path)
+    assert not marker.exists()
+
+
+def test_missing_executable_reports_an_actionable_error(tmp_path):
+    missing = str(tmp_path / "missing-agent")
+    with pytest.raises(RuntimeError, match="executable"):
+        CommandAgent(Backend(command=[missing]))("interviewer", {}, tmp_path)
+
+
+def test_model_is_passed_as_an_argument_without_shell_evaluation(tmp_path):
+    capture = tmp_path / "arguments.json"
+    script = executable(
+        tmp_path,
+        "import json, sys\nfrom pathlib import Path\n"
+        f"Path({str(capture)!r}).write_text(json.dumps(sys.argv[1:]))\n"
+        f"print({json.dumps(REPLY)!r})\n",
+    )
+    model = "$(touch unwanted-file)"
+    agent = CommandAgent(Backend(command=[script], model_args=["--model", "{model}"]), model=model)
+    assert agent("interviewer", {}, tmp_path) == REPLY
+    assert json.loads(capture.read_text()) == ["--model", model]
+    assert not (tmp_path / "unwanted-file").exists()
+
+
+def test_plain_prompt_backend_cannot_silently_ignore_model_override(tmp_path):
+    with pytest.raises(ValueError, match="model_args"):
+        CommandAgent(Backend(command=["never-executed"]), model="selected")(
+            "interviewer", {}, tmp_path
+        )
+
+
+def test_auth_probe_detects_failed_login_even_with_zero_exit_code(tmp_path):
+    script = executable(tmp_path, "print('Not logged in')\n")
+    passed, message = CommandAgent(profile("local", script)).doctor(tmp_path)
+    assert not passed
+    assert "Not logged in" in message
+
+
+def test_relative_backend_path_uses_the_selected_checkout_for_diagnostics(tmp_path, monkeypatch):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    executable(checkout, f"print({json.dumps(REPLY)!r})\n")
+    monkeypatch.chdir(tmp_path)
+    agent = CommandAgent(Backend(command=["./agent-double"]))
+    assert agent.doctor(checkout)[0]
+    assert agent("interviewer", {}, checkout) == REPLY

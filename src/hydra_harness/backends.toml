@@ -1,0 +1,16 @@
+# Invocation details belong here, outside the workflow and public CLI.
+default_backend = "local"
+
+[backends.local]
+command = ["cursor-agent", "--print", "--mode", "ask", "--output-format", "json", "--trust"]
+response_fields = ["result"]
+model_args = ["--model", "{model}"]
+unset_env = ["CURSOR_API_KEY"]
+probe = ["{executable}", "status"]
+probe_reject_patterns = ["not logged in"]
+
+[backends.claude-code]
+command = ["claude", "--print", "--output-format", "json", "--permission-mode", "plan", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--json-schema", "{schema}"]
+response_fields = ["structured_output", "result"]
+model_args = ["--model", "{model}"]
+probe = ["{executable}", "auth", "status"]

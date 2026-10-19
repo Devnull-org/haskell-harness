@@ -1,0 +1,88 @@
+"""Explicit, user-owned backend selection with optional routing by agent role."""
+
+import os
+import tomllib
+from importlib.resources import files
+from pathlib import Path
+from typing import Literal
+
+from pydantic import Field, model_validator
+
+from .backends import Backend, CommandAgent
+from .schemas import SCHEMAS, Record
+
+
+class Route(Record):
+    backend: str | None = None
+    model: str | None = None
+
+
+class Settings(Record):
+    version: Literal[1] = 1
+    default_backend: str = "local"
+    backends: dict[str, Backend]
+    roles: dict[str, Route] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def valid_routes(self):
+        if self.default_backend not in self.backends:
+            raise ValueError(f"Unknown default backend: {self.default_backend}")
+        for role, route in self.roles.items():
+            if role not in SCHEMAS:
+                raise ValueError(f"Unknown agent role: {role}")
+            if route.backend and route.backend not in self.backends:
+                raise ValueError(f"Unknown backend for {role}: {route.backend}")
+        return self
+
+
+def load_settings(path=None):
+    """Read built-in profiles and one user file; never auto-load target-repo configuration."""
+    data = tomllib.loads(files("hydra_harness").joinpath("backends.toml").read_text())
+    if path is None:
+        root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+        path = root / "hydra-harness" / "config.toml"
+        if not path.exists():
+            return Settings.model_validate(data)
+    path = Path(path).expanduser().resolve()
+    with path.open("rb") as stream:
+        custom = tomllib.load(stream)
+    # A named profile is replaced as a unit so old credential/argument rules cannot leak in.
+    data["backends"].update(custom.pop("backends", {}))
+    data.update(custom)
+    return Settings.model_validate(data)
+
+
+class RoutedAgent:
+    def __init__(self, settings, *, backend=None, model=None, timeout=None):
+        if backend is not None and backend not in settings.backends:
+            raise ValueError(
+                f"Unknown backend {backend!r}; use the backends command to list profiles"
+            )
+        self.settings = settings
+        self.backend = backend
+        self.model = model
+        self.timeout = timeout
+
+    def resolve(self, role):
+        route = self.settings.roles.get(role, Route())
+        name = self.backend or route.backend or self.settings.default_backend
+        # A global backend override also drops role-specific models for another backend.
+        model = self.model
+        if model is None and self.backend is None:
+            model = route.model
+        return CommandAgent(
+            self.settings.backends[name], name=name, model=model, timeout=self.timeout
+        )
+
+    def __call__(self, role, context, cwd):
+        return self.resolve(role)(role, context, cwd)
+
+    def doctor(self, cwd):
+        checked = set()
+        results = []
+        for role in SCHEMAS:
+            agent = self.resolve(role)
+            if agent.name not in checked:
+                checked.add(agent.name)
+                results.append(agent.doctor(cwd))
+        return results

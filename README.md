@@ -4,24 +4,56 @@ An optional local development harness built with LangGraph and selectable model 
 the developer, writes failing Haskell tests, waits for the developer to approve
 those tests, and then coordinates implementation, refactoring, and reviews.
 
-Nix supplies the harness, Python libraries, and development tools. Optional packages
-also supply the selected agent CLI; the default package is provider-neutral.
-`flake.lock` pins Nix inputs; `uv.lock` pins Python dependencies, which uv2nix builds
-inside Nix. Running the harness does not install Python packages into your machine.
-Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
+Run the harness with **uv or Nix** on macOS or Linux. Both use the Python
+dependencies pinned in `uv.lock`; the Nix environment also pins its tools in
+`flake.lock`. Nix remains available for reproducible development and checks.
+
+Nix is optional for installing and running the harness itself. **Hydra's code
+validation still requires Nix** for its dependency flake and Nix checks. Without
+Nix you can configure backends, run interviews, and inspect saved tasks. Building,
+testing, and committing Hydra patches still requires its full toolchain.
 
 ## Quick start
 
-Clone the harness and inspect the available backend profiles:
+Clone the harness:
 
 ```sh
 git clone git@github.com:Devnull-org/langgraph-harness.git
 cd langgraph-harness
-nix run . -- backends
 ```
 
-Choose a backend. These optional Nix packages also supply its CLI and select its
-profile, without requiring a global installation:
+### Without Nix
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git, then:
+
+```sh
+uv sync --locked --no-dev
+source .venv/bin/activate
+haskell-harness backends
+```
+
+uv downloads a compatible Python if necessary and installs the locked dependencies
+in this clone's `.venv`. Activate that environment in each new terminal before
+using `haskell-harness`. You can also run a command without activating it:
+
+```sh
+uv run --locked --no-dev haskell-harness backends
+```
+
+Install and sign in to your chosen agent CLI separately, or configure a bridge to
+your model service. Backend setup is described in [BACKENDS.md](BACKENDS.md).
+
+### With Nix
+
+Enter the development environment to use the same `haskell-harness` commands:
+
+```sh
+nix develop
+haskell-harness backends
+```
+
+Alternatively, `nix run . -- backends` runs the harness and lists its configured
+backend profiles. These optional packages also supply the selected agent CLI:
 
 ```sh
 nix run .#local -- doctor
@@ -29,8 +61,21 @@ nix run .#local -- doctor
 nix run .#claude-code -- doctor
 ```
 
+Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
+
+### Start a task
+
+Check your selected backend:
+
+```sh
+haskell-harness doctor
+# To select a different backend:
+haskell-harness --backend claude-code doctor
+```
+
 `doctor` without `--repo` checks the harness tools and selected backends only. It
-does not look for a project checkout. Backend authentication uses that backend's
+does not require Nix or look for a project checkout. Add `--repo` to also check
+the target's Nix requirements. Backend authentication uses that backend's
 normal saved login or configured environment; the harness does not read credentials.
 Use the backend's normal login command if its authentication check fails.
 
@@ -39,9 +84,12 @@ Choose the Git checkout to work on. No target path is assumed or discovered:
 ```sh
 printf 'Target Git checkout: '
 read -r TARGET_REPO
-nix run .#local -- --repo "$TARGET_REPO" start my-feature \
+haskell-harness --repo "$TARGET_REPO" start my-feature \
   "Describe the feature or bug here" --walkthrough
 ```
+
+To stop after agreeing on a specification, add `--interview-only`; that mode
+works without Nix. A full Hydra task needs Nix once code validation begins.
 
 All task commands require `--repo`. The harness records the supplied checkout's
 current HEAD and creates a separate local branch and worktree when you accept the
@@ -51,9 +99,12 @@ revision you want before starting. The harness does not switch or update that br
 To use an already installed CLI, select its profile with `--backend`:
 
 ```sh
-nix run . -- --repo "$TARGET_REPO" --backend claude-code --model opus \
+haskell-harness --repo "$TARGET_REPO" --backend claude-code --model opus \
   start my-feature "Describe the feature or bug here"
 ```
+
+Pass `--backend` on each invocation, or set `default_backend` in your user
+configuration to keep using that profile.
 
 Backend profiles, model overrides, per-role routing, authentication probes, and the
 protocol for custom model/API bridges are described in [BACKENDS.md](BACKENDS.md).
@@ -80,8 +131,8 @@ diff in your editor using the displayed worktree path.
 `quit` pauses at the gate. Continue later, including after a terminal interruption:
 
 ```sh
-nix run . -- --repo "$TARGET_REPO" resume my-feature
-nix run . -- --repo "$TARGET_REPO" status my-feature
+haskell-harness --repo "$TARGET_REPO" resume my-feature
+haskell-harness --repo "$TARGET_REPO" status my-feature
 ```
 
 State defaults to `$XDG_STATE_HOME/hydra-harness` or
@@ -145,7 +196,7 @@ explicitly selected checkout's flake. To use a separate dependency environment,
 set `DEPENDENCY_FLAKE` to the flake path you choose and pass it explicitly:
 
 ```sh
-nix run . -- --repo "$TARGET_REPO" --nix-flake "$DEPENDENCY_FLAKE" \
+haskell-harness --repo "$TARGET_REPO" --nix-flake "$DEPENDENCY_FLAKE" \
   start fix-recovery "Describe the recovery issue"
 ```
 
@@ -194,10 +245,10 @@ that a protocol has no security or liveness defects.
 `--json` prints the current gate and exits. Explicit replies can be sent separately:
 
 ```sh
-nix run . -- --repo "$TARGET_REPO" --json status my-feature
-nix run . -- --repo "$TARGET_REPO" --json respond my-feature question \
+haskell-harness --repo "$TARGET_REPO" --json status my-feature
+haskell-harness --repo "$TARGET_REPO" --json respond my-feature question \
   --text "What happens if a participant disconnects?"
-nix run . -- --repo "$TARGET_REPO" --json respond my-feature approve \
+haskell-harness --repo "$TARGET_REPO" --json respond my-feature approve \
   --token <token-from-current-status>
 ```
 
@@ -208,6 +259,8 @@ role-specific prompt and schema-validated JSON response. Switching a backend doe
 not change the saved workflow state or bypass an approval gate.
 
 ## Develop and check the harness
+
+Nix supplies the complete development environment:
 
 ```sh
 nix develop
@@ -223,15 +276,26 @@ nix flake check
 nix build
 ```
 
+Without Nix, run the Python tests and lint checks using uv:
+
+```sh
+uv run --locked pytest
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+```
+
+The Nix formatting and flake checks still run through the Nix commands above.
+
 The harness's own tests are Python tests for orchestration, approval gates,
 process handling, and recovery. They use temporary repositories and scripted
 agents/build results. They never contact a model, access credentials, or compile
 Hydra. This suite tests the harness's control flow, not the quality of generated
 Haskell or security findings. The separate Hydra checks above are always Cabal/Nix.
 
-For dependency changes, run `uv lock` inside `nix develop`, review both lockfiles,
-and rerun `nix flake check`. `uv` is a lockfile maintenance tool here; normal use
-and development dependencies are supplied by Nix.
+For dependency changes, run `uv lock`, review the lockfile changes, and rerun
+the Python suite and `nix flake check`. Both installation paths use `uv.lock`.
+The older `hydra-harness` command remains an alias; existing state and configuration
+directories keep their names so saved tasks continue to work.
 
 The built-in backend profiles request read-only inspection. The harness validates
 proposed edits and checks for unexpected checkout changes. This is not an OS

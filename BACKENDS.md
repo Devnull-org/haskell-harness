@@ -12,15 +12,19 @@ remain in the harness. Adding a command profile does not require changing Python
 ## Select a profile
 
 ```sh
-nix run . -- backends
-nix run . -- --backend claude-code doctor
-nix run . -- --repo "$TARGET_REPO" --backend claude-code --model opus \
+haskell-harness backends
+haskell-harness --backend claude-code doctor
+haskell-harness --repo "$TARGET_REPO" --backend claude-code --model opus \
   start a-task "Describe the requested change"
 ```
 
+These commands work after either setup in the [quick start](README.md#quick-start).
+From the harness clone, you can also use `uv run --locked --no-dev haskell-harness`
+or `nix run . --` in place of `haskell-harness`.
+
 `TARGET_REPO` is the checkout you explicitly select; it has no default. Backend
 listing and tool diagnostics do not require a checkout. Adding `--repo` to `doctor`
-also checks that checkout's dependency flake. A separate environment can be chosen
+also checks Nix and that checkout's dependency flake. A separate environment can be chosen
 with `--nix-flake "$DEPENDENCY_FLAKE"`, where you supply that path too.
 
 The built-in profiles are:

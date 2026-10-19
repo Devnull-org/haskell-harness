@@ -1,47 +1,63 @@
 # Hydra harness
 
-An optional local development harness built with LangGraph and Cursor. It interviews
+An optional local development harness built with LangGraph and selectable model backends. It interviews
 the developer, writes failing Haskell tests, waits for the developer to approve
 those tests, and then coordinates implementation, refactoring, and reviews.
 
-Nix supplies the harness, Python libraries, development tools, and Cursor CLI.
+Nix supplies the harness, Python libraries, and development tools. Optional packages
+also supply the selected agent CLI; the default package is provider-neutral.
 `flake.lock` pins Nix inputs; `uv.lock` pins Python dependencies, which uv2nix builds
 inside Nix. Running the harness does not install Python packages into your machine.
 Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
 
 ## Quick start
 
-Clone this repository, then run from its root:
+Clone the harness and inspect the available backend profiles:
 
 ```sh
 git clone git@github.com:Devnull-org/langgraph-harness.git
 cd langgraph-harness
-nix run . -- --repo ~/code/hydra doctor
-nix run . -- --repo ~/code/hydra start my-feature \
+nix run . -- backends
+```
+
+Choose a backend. These optional Nix packages also supply its CLI and select its
+profile, without requiring a global installation:
+
+```sh
+nix run .#local -- doctor
+# Or use the bundled alternative:
+nix run .#claude-code -- doctor
+```
+
+`doctor` without `--repo` checks the harness tools and selected backends only. It
+does not look for a project checkout. Backend authentication uses that backend's
+normal saved login or configured environment; the harness does not read credentials.
+Use the backend's normal login command if its authentication check fails.
+
+Choose the Git checkout to work on. No target path is assumed or discovered:
+
+```sh
+printf 'Target Git checkout: '
+read -r TARGET_REPO
+nix run .#local -- --repo "$TARGET_REPO" start my-feature \
   "Describe the feature or bug here" --walkthrough
 ```
 
-The harness starts from the Hydra checkout's current HEAD. For a task based on
-master, first update a clean checkout to the master revision you want. It records
-that exact commit and creates a separate local branch and worktree when you accept
-the specification. It does not switch, reset, or update your source branch.
+All task commands require `--repo`. The harness records the supplied checkout's
+current HEAD and creates a separate local branch and worktree when you accept the
+specification. For work based on master, update your chosen checkout to the master
+revision you want before starting. The harness does not switch or update that branch.
 
-Cursor uses your saved CLI login. No API key is required; the wrapper removes
-`CURSOR_API_KEY` from the agent's environment so it cannot override that login.
-If `doctor` reports that the CLI is not logged in, authenticate in your terminal:
+To use an already installed CLI, select its profile with `--backend`:
 
 ```sh
-nix develop --command cursor-agent login
+nix run . -- --repo "$TARGET_REPO" --backend claude-code --model opus \
+  start my-feature "Describe the feature or bug here"
 ```
 
-The existing installed CLI can also be selected explicitly:
-
-```sh
-nix run . -- --cursor /path/to/cursor-agent --repo ~/code/hydra doctor
-```
-
-Cursor's proprietary CLI is the only unfree package enabled by this flake. Its
-package version is pinned with Nix; your account and saved login remain yours.
+Backend profiles, model overrides, per-role routing, authentication probes, and the
+protocol for custom model/API bridges are described in [BACKENDS.md](BACKENDS.md).
+The workflow and its approval gates are the same for every backend.
 
 ## The conversation
 
@@ -64,8 +80,8 @@ diff in your editor using the displayed worktree path.
 `quit` pauses at the gate. Continue later, including after a terminal interruption:
 
 ```sh
-nix run . -- --repo ~/code/hydra resume my-feature
-nix run . -- --repo ~/code/hydra status my-feature
+nix run . -- --repo "$TARGET_REPO" resume my-feature
+nix run . -- --repo "$TARGET_REPO" status my-feature
 ```
 
 State defaults to `$XDG_STATE_HOME/hydra-harness` or
@@ -125,10 +141,11 @@ The explicit Cabal run is also required for packages such as `hydra-cluster` and
 `hydra-tui` which do not have Nix test checks.
 
 These commands run inside **Hydra's** dependency environment. It defaults to the
-source checkout's flake. Use a separate existing dependency checkout when needed:
+explicitly selected checkout's flake. To use a separate dependency environment,
+set `DEPENDENCY_FLAKE` to the flake path you choose and pass it explicitly:
 
 ```sh
-nix run . -- --repo ~/code/hydra-task --nix-flake ~/code/hydra \
+nix run . -- --repo "$TARGET_REPO" --nix-flake "$DEPENDENCY_FLAKE" \
   start fix-recovery "Describe the recovery issue"
 ```
 
@@ -177,17 +194,18 @@ that a protocol has no security or liveness defects.
 `--json` prints the current gate and exits. Explicit replies can be sent separately:
 
 ```sh
-nix run . -- --repo ~/code/hydra --json status my-feature
-nix run . -- --repo ~/code/hydra --json respond my-feature question \
+nix run . -- --repo "$TARGET_REPO" --json status my-feature
+nix run . -- --repo "$TARGET_REPO" --json respond my-feature question \
   --text "What happens if a participant disconnects?"
-nix run . -- --repo ~/code/hydra --json respond my-feature approve \
+nix run . -- --repo "$TARGET_REPO" --json respond my-feature approve \
   --token <token-from-current-status>
 ```
 
-Global flags precede the subcommand. Other options include `--model`,
-`--agent-timeout`, `--check-timeout`, `--state-dir`, and `--cursor`. Run `--help`
-for the complete interface. Each agent invocation is a separate Cursor process
-with a role-specific prompt and structured JSON response.
+Global flags precede the subcommand. Other options include `--backend`, `--model`,
+`--config`, `--agent-timeout`, `--check-timeout`, and `--state-dir`. Run `--help`
+for the complete interface. Each agent invocation uses the selected backend with a
+role-specific prompt and schema-validated JSON response. Switching a backend does
+not change the saved workflow state or bypass an approval gate.
 
 ## Develop and check the harness
 
@@ -215,10 +233,11 @@ For dependency changes, run `uv lock` inside `nix develop`, review both lockfile
 and rerun `nix flake check`. `uv` is a lockfile maintenance tool here; normal use
 and development dependencies are supplied by Nix.
 
-Cursor is invoked in `ask` mode and instructed to inspect rather than modify files.
-The harness validates proposed edits and checks for unexpected checkout changes.
-This is not an OS sandbox: Cursor still has the capabilities of its local process
-and installed integrations. Use trusted repositories and review the diffs.
+The built-in backend profiles request read-only inspection. The harness validates
+proposed edits and checks for unexpected checkout changes. This is not an OS
+sandbox: custom backends run with the capabilities of their local process and
+integrations. Backend configurations are user-owned and are never automatically
+loaded from the target repository. Use trusted backends and review the diffs.
 
 The SQLite format and workflow state are currently version 0.1. Finish existing
 tasks before upgrading the harness; cross-version checkpoint migration is not
@@ -230,5 +249,4 @@ with bounded context and a maximum of twelve automatic incremental patches.
 
 - [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
 - [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence)
-- [Cursor CLI](https://cursor.com/docs/cli/overview)
 - [uv2nix](https://pyproject-nix.github.io/uv2nix/)

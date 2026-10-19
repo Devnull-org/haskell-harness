@@ -1,5 +1,5 @@
 {
-  description = "Local LangGraph and Cursor workflows for Hydra";
+  description = "Local LangGraph workflows with pluggable model backends";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -41,7 +41,12 @@
         system:
         import nixpkgs {
           inherit system;
-          config.allowUnfreePredicate = package: lib.getName package == "cursor-cli";
+          config.allowUnfreePredicate =
+            package:
+            builtins.elem (lib.getName package) [
+              "cursor-cli"
+              "claude-code"
+            ];
         };
       workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./.; };
       overlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
@@ -69,48 +74,61 @@
         system:
         let
           pkgs = pkgsFor system;
+          mkHarness =
+            extra: backend:
+            pkgs.writeShellApplication {
+              name = "hydra-harness";
+              runtimeInputs = [
+                runtimes.${system}
+                pkgs.git
+                pkgs.nix
+              ]
+              ++ extra;
+              text = ''exec ${runtimes.${system}}/bin/hydra-harness ${
+                lib.optionalString (backend != null) "--backend ${lib.escapeShellArg backend}"
+              } "$@"'';
+            };
         in
         {
-          default = pkgs.writeShellApplication {
-            name = "hydra-harness";
-            runtimeInputs = [
-              runtimes.${system}
-              pkgs.git
-              pkgs.nix
-              pkgs.cursor-cli
-            ];
-            text = ''exec ${runtimes.${system}}/bin/hydra-harness "$@"'';
-          };
+          default = mkHarness [ ] null;
+          local = mkHarness [ pkgs.cursor-cli ] "local";
+          claude-code = mkHarness [ pkgs.claude-code ] "claude-code";
         }
       );
-      apps = forAllSystems (system: {
-        default = {
+      apps = forAllSystems (
+        system:
+        lib.genAttrs [ "default" "local" "claude-code" ] (name: {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/hydra-harness";
-          meta.description = "Run a local Hydra development workflow";
-        };
-      });
+          program = "${self.packages.${system}.${name}}/bin/hydra-harness";
+          meta.description = "Run a local development workflow";
+        })
+      );
       devShells = forAllSystems (
         system:
         let
           pkgs = pkgsFor system;
+          mkDevelopment =
+            extra:
+            pkgs.mkShell {
+              packages = [
+                development.${system}
+                pkgs.git
+                pkgs.just
+                pkgs.nixfmt
+                pkgs.uv
+              ]
+              ++ extra;
+              UV_PYTHON_DOWNLOADS = "never";
+              UV_NO_SYNC = "1";
+              shellHook = ''
+                export PYTHONPATH="$PWD/src"
+              '';
+            };
         in
         {
-          default = pkgs.mkShell {
-            packages = [
-              development.${system}
-              pkgs.git
-              pkgs.just
-              pkgs.nixfmt
-              pkgs.uv
-              pkgs.cursor-cli
-            ];
-            UV_PYTHON_DOWNLOADS = "never";
-            UV_NO_SYNC = "1";
-            shellHook = ''
-              export PYTHONPATH="$PWD/src"
-            '';
-          };
+          default = mkDevelopment [ ];
+          local = mkDevelopment [ pkgs.cursor-cli ];
+          claude-code = mkDevelopment [ pkgs.claude-code ];
         }
       );
       checks = forAllSystems (

@@ -7,15 +7,16 @@ import shutil
 import sys
 from pathlib import Path
 
-from .cursor import CursorAgent
-from .process import run_process
+from .config import RoutedAgent, load_settings
 from .validation import LocalExecutor
 from .workflow import Harness
 
 
 def parser():
     result = argparse.ArgumentParser(description="Local, human-guided TDD workflows for Hydra")
-    result.add_argument("--repo", type=Path, default=Path.cwd(), help="Hydra checkout")
+    result.add_argument(
+        "--repo", type=Path, help="Target Git checkout (required for task commands)"
+    )
     result.add_argument(
         "--state-dir",
         type=Path,
@@ -23,9 +24,10 @@ def parser():
         / "hydra-harness",
     )
     result.add_argument("--nix-flake", type=Path, help="Hydra dependency flake (default: --repo)")
-    result.add_argument("--cursor", default="cursor-agent", help="Installed Cursor CLI executable")
-    result.add_argument("--model", help="Optional Cursor model ID")
-    result.add_argument("--agent-timeout", type=float, default=600)
+    result.add_argument("--config", type=Path, help="User-owned backend configuration (TOML)")
+    result.add_argument("--backend", help="Backend profile for all agents")
+    result.add_argument("--model", help="Model override for all agents")
+    result.add_argument("--agent-timeout", type=float, help="Override backend timeout in seconds")
     result.add_argument("--check-timeout", type=float, default=3600)
     result.add_argument(
         "--unsigned-commits",
@@ -52,7 +54,8 @@ def parser():
     reply.add_argument("--text", default="")
     reply.add_argument("--token", help="Approval token from status --json")
     reply.add_argument("--finding", action="append", default=[])
-    sub.add_parser("doctor", help="Check local tools and Cursor login without running an agent")
+    sub.add_parser("doctor", help="Check tools and backend configuration; --repo is optional")
+    sub.add_parser("backends", help="List configured backend profiles")
     return result
 
 
@@ -134,38 +137,68 @@ def conversation(harness, view):
             print(f"Cannot continue: {error}")
 
 
-def doctor(args):
+def doctor(args, agent):
     okay = True
-    for executable in ("git", "nix", args.cursor):
+    for executable in ("git", "nix"):
         found = shutil.which(executable)
         print(f"{executable}: {found or 'missing'}")
         okay = okay and bool(found)
-    flake = (args.nix_flake or args.repo).expanduser().resolve()
-    print(f"Hydra dependency flake: {flake}")
-    if not (flake / "flake.nix").is_file():
-        print("Missing Hydra flake.nix")
-        okay = False
-    if shutil.which(args.cursor):
-        environment = dict(os.environ)
-        environment.pop("CURSOR_API_KEY", None)
-        code, out, err = run_process(
-            [args.cursor, "status"], args.repo, timeout=30, env=environment
-        )
-        print(out or err)
-        okay = okay and code == 0 and "not logged in" not in (out + err).lower()
+    if args.repo:
+        repository = args.repo.expanduser().resolve()
+        if not repository.is_dir():
+            raise ValueError(f"Target checkout does not exist: {repository}")
+        print(f"Target checkout: {repository}")
+    else:
+        repository = Path.cwd()
+        print("No target checkout selected; checking the harness and backends only")
+    if args.nix_flake or args.repo:
+        flake = (args.nix_flake or args.repo).expanduser().resolve()
+        print(f"Target dependency flake: {flake}")
+        if not (flake / "flake.nix").is_file():
+            print("Missing flake.nix; select the target's dependency environment with --nix-flake")
+            okay = False
+    for passed, message in agent.doctor(repository):
+        print(message)
+        okay = okay and passed
     return 0 if okay else 1
 
 
 def main(argv=None):
-    args = parser().parse_args(argv)
+    arguments = parser()
+    args = arguments.parse_args(argv)
+    if args.command not in {"doctor", "backends"} and args.repo is None:
+        arguments.error("task commands require --repo with the target Git checkout")
     harness = None
     try:
+        if args.repo:
+            args.repo = args.repo.expanduser().resolve()
+            if not args.repo.is_dir():
+                raise ValueError(f"Target checkout does not exist: {args.repo}")
+        settings = load_settings(args.config)
+        agent = RoutedAgent(
+            settings, backend=args.backend, model=args.model, timeout=args.agent_timeout
+        )
+        if args.command == "backends":
+            names = sorted(settings.backends)
+            if args.json:
+                print(
+                    json.dumps(
+                        {"default": args.backend or settings.default_backend, "backends": names}
+                    )
+                )
+            else:
+                for name in names:
+                    suffix = (
+                        " (default)" if name == (args.backend or settings.default_backend) else ""
+                    )
+                    print(name + suffix)
+            return 0
         if args.command == "doctor":
-            return doctor(args)
+            return doctor(args, agent)
         harness = Harness(
             args.repo,
             args.state_dir,
-            CursorAgent(args.cursor, args.agent_timeout, model=args.model),
+            agent,
             LocalExecutor(nix_flake=args.nix_flake or args.repo, timeout=args.check_timeout),
             unsigned_commits=args.unsigned_commits,
             progress=lambda message: print(message, file=sys.stderr, flush=True),

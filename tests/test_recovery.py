@@ -137,7 +137,7 @@ def test_a_failed_question_can_be_retried_without_losing_the_gate(rig):
         nonlocal failed
         if context.get("intent") == "explain" and not failed:
             failed = True
-            raise RuntimeError("Temporary Cursor failure")
+            raise RuntimeError("Temporary backend failure")
         return original(role, context, cwd)
 
     harness.agent = flaky
@@ -159,3 +159,28 @@ def test_recovery_rejects_a_commit_amended_after_validation(repository):
     git(repository, "commit", "--amend", "--no-edit")
     with pytest.raises(ValueError, match="differs from validated"):
         workspace.commit("fix: increment", expected=expected, step="one")
+
+
+def test_switching_agents_preserves_the_pending_test_approval(rig, repository, tmp_path):
+    from .conftest import ScriptedAgent
+
+    harness, _, executor = rig
+    pending = reach_test_review(harness)
+    harness.close()
+    replacement = ScriptedAgent()
+    resumed = Harness(repository, tmp_path / "state", replacement, executor)
+    try:
+        restored = resumed.inspect("increment")
+        assert restored["prompt"]["approval_token"] == pending["prompt"]["approval_token"]
+        assert replacement.calls == []
+        view = resumed.respond("increment", "question", text="Explain this assertion")
+        assert view["stage"] == "test_review"
+        assert not any(role == "implementer" for role, _, _ in replacement.calls)
+        assert approve_tests(resumed, view)["stage"] == "ready"
+        assert all(
+            context.get("intent") == "explain"
+            for role, context, _ in replacement.calls
+            if role == "test_author"
+        )
+    finally:
+        resumed.close()

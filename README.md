@@ -14,6 +14,8 @@ Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
 Clone this repository, then run from its root:
 
 ```sh
+git clone git@github.com:Devnull-org/langgraph-harness.git
+cd langgraph-harness
 nix run . -- --repo ~/code/hydra doctor
 nix run . -- --repo ~/code/hydra start my-feature \
   "Describe the feature or bug here" --walkthrough

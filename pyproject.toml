@@ -13,6 +13,9 @@ dependencies = [
   "pydantic>=2.12,<3",
 ]
 
+[project.scripts]
+hydra-harness = "hydra_harness.cli:main"
+
 [dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 

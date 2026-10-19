@@ -77,3 +77,13 @@ def test_missing_required_check_is_not_success(missing):
     checks = results(failing=False)
     del checks[missing]
     assert classify_validation(checks, [FAILURE_ID], phase="green") == "blocked"
+
+
+@pytest.mark.parametrize("attribute", ['errors="1"', 'failures="1"'])
+def test_suite_failures_without_case_evidence_block_green(attribute):
+    checks = results(failing=False)
+    xml = checks["test:hydra-node"]["junit_xml"][0]
+    checks["test:hydra-node"]["junit_xml"] = [
+        xml.replace("<testsuite ", f"<testsuite {attribute} ")
+    ]
+    assert classify_validation(checks, [FAILURE_ID], phase="green") == "blocked"

@@ -309,7 +309,7 @@ def test_review_bug_returns_to_test_author_and_developer_approval(rig):
     executor.force_red = True
     view = harness.respond("increment", "fix", finding_ids=["HASKELL-1"])
     assert view["stage"] == "test_review"
-    assert "boundary" in view["prompt"]["diff"]
+    assert "boundary" in view["prompt"]["diff"].lower()
     assert [role for role, _, _ in agent.calls].count("implementer") == implementation_calls
 
 

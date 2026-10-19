@@ -1,0 +1,103 @@
+"""Validate agent handoffs before they can affect workflow state."""
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class Record(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class Criterion(Record):
+    id: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+
+
+class Specification(Record):
+    problem: str = Field(min_length=1)
+    expected_behavior: str = Field(min_length=1)
+    acceptance_criteria: list[Criterion] = Field(min_length=1)
+    out_of_scope: list[str]
+    constraints: list[str]
+    packages: list[str] = Field(min_length=1)
+    open_questions: list[str]
+    assumptions: list[str]
+
+
+class Interview(Record):
+    specification: Specification
+    questions: list[str]
+
+
+class Change(Record):
+    path: str = Field(min_length=1, max_length=1024)
+    content: str | None = Field(description="Complete UTF-8 file content; null deletes the file.")
+
+
+class Patch(Record):
+    summary: str = Field(min_length=1)
+    changes: list[Change]
+    commit_message: str = Field(min_length=1, max_length=2000)
+    complete: bool = True
+
+
+class Tests(Record):
+    summary: str = Field(min_length=1)
+    changes: list[Change] = Field(min_length=1)
+    expected_failures: list[str] = Field(min_length=1)
+    coverage: dict[str, list[str]]
+    commit_message: str = Field(min_length=1, max_length=2000)
+
+
+class Finding(Record):
+    id: str = Field(min_length=1)
+    severity: Literal["critical", "high", "medium", "low", "info"]
+    location: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    conditions: str = Field(min_length=1)
+    sequence: list[str]
+    impact: str = Field(min_length=1)
+    evidence: str = Field(min_length=1)
+    confidence: Literal["confirmed", "suspected"]
+    recommendation: str = Field(min_length=1)
+    needs_test: bool
+
+
+class Review(Record):
+    findings: list[Finding]
+    summary: str = Field(min_length=1)
+
+
+class Question(Record):
+    question: str = Field(min_length=1)
+    reference: str = Field(min_length=1)
+
+
+class Walkthrough(Record):
+    questions: list[Question] = Field(min_length=3, max_length=5)
+
+
+class Feedback(Record):
+    feedback: str = Field(min_length=1)
+    follow_up: str | None
+
+
+class Explanation(Record):
+    answer: str = Field(min_length=1)
+
+
+SCHEMAS = {
+    "interviewer": Interview,
+    "test_author": Tests,
+    "implementer": Patch,
+    "refactorer": Patch,
+    "haskell_reviewer": Review,
+    "security_reviewer": Review,
+    "walkthrough": Walkthrough,
+    "walkthrough_feedback": Feedback,
+}
+
+
+def schema_for(role, context):
+    return Explanation if context.get("intent") == "explain" else SCHEMAS[role]

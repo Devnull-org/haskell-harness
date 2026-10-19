@@ -203,13 +203,31 @@ def conversation(harness, view):
         if not actions:
             return view
         print(f"\nActions: {', '.join(actions)}, quit (resume later)")
+        default_action = next(
+            (action for action in ("answer", "question") if action in actions), None
+        )
+        if default_action == "answer":
+            print("Type your answer here and press Enter; no command prefix is needed.")
+        elif default_action == "question":
+            print(
+                "Type a question here, or use an action above. Approval requires 'approve' alone."
+            )
         line = input("> ").strip()
-        action, _, text = line.partition(" ")
-        if action in {"quit", "exit"}:
-            return view
-        if action not in actions:
-            print("Choose one of the listed actions. Questions and answers never approve a gate.")
+        if not line:
             continue
+        if line in {"quit", "exit"}:
+            return view
+        action, _, text = line.partition(" ")
+        text = text.strip()
+        standalone = {"approve", "recheck", "retry", "reject", "skip"}
+        if action not in actions or (action in standalone and text):
+            if default_action:
+                action, text = default_action, line
+            else:
+                print(
+                    "Choose one of the listed actions. Questions and answers never approve a gate."
+                )
+                continue
         fields = {}
         if action in {"approve", "accept_red"}:
             fields["approval_token"] = view["prompt"]["approval_token"]

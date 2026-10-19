@@ -5,13 +5,144 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+from contextlib import contextmanager
 
 import pytest
 
-from hydra_harness.cli import doctor, main, parser
+from hydra_harness.cli import conversation, doctor, main, parser
 
 from .conftest import SOURCE, SPECIFICATION, ScriptedAgent, git
 from .helpers import executable
+
+
+@pytest.mark.parametrize("answer", ["Support negative integers too.", "quit should save progress"])
+def test_terminal_accepts_plain_answers_and_preserves_them(rig, monkeypatch, answer):
+    harness, agent, _ = rig
+    agent.responses["interviewer"].append(
+        {"specification": SPECIFICATION, "questions": ["Which inputs should be supported?"]}
+    )
+    view = harness.start("plain-answer", "Fix increment", mode="phased")
+    lines = iter([answer, "quit"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(lines))
+    view = conversation(harness, view)
+    assert view["stage"] == "specification_review"
+    assert agent.calls[-1][1]["messages"][-1]["text"] == answer
+    assert harness.inspect("plain-answer")["prompt"] == view["prompt"]
+
+
+def test_terminal_plain_questions_and_conditional_approval_do_not_approve(rig, monkeypatch):
+    harness, agent, _ = rig
+    view = harness.start("discuss", "Fix increment", mode="phased")
+    lines = iter(["Why is this enough?", "approve only after we discuss edge cases", "quit"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(lines))
+    view = conversation(harness, view)
+    assert view["stage"] == "specification_review"
+    assert [call[1].get("question") for call in agent.calls[1:]] == [
+        "Why is this enough?",
+        "approve only after we discuss edge cases",
+    ]
+    assert set(view["prompt"]["actions"]) == {"question", "revise", "approve"}
+
+
+def test_terminal_blank_input_does_not_call_an_agent(rig, monkeypatch):
+    harness, agent, _ = rig
+    view = harness.start("blank", "Fix increment", mode="phased")
+    lines = iter(["", "   ", "approve"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(lines))
+    view = conversation(harness, view)
+    assert len(agent.calls) == 1
+    assert view["stage"] == "specification_ready"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Requires a POSIX terminal")
+def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(repository, tmp_path):
+    import pty
+    import select
+
+    capture = tmp_path / "requests.jsonl"
+    backend = executable(
+        tmp_path,
+        "import json, sys\nfrom pathlib import Path\n"
+        "request = json.load(sys.stdin)\n"
+        f"with Path({str(capture)!r}).open('a') as stream:\n"
+        "    stream.write(json.dumps(request) + '\\n')\n"
+        "questions = [] if request['context']['messages'] else ['Which inputs should work?']\n"
+        f"print(json.dumps({{'specification': {SPECIFICATION!r}, 'questions': questions}}))\n",
+    )
+    config = tmp_path / "backend.toml"
+    config.write_text(
+        'default_backend = "test"\n[backends.test]\ninput_format = "json"\n'
+        f"command = [{json.dumps(backend)}]\n"
+    )
+    args = [
+        sys.executable,
+        "-m",
+        "hydra_harness.cli",
+        "--repo",
+        str(repository),
+        "--state-dir",
+        str(tmp_path / "state"),
+        "--config",
+        str(config),
+    ]
+
+    @contextmanager
+    def terminal(*command):
+        master, slave = pty.openpty()
+        try:
+            process = subprocess.Popen([*args, *command], stdin=slave, stdout=slave, stderr=slave)
+        finally:
+            os.close(slave)
+        output = b""
+
+        def expect(text):
+            nonlocal output
+            deadline = time.monotonic() + 30
+            while text.encode() not in output:
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, output.decode(errors="replace")
+                ready, _, _ = select.select([master], [], [], remaining)
+                assert ready, output.decode(errors="replace")
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError:
+                    chunk = b""
+                assert chunk, output.decode(errors="replace")
+                output += chunk
+            output = output.split(text.encode(), 1)[1]
+
+        try:
+            yield process, expect, lambda line: os.write(master, (line + "\n").encode())
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            os.close(master)
+
+    with terminal("start", "terminal", "Fix increment", "--base", "main") as (
+        process,
+        expect,
+        send,
+    ):
+        expect("Which inputs should work?")
+        expect("> ")
+        send("Negative integers too.")
+        expect("terminal: specification review")
+        expect("> ")
+        send("quit")
+        assert process.wait(timeout=10) == 0
+    requests = [json.loads(line) for line in capture.read_text().splitlines()]
+    assert len(requests) == 2
+    assert requests[-1]["context"]["messages"][-1]["text"] == "Negative integers too."
+
+    with terminal("resume", "terminal") as (process, expect, send):
+        expect("terminal: specification review")
+        expect("> ")
+        send("approve")
+        expect("terminal: specification ready")
+        assert process.wait(timeout=10) == 0
+    assert len(capture.read_text().splitlines()) == 2
 
 
 @pytest.mark.parametrize("start_options", [[], ["--interview-only"]])

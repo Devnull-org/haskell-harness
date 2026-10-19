@@ -461,29 +461,37 @@ version before choosing `retry`. `restart TASK` instead begins a fresh interview
 under a new task name, preserving the old attempt as described above.
 
 The terminal shows the current specification, questions, test diff, or review
-findings, followed by available actions. Type an action and optionally its text:
+findings, followed by available actions. Answer interview and walkthrough questions
+by typing normal text and pressing Enter. You do not need an `answer` prefix.
+At a specification, test, or findings review, plain text asks the agent a question;
+use `revise TEXT` to request a change. Everything is read in the same terminal.
+
+For example, these are lines you can type at the appropriate prompts:
 
 ```text
-answer Support negative integers too.
-question Why does this property cover the empty case?
+Support negative integers too.
+Why does this property cover the empty case?
 revise Add coverage for duplicate messages.
 approve
 quit
 ```
 
-Only `approve` accepts a specification or test gate. Answers, questions, and
-silence never approve anything. Test approval is tied to the exact validated files;
+Only `approve` on its own accepts a specification or test gate. A sentence such as
+`approve only after we discuss edge cases` is a discussion message, not approval.
+Answers, questions, and blank lines never approve anything. Test approval is tied to the exact validated files;
 a changed worktree requires `recheck` and fresh approval. You can inspect the full
 diff in your editor using the displayed worktree path.
 
-Only the actions offered at the current gate are accepted:
+Commands apply only at gates that offer them. The explicit `answer` and `question`
+prefixes remain available, including for text that would otherwise match a command:
 
 | Action | Meaning |
 | --- | --- |
+| Plain text | Answer an interview/walkthrough question, or ask a question at a review gate. |
 | `answer TEXT` | Answer an interview or walkthrough question. |
 | `question TEXT` | Ask for an explanation of the current specification, tests, or finding without approving it. |
 | `revise TEXT` | Request changes to the specification or current patch. A request to change approved tests stops for an explicitly started tests phase. |
-| `approve` | Accept the displayed specification or exact validated tests. It finishes that phase. |
+| `approve` | Accept the displayed specification or exact validated tests. Type it alone to finish that phase. |
 | `recheck` | Rerun validation of the current patch. Changed tests still need fresh approval. |
 | `accept_red REASON` | Record evidence that a red-phase Nix failure comes only from the expected failing tests. Test approval remains a separate step. |
 | `retry` | Retry the failed operation in the current phase after addressing its error. |

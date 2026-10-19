@@ -49,9 +49,10 @@ Choose how to launch
   Scripts and --json require an explicit --base and request.
 
 4. Discuss and approve the specification
-  Answer the interviewer's questions until the requirements are clear. At the
-  specification gate, use question TEXT, revise TEXT, or approve. Approval saves
-  the specification and stops. Tests do not start automatically.
+  Type answers directly in the same terminal and press Enter; no answer prefix
+  is needed. At the specification gate, plain text asks a question. Use revise
+  TEXT to request changes, or approve on its own to accept the specification.
+  Approval saves it and stops. Tests do not start automatically.
 
 5. Write failing tests and review them yourself
     haskell-harness --repo /path/to/project run my-feature tests
@@ -78,7 +79,7 @@ Choose how to launch
 
 8. Retain context and prepare the local handoff
     haskell-harness --repo /path/to/project run my-feature walkthrough
-  Optional code questions help you understand the changes. Use answer TEXT or skip.
+  Optional code questions help you understand the changes. Type an answer or skip.
   Add --walkthrough to start to require this phase before handoff.
     haskell-harness --repo /path/to/project run my-feature handoff
   Handoff writes local reports and a PR description. You inspect the patches and

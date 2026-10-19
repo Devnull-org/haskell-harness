@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .config import RoutedAgent, load_settings
 from .project_context import ContextStore, state_directory
+from .terminal import spinner
 from .validation import LocalExecutor
 from .workflow import PHASE_NODES, Harness
 from .workflow_help import WORKFLOW_HELP
@@ -361,6 +362,9 @@ def main(argv=None):
             model=args.model,
             timeout=args.agent_timeout,
             progress=progress,
+            activity=spinner
+            if sys.stderr.isatty() and not args.json and os.environ.get("TERM") != "dumb"
+            else None,
         )
         if args.command == "backends":
             names = sorted(settings.backends)

@@ -1,5 +1,6 @@
 """Exercise separate CLI processes against the same durable interview."""
 
+import io
 import json
 import os
 import shutil
@@ -55,6 +56,60 @@ def test_terminal_blank_input_does_not_call_an_agent(rig, monkeypatch):
     assert view["stage"] == "specification_ready"
 
 
+@pytest.mark.parametrize(
+    "json_mode,tty,term,animated",
+    [
+        (True, True, "xterm", False),
+        (False, False, "xterm", False),
+        (False, True, "dumb", False),
+        (False, True, "xterm", True),
+    ],
+)
+def test_cli_spinner_uses_only_interactive_stderr(
+    repository, tmp_path, monkeypatch, capsys, json_mode, tty, term, animated
+):
+    class Terminal(io.StringIO):
+        def isatty(self):
+            return tty
+
+    stderr = Terminal()
+    monkeypatch.setattr(sys, "stderr", stderr)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    monkeypatch.setenv("TERM", term)
+    reply = {"specification": SPECIFICATION, "questions": []}
+    backend = executable(
+        tmp_path, "import time\ntime.sleep(0.15)\n" + f"print({json.dumps(reply)!r})\n"
+    )
+    config = tmp_path / "backend.toml"
+    config.write_text(
+        f'default_backend = "test"\n[backends.test]\ncommand = [{json.dumps(backend)}]\n'
+    )
+    assert (
+        main(
+            [
+                "--repo",
+                str(repository),
+                "--state-dir",
+                str(tmp_path / "state"),
+                "--config",
+                str(config),
+                *(["--json"] if json_mode else []),
+                "start",
+                "spinner",
+                "Fix increment",
+                "--base",
+                "main",
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert "\x1b" not in output
+    assert ("\r\x1b[2K" in stderr.getvalue()) == animated
+    if json_mode:
+        assert json.loads(output)["stage"] == "specification_review"
+
+
 @pytest.mark.skipif(os.name != "posix", reason="Requires a POSIX terminal")
 def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(repository, tmp_path):
     import pty
@@ -91,7 +146,13 @@ def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(reposit
     def terminal(*command):
         master, slave = pty.openpty()
         try:
-            process = subprocess.Popen([*args, *command], stdin=slave, stdout=slave, stderr=slave)
+            process = subprocess.Popen(
+                [*args, *command],
+                stdin=slave,
+                stdout=slave,
+                stderr=slave,
+                env=dict(os.environ, TERM="xterm"),
+            )
         finally:
             os.close(slave)
         output = b""
@@ -125,6 +186,7 @@ def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(reposit
         expect,
         send,
     ):
+        expect("interviewer working")
         expect("Which inputs should work?")
         expect("> ")
         send("Negative integers too.")

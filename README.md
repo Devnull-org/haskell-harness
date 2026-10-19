@@ -434,10 +434,13 @@ and interviews work without Nix; Hydra's code validation still requires Nix.
 
 ## The conversation
 
-During an agent call, the terminal reports elapsed time every 15 seconds and shows
-when the response arrives. Backend output may be buffered until the call finishes;
-the elapsed-time messages indicate that the harness is still waiting, not that the
-model has completed a particular action. The configured agent timeout still applies.
+During an agent call, an animated spinner shows the backend, agent role, and elapsed
+time. It clears before questions or errors appear, including on timeout or Ctrl+C.
+The spinner uses stderr; JSON output stays on stdout. With `--json`, redirected
+stderr, or `TERM=dumb`, plain-text progress appears every 15 seconds instead.
+Backend output may be buffered until the call finishes, so the indicator shows
+that the harness is waiting rather than measuring completed work. The configured
+agent timeout still applies.
 
 The harness accepts a JSON response, including one object after introductory
 commentary or one fenced JSON block with surrounding commentary. It then validates

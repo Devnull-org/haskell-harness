@@ -155,8 +155,10 @@ opening brace must begin the complete object and only whitespace may follow it;
 the parser never falls back to an object nested inside malformed JSON. Multiple
 objects or blocks are rejected. The extracted object must still match the complete
 role schema. Invalid JSON/schema responses are saved in the task's
-`backend-responses` directory for local diagnosis. The terminal reports elapsed
-time every 15 seconds while waiting; this does not indicate model progress.
+`backend-responses` directory for local diagnosis. Interactive terminals show a
+spinner with the agent role and elapsed time. With `--json`, redirected stderr, or
+`TERM=dumb`, progress is printed every 15 seconds instead. These indicators show
+waiting time, not how much work the model has completed, and never use stdout.
 Error envelopes, missing fields, malformed JSON, and schema mismatches stop at an
 error gate. There are no automatic provider fallbacks. All processes are terminated
 on timeout; changing the backend does not weaken test protection or validation.

@@ -5,6 +5,7 @@ import math
 import os
 import re
 import shutil
+from contextlib import nullcontext
 from importlib.resources import files
 from pathlib import Path
 from typing import Literal
@@ -109,12 +110,15 @@ def prompt_for(role, context):
 class CommandAgent:
     """Adapt an agent CLI or an API bridge to the workflow's Agent protocol."""
 
-    def __init__(self, backend, *, name="custom", model=None, timeout=None, progress=None):
+    def __init__(
+        self, backend, *, name="custom", model=None, timeout=None, progress=None, activity=None
+    ):
         self.backend = backend
         self.name = name
         self.model = model if model is not None else backend.model
         self.timeout = timeout if timeout is not None else backend.timeout
         self.progress = progress
+        self.activity = activity
         Backend.positive_timeout(self.timeout)
 
     def environment(self):
@@ -169,20 +173,26 @@ class CommandAgent:
             )
         if self.progress:
             self.progress(f"Backend {self.name!r}: waiting for {role} (timeout {self.timeout:g}s)")
-        code, stdout, stderr = run_process(
-            command,
-            cwd,
-            timeout=self.timeout,
-            stdin=request,
-            env=self.environment(),
-            progress=(
-                lambda elapsed: self.progress(
-                    f"Backend {self.name!r}: {role} still running ({elapsed:.0f}s elapsed)"
-                )
-            )
-            if self.progress
-            else None,
+        indicator = (
+            self.activity(f"Backend {self.name!r}: {role.replace('_', ' ')} working")
+            if self.activity
+            else nullcontext()
         )
+        with indicator:
+            code, stdout, stderr = run_process(
+                command,
+                cwd,
+                timeout=self.timeout,
+                stdin=request,
+                env=self.environment(),
+                progress=(
+                    lambda elapsed: self.progress(
+                        f"Backend {self.name!r}: {role} still running ({elapsed:.0f}s elapsed)"
+                    )
+                )
+                if self.progress and not self.activity
+                else None,
+            )
         if self.progress:
             self.progress(f"Backend {self.name!r}: {role} returned; checking the response")
         if code:

@@ -104,7 +104,9 @@ Start over while preserving the old task
   a quoted replacement description after the original task name.
 
 While waiting for an agent
-  Elapsed time is printed every 15 seconds until the backend returns or times out.
+  A spinner shows the agent role and elapsed time, then clears before your prompt.
+  With --json, redirected stderr, or TERM=dumb, progress is printed every 15 seconds
+  instead. The indicator shows waiting time, not the amount of completed work.
   Invalid JSON/schema responses stop at agent_error and are saved under the task's
   backend-responses directory; the error gives the path. Use retry to repeat that
   step. After updating the harness, quit the old process and resume with the new

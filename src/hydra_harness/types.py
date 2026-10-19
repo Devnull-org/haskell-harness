@@ -25,6 +25,8 @@ class View(TypedDict, total=False):
     stage: str
     prompt: dict[str, Any]
     worktree: str
+    base: str
+    base_ref: str
     revision: str
     report_directory: str
     project_context_id: str | None

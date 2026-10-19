@@ -28,7 +28,11 @@ def parser():
         / "hydra-harness",
         help="Directory for saved tasks and worktrees (default: user state directory)",
     )
-    result.add_argument("--nix-flake", type=Path, help="Hydra dependency flake (default: --repo)")
+    result.add_argument(
+        "--nix-flake",
+        type=Path,
+        help="Dependency flake (default: task worktree; --repo for doctor)",
+    )
     result.add_argument("--config", type=Path, help="User-owned backend configuration (TOML)")
     result.add_argument("--backend", help="Backend profile for all agents")
     result.add_argument("--model", help="Model override for all agents")
@@ -52,6 +56,10 @@ def parser():
     start.add_argument("task_id", help="Unique task name: letters, digits, underscores, or hyphens")
     start.add_argument(
         "request", nargs="?", help="Describe the feature or bug (prompted if omitted)"
+    )
+    start.add_argument(
+        "--base",
+        help="Base branch, tag, or commit; prompted in a terminal, required with --json or scripts",
     )
     start.add_argument(
         "--interview-only",
@@ -117,6 +125,8 @@ def parser():
 
 def render(view):
     print(f"\n{view['task_id']}: {view['stage'].replace('_', ' ')}")
+    if view.get("base"):
+        print(f"Base: {view.get('base_ref', 'saved commit')} ({view['base']})")
     if view.get("worktree"):
         print(f"Worktree: {view['worktree']}")
     print(f"Reports: {view['report_directory']}")
@@ -290,6 +300,19 @@ def main(argv=None):
                 raise ValueError(f"Target checkout does not exist: {args.repo}")
         if args.command == "context":
             return context_command(args)
+        if args.command == "start":
+            interactive = sys.stdin.isatty() and not args.json
+            if args.base is None:
+                if not interactive:
+                    raise ValueError("Supply --base BRANCH_OR_COMMIT when starting without prompts")
+                default_base = git(args.repo, "branch", "--show-current") or "HEAD"
+                args.base = (
+                    input(f"Base branch or commit [{default_base}]: ").strip() or default_base
+                )
+            if not args.request:
+                if not interactive:
+                    raise ValueError("Supply a request when starting without prompts")
+                args.request = input("What do you want to build or fix?\n> ")
         settings = load_settings(args.config)
         agent = RoutedAgent(
             settings, backend=args.backend, model=args.model, timeout=args.agent_timeout
@@ -315,15 +338,15 @@ def main(argv=None):
             args.repo,
             args.state_dir,
             agent,
-            LocalExecutor(nix_flake=args.nix_flake or args.repo, timeout=args.check_timeout),
+            LocalExecutor(nix_flake=args.nix_flake, timeout=args.check_timeout),
             unsigned_commits=args.unsigned_commits,
             progress=lambda message: print(message, file=sys.stderr, flush=True),
         )
         if args.command == "start":
-            request = args.request or input("What do you want to build or fix?\n> ")
             view = harness.start(
                 args.task_id,
-                request,
+                args.request,
+                base=args.base,
                 mode="interview" if args.interview_only else "phased",
                 walkthrough=args.walkthrough,
             )

@@ -16,7 +16,7 @@ from .project_context import ContextStore, state_directory
 from .reports import pr_description
 from .schemas import schema_for
 from .validation import classify_validation, test_evidence
-from .workspace import Workspace, digest, git, is_test_path, save_json
+from .workspace import Workspace, digest, git, is_test_path, resolve_base, save_json
 
 PHASE_NODES = {
     "tests": "tests",
@@ -56,6 +56,7 @@ class Harness:
         )
         builder = StateGraph(dict)
         nodes = (
+            "prepare",
             "interview",
             "worktree",
             "tests",
@@ -105,15 +106,14 @@ class Harness:
             raise ValueError(f"Unknown task: {task_id}")
         return state
 
-    def start(self, task_id, request, *, mode="phased", walkthrough=False):
+    def start(self, task_id, request, *, base="HEAD", mode="phased", walkthrough=False):
         with self._lock():
             config = self._config(task_id)
             if self.graph.get_state(config).values:
                 raise ValueError(f"Task already exists: {task_id}; resume it instead")
             if mode not in {"phased", "full", "interview"} or not request.strip():
                 raise ValueError("A request and a phased, full, or interview mode are required")
-            if git(self.repository, "status", "--porcelain"):
-                raise ValueError("Start from a clean checkout so the task has an unambiguous base")
+            base_revision = resolve_base(self.repository, base)
             directory = self.state_dir / task_id
             directory.mkdir(mode=0o700)
             state = {
@@ -123,8 +123,11 @@ class Harness:
                 "walkthrough_enabled": walkthrough,
                 "directory": str(directory),
                 "report_directory": str(directory / "reports"),
-                "base": git(self.repository, "rev-parse", "HEAD"),
-                "next": "interview",
+                "base": base_revision,
+                "base_ref": base,
+                "stage": "preparing",
+                "prompt": {"summary": "Preparing the task worktree", "actions": []},
+                "next": "prepare",
                 "seq": 0,
                 "messages": [],
                 "validations": [],
@@ -171,9 +174,7 @@ class Harness:
                     "and files, or start a new task for the changed checkout"
                 )
             state["mode"], state["selected_phase"] = "phased", phase
-            state["next"] = (
-                "worktree" if phase == "tests" and "worktree" not in state else PHASE_NODES[phase]
-            )
+            state["next"] = "worktree" if phase == "tests" else PHASE_NODES[phase]
             state["prompt"], state["attempts"], state["patch_count"] = {}, 0, 0
             self.graph.invoke(state, config)
             return self._view(self._state(task_id))
@@ -230,6 +231,8 @@ class Harness:
                 "stage",
                 "prompt",
                 "worktree",
+                "base",
+                "base_ref",
                 "report_directory",
                 "project_context_id",
             )
@@ -369,16 +372,27 @@ class Harness:
                 ["approve", "question", "revise"],
             )
 
-    def _worktree(self, state):
-        if git(self.repository, "status", "--porcelain"):
-            raise ValueError(
-                "Source checkout changed during the interview; commit or stash it first"
-            )
+    def _create_worktree(self, state):
         path = Path(state["directory"]) / "worktree"
         branch = f"harness/{state['task_id']}-{digest(state['directory'])[:8]}"
         if not path.exists():
             git(self.repository, "worktree", "add", "-b", branch, str(path), state["base"])
+        elif (
+            Path(git(path, "rev-parse", "--show-toplevel")).resolve() != path.resolve()
+            or git(path, "branch", "--show-current") != branch
+            or git(path, "rev-parse", "HEAD") != state["base"]
+            or git(path, "status", "--porcelain")
+        ):
+            raise ValueError("Existing task worktree differs from its saved base; inspect it first")
         state["worktree"], state["branch"] = str(path), branch
+
+    def _prepare(self, state):
+        self._create_worktree(state)
+        state["next"] = "interview"
+
+    def _worktree(self, state):
+        if "worktree" not in state:
+            self._create_worktree(state)
         workspace = self._workspace(state)
         for package in state["specification"]["packages"]:
             if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]*", package) or not any(
@@ -674,7 +688,7 @@ class Harness:
         reports = Path(state["report_directory"])
         reports.mkdir(parents=True, exist_ok=True)
         save_json(reports / "specification.json", state["specification"])
-        if state["mode"] == "interview" or "worktree" not in state:
+        if state["stage"] == "specification_review" or "worktree" not in state:
             self._phase_complete(
                 state, "specification_ready", "Specification approved. Interview complete."
             )

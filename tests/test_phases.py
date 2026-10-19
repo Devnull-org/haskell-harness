@@ -38,7 +38,7 @@ def test_default_interview_stops_and_can_continue_after_restart(rig, repository,
     completed = specification(harness)
     assert completed["stage"] == "specification_ready"
     assert completed["prompt"]["available_phases"] == ["tests"]
-    assert "worktree" not in completed
+    assert Path(completed["worktree"]).is_dir()
     assert (Path(completed["report_directory"]) / "specification.json").is_file()
     assert roles(agent) == ["interviewer"]
     assert executor.calls == []
@@ -108,13 +108,12 @@ def test_changed_files_between_phases_block_execution(rig, file):
     assert "implementer" not in roles(agent)
 
 
-def test_changed_source_checkout_invalidates_saved_specification(rig, repository):
+def test_changed_source_checkout_does_not_invalidate_saved_specification(rig, repository):
     harness, agent, _ = rig
     specification(harness)
     (repository / SOURCE).write_text("-- Changed since interview\n")
-    with pytest.raises(ValueError, match="changed"):
-        harness.run_phase("task", "tests")
-    assert roles(agent) == ["interviewer"]
+    assert harness.run_phase("task", "tests")["stage"] == "test_review"
+    assert roles(agent) == ["interviewer", "test_author"]
 
 
 def test_legacy_interview_task_can_continue_with_tests(rig):

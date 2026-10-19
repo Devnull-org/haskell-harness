@@ -15,6 +15,19 @@ def git(cwd, *args):
     return out.rstrip("\n")
 
 
+def resolve_base(repository, ref):
+    """Resolve a local Git reference to the commit that a task will keep using."""
+    if not ref.strip() or ref.startswith("-"):
+        raise ValueError("Base must be a branch, tag, or commit")
+    try:
+        return git(repository, "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}")
+    except RuntimeError as error:
+        raise ValueError(
+            f"Cannot resolve base {ref!r} to a commit. Choose a local branch, tag, or commit; "
+            "fetch a remote branch first if needed."
+        ) from error
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 

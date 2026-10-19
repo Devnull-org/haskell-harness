@@ -10,7 +10,7 @@ import pytest
 
 from hydra_harness.cli import doctor, main, parser
 
-from .conftest import SOURCE, SPECIFICATION
+from .conftest import SOURCE, SPECIFICATION, ScriptedAgent, git
 from .helpers import executable
 
 
@@ -52,7 +52,7 @@ def test_cli_persists_a_conversation_across_processes(repository, tmp_path, star
         )
         return json.loads(result.stdout)
 
-    view = call("start", "interview", "Fix increment", *start_options)
+    view = call("start", "interview", "Fix increment", "--base", "main", *start_options)
     assert view["stage"] == "specification_review"
     assert call("status", "interview")["prompt"] == view["prompt"]
     assert call("resume", "interview")["prompt"] == view["prompt"]
@@ -60,6 +60,66 @@ def test_cli_persists_a_conversation_across_processes(repository, tmp_path, star
     assert done["stage"] == "specification_ready"
     assert done["prompt"]["available_phases"] == ["tests"]
     assert call("resume", "interview") == done
+
+
+@pytest.mark.parametrize("detached", [False, True])
+def test_interactive_start_prompts_for_base(repository, tmp_path, monkeypatch, capsys, detached):
+    if detached:
+        git(repository, "checkout", "--detach")
+    (repository / SOURCE).write_text("-- Pending developer work\n")
+    agent = ScriptedAgent()
+    monkeypatch.setattr("hydra_harness.cli.RoutedAgent", lambda *args, **kwargs: agent)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    prompts = []
+    answers = iter(["", "quit"])
+
+    def answer(prompt):
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr("builtins.input", answer)
+    assert (
+        main(
+            [
+                "--repo",
+                str(repository),
+                "--state-dir",
+                str(tmp_path / "state"),
+                "start",
+                "task",
+                "Fix it",
+            ]
+        )
+        == 0
+    )
+    assert "Base branch or commit" in prompts[0]
+    assert ("HEAD" if detached else "main") in prompts[0]
+    assert "Base:" in capsys.readouterr().out
+    assert agent.calls[0][2] != repository
+
+
+@pytest.mark.parametrize("options", [[], ["--json"]])
+def test_scripted_start_requires_explicit_base(repository, tmp_path, monkeypatch, capsys, options):
+    monkeypatch.setattr("hydra_harness.cli.RoutedAgent", lambda *args, **kwargs: ScriptedAgent())
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr("builtins.input", lambda *args: pytest.fail("Unexpected prompt"))
+    assert (
+        main(
+            [
+                "--repo",
+                str(repository),
+                "--state-dir",
+                str(tmp_path / "state"),
+                *options,
+                "start",
+                "task",
+                "Fix it",
+            ]
+        )
+        == 1
+    )
+    assert "--base" in capsys.readouterr().err
+    assert not (tmp_path / "state").exists()
 
 
 def test_task_commands_require_an_explicit_checkout(capsys):

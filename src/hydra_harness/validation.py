@@ -86,9 +86,7 @@ class LocalExecutor:
         self.timeout = timeout
 
     def __call__(self, argv, cwd):
-        actual = list(argv)
-        if self.nix_flake:
-            actual = ["nix", "develop", self.nix_flake, "--command", *actual]
+        actual = ["nix", "develop", self.nix_flake or str(cwd), "--command", *argv]
         started = time.time_ns()
         code, stdout, stderr = run_process(actual, cwd, timeout=self.timeout)
         reports = []

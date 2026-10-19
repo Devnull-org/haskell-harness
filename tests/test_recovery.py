@@ -147,3 +147,15 @@ def test_a_failed_question_can_be_retried_without_losing_the_gate(rig):
     assert view["stage"] == "test_review"
     assert view["prompt"]["answer"]
     assert not any(role == "implementer" for role, _, _ in agent.calls)
+
+
+def test_recovery_rejects_a_commit_amended_after_validation(repository):
+    workspace = Workspace(repository)
+    workspace.apply([{"path": SOURCE, "content": IMPLEMENTED}])
+    expected = workspace.fingerprint()
+    workspace.commit("fix: increment", expected=expected, step="one")
+    (repository / SOURCE).write_text(IMPLEMENTED + "-- Changed after validation\n")
+    git(repository, "add", SOURCE)
+    git(repository, "commit", "--amend", "--no-edit")
+    with pytest.raises(ValueError, match="differs from validated"):
+        workspace.commit("fix: increment", expected=expected, step="one")

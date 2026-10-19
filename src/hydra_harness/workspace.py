@@ -148,6 +148,10 @@ class Workspace:
                 raise ValueError(
                     "Worktree changed after the recovered commit; recheck before proceeding"
                 )
+            parent = git(self.path, "rev-parse", "HEAD^")
+            recovered = digest([parent, git(self.path, "diff", "--binary", parent), {}])
+            if recovered != expected:
+                raise ValueError("Recovered commit differs from validated content; recheck it")
             return self.revision
         if self.fingerprint() != expected:
             raise ValueError("Worktree changed since validation; rerun checks before committing")

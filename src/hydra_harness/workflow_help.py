@@ -93,10 +93,27 @@ Pause and continue whenever needed
   to start a different phase; completed phases never advance automatically.
   Use the same --state-dir if you supplied one. No new --base is needed on resume.
 
+Start over while preserving the old task
+    haskell-harness --repo /path/to/project restart my-feature
+  This starts a fresh interview named my-feature-restart-1 (or the next free
+  number). It reuses the original request and pinned commit, and creates a new
+  worktree. The previous task, its files, and its commits stay available.
+  Use the new task name shown in the output for all subsequent commands.
+  Add --as my-feature-v2 to choose a name, --base main to select another base, or
+  a quoted replacement description after the original task name.
+
+While waiting for an agent
+  Elapsed time is printed every 15 seconds until the backend returns or times out.
+  Invalid JSON/schema responses stop at agent_error and are saved under the task's
+  backend-responses directory; the error gives the path. Use retry to repeat that
+  step. After updating the harness, quit the old process and resume with the new
+  version before retrying. restart begins a fresh task instead.
+
 Command and option reference
     haskell-harness --help
     haskell-harness start --help
     haskell-harness run --help
+    haskell-harness restart --help
   Global options (--repo, --backend, --json) go before the command. start options
   (--base, --walkthrough) go after start. Use --json with respond for scripted gates.
 """

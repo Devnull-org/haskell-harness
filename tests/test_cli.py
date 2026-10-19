@@ -60,6 +60,11 @@ def test_cli_persists_a_conversation_across_processes(repository, tmp_path, star
     assert done["stage"] == "specification_ready"
     assert done["prompt"]["available_phases"] == ["tests"]
     assert call("resume", "interview") == done
+    restarted = call("restart", "interview", "--as", "fresh", "--base", "main")
+    assert restarted["task_id"] == "fresh"
+    assert restarted["restarted_from"] == "interview"
+    assert restarted["stage"] == "specification_review"
+    assert call("status", "interview") == done
 
 
 @pytest.mark.parametrize("detached", [False, True])

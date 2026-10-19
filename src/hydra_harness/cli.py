@@ -73,6 +73,17 @@ def parser():
         action="store_true",
         help="Require an explicitly started code walkthrough before handoff",
     )
+    restart = sub.add_parser(
+        "restart", help="Start a fresh interview while preserving the old task"
+    )
+    restart.add_argument("task_id", help="Existing task to start over from")
+    restart.add_argument(
+        "request", nargs="?", help="Replacement request (default: original request)"
+    )
+    restart.add_argument("--as", dest="new_task_id", help="New task name (default: TASK-restart-N)")
+    restart.add_argument(
+        "--base", help="New base branch or commit (default: original pinned commit)"
+    )
     phase = sub.add_parser("run", help="Run one available phase of a saved task")
     phase.add_argument("task_id", help="Name of the saved task")
     phase.add_argument(
@@ -128,6 +139,8 @@ def parser():
 
 def render(view):
     print(f"\n{view['task_id']}: {view['stage'].replace('_', ' ')}")
+    if view.get("restarted_from"):
+        print(f"Fresh attempt from: {view['restarted_from']} (previous task preserved)")
     if view.get("base"):
         print(f"Base: {view.get('base_ref', 'saved commit')} ({view['base']})")
     if view.get("worktree"):
@@ -363,6 +376,10 @@ def main(argv=None):
                 base=args.base,
                 mode="interview" if args.interview_only else "phased",
                 walkthrough=args.walkthrough,
+            )
+        elif args.command == "restart":
+            view = harness.restart(
+                args.task_id, new_task_id=args.new_task_id, request=args.request, base=args.base
             )
         elif args.command == "run":
             view = harness.run_phase(args.task_id, args.phase)

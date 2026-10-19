@@ -109,37 +109,75 @@ class Harness:
 
     def start(self, task_id, request, *, base="HEAD", mode="phased", walkthrough=False):
         with self._lock():
-            config = self._config(task_id)
-            if self.graph.get_state(config).values:
-                raise ValueError(f"Task already exists: {task_id}; resume it instead")
-            if mode not in {"phased", "full", "interview"} or not request.strip():
-                raise ValueError("A request and a phased, full, or interview mode are required")
-            base_revision = resolve_base(self.repository, base)
-            directory = self.state_dir / task_id
-            directory.mkdir(mode=0o700)
-            state = {
-                "task_id": task_id,
-                "request": request,
-                "mode": mode,
-                "walkthrough_enabled": walkthrough,
-                "directory": str(directory),
-                "report_directory": str(directory / "reports"),
-                "base": base_revision,
-                "base_ref": base,
-                "stage": "preparing",
-                "prompt": {"summary": "Preparing the task worktree", "actions": []},
-                "next": "prepare",
-                "seq": 0,
-                "messages": [],
-                "validations": [],
-                "commits": [],
-                "review_round": 0,
-                "dispositions": [],
-                "attempts": 0,
-                "project_context_id": self.context.latest_id(),
-            }
-            self.graph.invoke(state, config)
-            return self._view(self._state(task_id))
+            return self._start(task_id, request, base=base, mode=mode, walkthrough=walkthrough)
+
+    def _start(
+        self,
+        task_id,
+        request,
+        *,
+        base="HEAD",
+        mode="phased",
+        walkthrough=False,
+        restarted_from=None,
+    ):
+        config = self._config(task_id)
+        if self.graph.get_state(config).values:
+            raise ValueError(f"Task already exists: {task_id}; resume it instead")
+        if mode not in {"phased", "full", "interview"} or not request.strip():
+            raise ValueError("A request and a phased, full, or interview mode are required")
+        base_revision = resolve_base(self.repository, base)
+        directory = self.state_dir / task_id
+        directory.mkdir(mode=0o700)
+        state = {
+            "task_id": task_id,
+            "request": request,
+            "mode": mode,
+            "walkthrough_enabled": walkthrough,
+            "directory": str(directory),
+            "report_directory": str(directory / "reports"),
+            "base": base_revision,
+            "base_ref": base,
+            "stage": "preparing",
+            "prompt": {"summary": "Preparing the task worktree", "actions": []},
+            "next": "prepare",
+            "seq": 0,
+            "messages": [],
+            "validations": [],
+            "commits": [],
+            "review_round": 0,
+            "dispositions": [],
+            "attempts": 0,
+            "project_context_id": self.context.latest_id(),
+        }
+        if restarted_from:
+            state["restarted_from"] = restarted_from
+        self.graph.invoke(state, config)
+        return self._view(self._state(task_id))
+
+    def restart(self, task_id, *, new_task_id=None, request=None, base=None):
+        """Start a new attempt without changing the previous task or its worktree."""
+        with self._lock():
+            original = self._state(task_id)
+            if new_task_id is None:
+                attempt = 1
+                while True:
+                    suffix = f"-restart-{attempt}"
+                    candidate = task_id[: 64 - len(suffix)] + suffix
+                    if (
+                        not self.graph.get_state(self._config(candidate)).values
+                        and not (self.state_dir / candidate).exists()
+                    ):
+                        new_task_id = candidate
+                        break
+                    attempt += 1
+            return self._start(
+                new_task_id,
+                original["request"] if request is None else request,
+                base=original["base"] if base is None else base,
+                walkthrough=original["walkthrough_enabled"],
+                restarted_from=task_id,
+            )
 
     def inspect(self, task_id):
         with self._lock():
@@ -234,6 +272,7 @@ class Harness:
                 "worktree",
                 "base",
                 "base_ref",
+                "restarted_from",
                 "report_directory",
                 "project_context_id",
             )

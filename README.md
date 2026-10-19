@@ -297,6 +297,36 @@ saved files and revision, or start a new task for the changed checkout.
 approval. It does not select the next phase. Saved tasks, including older completed
 interview-only tasks, can continue with `run my-feature tests`.
 
+### Start over without losing the previous attempt
+
+Use `restart` when you want a fresh interview. If another terminal is at a
+conversation prompt for the old task, type `quit` there first:
+
+```sh
+haskell-harness --repo "/path/to/project" restart my-feature
+```
+
+This creates `my-feature-restart-1` (or the next unused number), with its own
+branch, worktree, checkpoints, and reports. The original task, including any
+uncommitted work and commits in its worktree, stays available. The new interview
+reuses the original request and exact base commit, even if that branch has moved.
+It uses the latest shared project context and keeps the original walkthrough
+preference. Specifications, test approvals, patches, and discussions are not
+carried into the new attempt. Later phases still require explicit commands.
+
+You can choose the new task name, change the request, or select a different base:
+
+```sh
+haskell-harness --repo "/path/to/project" restart my-feature \
+  "A revised description" --as my-feature-v2 --base master
+```
+
+`--as` chooses the new name; an existing task cannot be overwritten. `--base`
+resolves the selected branch, tag, or commit afresh. Omitting either option uses
+the defaults above. Use the **new task name** printed by the command for subsequent
+`status`, `resume`, `respond`, and `run` commands. Restarting does not delete or
+cancel the previous task; it can still be inspected or resumed separately.
+
 ### Optional start flags
 
 `--interview-only` is still accepted for compatibility, but it is no longer needed:
@@ -403,6 +433,24 @@ configure a model bridge as described in [BACKENDS.md](BACKENDS.md). The harness
 and interviews work without Nix; Hydra's code validation still requires Nix.
 
 ## The conversation
+
+During an agent call, the terminal reports elapsed time every 15 seconds and shows
+when the response arrives. Backend output may be buffered until the call finishes;
+the elapsed-time messages indicate that the harness is still waiting, not that the
+model has completed a particular action. The configured agent timeout still applies.
+
+The harness accepts a JSON response or one fenced JSON block with surrounding
+commentary, then validates the complete object against the role's schema. Multiple
+blocks, invalid JSON, and missing required fields stop at `agent_error`. Failed
+JSON/schema responses are saved under the task's `backend-responses` directory,
+outside the target checkout; the error prints the path to `stdout.txt` and
+`stderr.txt`. These files can contain task and source details, so inspect them
+before sharing. No response is applied without successful validation.
+
+At an `agent_error` prompt, `retry` repeats the failed step. If you have updated the
+harness, type `quit` in the old process and launch `resume TASK` with the updated
+version before choosing `retry`. `restart TASK` instead begins a fresh interview
+under a new task name, preserving the old attempt as described above.
 
 The terminal shows the current specification, questions, test diff, or review
 findings, followed by available actions. Type an action and optionally its text:
@@ -635,6 +683,7 @@ letters, digits, underscores, or hyphens and must begin with a letter or digit.
 | `help` | Walk through setup, base selection, approvals, phases, and resuming with examples. No checkout, backend configuration, or login is needed. |
 | `doctor` | Check tools and backend authentication probes. With `--repo`, also check the target's Nix requirements. Does not build or run tests. |
 | `start TASK [REQUEST]` | Choose a base, create an isolated task worktree, and run the interview. In a terminal, ask for the base and request if omitted. |
+| `restart TASK [REQUEST]` | Start a new task from the original request and pinned base, leaving the original intact. Optional `REQUEST` replaces the original description. Prints the new task name. |
 | `run TASK PHASE` | Start one available phase of a saved task. It cannot bypass prerequisites or approvals. |
 | `resume TASK` | Continue interrupted work or return to a pending gate in the current phase. A completed phase remains stopped. |
 | `status TASK` | Display saved progress and the available next phases without invoking agents. |
@@ -664,6 +713,13 @@ Options specific to `start`:
 | `--base REF` | Base branch, tag, or commit. Asked in a terminal if omitted, with the current branch as the default (`HEAD` if detached). Required with `--json` or noninteractive input. Saved as an exact commit for all later phases. |
 | `--interview-only` | Compatibility option. Starting already stops after the interview, and the same task can continue later. |
 | `--walkthrough` | Require an explicitly started walkthrough before handoff. You can still use `skip` during the questions. |
+
+Options specific to `restart`:
+
+| Option | Meaning |
+| --- | --- |
+| `--as NAME` | New task name. Defaults to `TASK-restart-N`, using the next free number and shortening a long prefix to fit the task-name limit. Existing tasks are never overwritten. |
+| `--base REF` | Resolve a different base branch, tag, or commit. Defaults to the original task's exact saved commit, with no startup prompt. |
 
 Options specific to `respond`:
 

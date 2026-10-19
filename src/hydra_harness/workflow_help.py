@@ -7,8 +7,18 @@ Choose how to launch
     nix run .#local -- help
   From any directory, without cloning the harness:
     nix run github:Devnull-org/langgraph-harness#local -- help
-  With an installed harness:
+  Install the command with Nix (once, from any directory):
+    nix profile add --refresh github:Devnull-org/langgraph-harness#local
+  Then use it directly in your terminals:
     haskell-harness help
+
+  The profile installation includes the local backend CLI and selects it by
+  default. It uses your existing login. No harness clone is needed.
+  If Nix is older and does not recognize profile add, use profile install instead.
+  Without Nix, from the harness clone with uv and Git installed:
+    uv sync --locked --no-dev
+    source .venv/bin/activate
+  This makes haskell-harness available in that terminal.
 
   Below, replace haskell-harness with either Nix prefix above, ending in --.
   Replace /path/to/project with your local target Git checkout. --repo selects

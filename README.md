@@ -244,8 +244,32 @@ nix run .#local -- --repo "/path/to/project" start my-feature \
 ## Other ways to run the harness
 
 The examples below use `haskell-harness` directly. That command is available in a
-Nix development shell or an activated uv environment. You can use the same
-arguments after `nix run .#local --` without entering a shell.
+Nix profile installation, a Nix development shell, or an activated uv environment.
+You can use the same arguments after `nix run .#local --` without entering a shell.
+
+### Install the command with Nix
+
+Install once from any directory, without cloning the harness:
+
+```sh
+nix profile add --refresh github:Devnull-org/langgraph-harness#local
+haskell-harness help
+```
+
+`nix profile add` installs the package in your user profile, making
+`haskell-harness` available in your terminals. `--refresh` asks Nix to fetch the
+latest GitHub version. `#local` supplies the default agent CLI and selects its
+backend, which uses your existing login. If your Nix version does not recognize
+`profile add`, use `profile install` instead. Both command names are supported by
+[current Nix](https://nix.dev/manual/nix/2.32/command-ref/new-cli/nix3-profile-add).
+
+To install from your harness clone instead, use `nix profile add .#local` there.
+Use `#claude-code` in place of `#local` to install that backend, or omit the
+selector for the provider-independent package. Install one variant at a time;
+they expose the same command names. `hydra-harness` remains a compatibility alias.
+
+If the command is not found after installation, open a new terminal so Nix's
+profile is on your `PATH`. `nix run` remains available without a profile install.
 
 ### Nix packages and shells
 

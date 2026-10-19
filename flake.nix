@@ -76,17 +76,25 @@
           pkgs = pkgsFor system;
           mkHarness =
             extra: backend:
-            pkgs.writeShellApplication {
-              name = "hydra-harness";
-              runtimeInputs = [
-                runtimes.${system}
-                pkgs.git
-                pkgs.nix
-              ]
-              ++ extra;
-              text = ''exec ${runtimes.${system}}/bin/hydra-harness ${
-                lib.optionalString (backend != null) "--backend ${lib.escapeShellArg backend}"
-              } "$@"'';
+            let
+              launcher = pkgs.writeShellApplication {
+                name = "haskell-harness";
+                runtimeInputs = [
+                  runtimes.${system}
+                  pkgs.git
+                  pkgs.nix
+                ]
+                ++ extra;
+                text = ''exec ${runtimes.${system}}/bin/haskell-harness ${
+                  lib.optionalString (backend != null) "--backend ${lib.escapeShellArg backend}"
+                } "$@"'';
+              };
+            in
+            pkgs.symlinkJoin {
+              name = "haskell-harness";
+              paths = [ launcher ];
+              postBuild = ''ln -s haskell-harness "$out/bin/hydra-harness"'';
+              meta.mainProgram = "haskell-harness";
             };
         in
         {
@@ -99,7 +107,7 @@
         system:
         lib.genAttrs [ "default" "local" "claude-code" ] (name: {
           type = "app";
-          program = "${self.packages.${system}.${name}}/bin/hydra-harness";
+          program = "${self.packages.${system}.${name}}/bin/haskell-harness";
           meta.description = "Run a local development workflow";
         })
       );
@@ -137,6 +145,12 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
+          commands = pkgs.runCommand "haskell-harness-commands-check" { } ''
+            ${self.packages.${system}.default}/bin/haskell-harness help > help.txt
+            ${self.packages.${system}.default}/bin/hydra-harness help > legacy-help.txt
+            cmp help.txt legacy-help.txt
+            touch "$out"
+          '';
           harness =
             pkgs.runCommand "hydra-harness-check"
               {

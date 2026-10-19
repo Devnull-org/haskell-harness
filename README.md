@@ -15,16 +15,193 @@ testing, and committing Hydra patches still requires its full toolchain.
 
 ## Quick start
 
-Clone the harness:
+Clone the harness with `git clone`, then use `cd` to enter its directory:
 
 ```sh
 git clone git@github.com:Devnull-org/langgraph-harness.git
 cd langgraph-harness
 ```
 
+### With Nix
+
+First, check that the default agent backend is available and signed in:
+
+```sh
+nix run .#local -- doctor
+```
+
+Here is what each part means:
+
+| Part | Meaning |
+| --- | --- |
+| `nix run` | Build or fetch the selected application and run it with its dependencies. |
+| `.` | Use the flake in the current directory, so run these examples from the harness clone. |
+| `#local` | Select the package that supplies the default agent CLI and chooses the `local` backend. |
+| `--` | End Nix's arguments; everything after this goes to the harness. |
+| `doctor` | Check required tools and the selected backends' authentication probes. It does not start a task or ask a model to generate code. |
+
+If `doctor` reports **Not logged in**, sign in using the selected agent CLI's
+normal login command and your existing account, then rerun `doctor`. The harness
+uses the saved CLI login; it does not perform login itself or read credentials.
+
+Without `--repo`, `doctor` checks only the harness and backends. To also check the
+target's Nix executable and dependency flake:
+
+```sh
+nix run .#local -- --repo "/path/to/project" doctor
+```
+
+`/path/to/project` is a placeholder: replace it with the root of your Git checkout.
+No path is assumed or discovered. Quoting the path also supports directory names
+containing spaces. `doctor` does not compile or run the project's test suite.
+
+Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
+
+### Save Hydra project knowledge
+
+Save protocol documentation and state-machine source from your target's committed
+HEAD before starting tasks:
+
+```sh
+nix run .#local -- --repo "/path/to/project" context refresh --profile hydra
+```
+
+`context refresh` creates a shared, versioned reference snapshot. `--profile hydra`
+selects the Head protocol overview, state types, transition handlers, inputs,
+effects, event replay, on-chain validators, and rollback documentation. It uses
+Git, not a model, and excludes uncommitted edits. See [Project context](#project-context)
+for inspection, updates, and custom sources.
+
+### Start with the interview
+
+Choose a clean target checkout, including no untracked files. Start a task with
+your own description:
+
+```sh
+nix run .#local -- --repo "/path/to/project" start my-feature \
+  "Describe the feature or bug here"
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `--repo "/path/to/project"` | Select the target Git checkout. This is required for task commands. |
+| `start` | Create a new task and begin the requirements interview. |
+| `my-feature` | Your name for this task, used later by `resume` and `status`. Choose a name not already used for this checkout. |
+| `"Describe the feature or bug here"` | Your initial request. Replace this text with what you want, or omit it to have the harness ask you. |
+
+**Each phase runs only when you choose it.** `start` runs the interview. The agent
+asks questions until the specification is ready for your approval, then saves it
+and stops. Approving the specification does not start test authoring.
+
+The harness records the target checkout's current HEAD and latest shared project
+context snapshot. It creates a separate branch and worktree only when you later
+start the tests phase. For work based on master, update your chosen checkout to
+the master revision you want before starting. The harness does not switch or
+update that branch.
+
+### Continue one phase at a time
+
+You can leave after the interview and return another day. Check saved progress:
+
+```sh
+nix run .#local -- --repo "/path/to/project" status my-feature
+```
+
+`status` shows the current phase, reports, context snapshot, and available next
+phases. It does not invoke an agent. Once the specification is approved, start
+test authoring explicitly:
+
+```sh
+nix run .#local -- --repo "/path/to/project" run my-feature tests
+```
+
+`run TASK PHASE` starts exactly the named phase. The tests phase writes failing
+tests, validates them, and waits for your questions and approval. Approving the
+tests commits that patch and stops. Start implementation separately:
+
+```sh
+nix run .#local -- --repo "/path/to/project" run my-feature implement
+```
+
+This command requires approved tests and stops after implementation and validation.
+The same pattern selects the later phases:
+
+| Phase argument | What it does and when it is available |
+| --- | --- |
+| `tests` | Write and validate failing tests, discuss them with you, and commit them only after approval. Requires an approved specification or an explicit test revision request. |
+| `implement` | Implement the approved tests with validated patches. Requires test approval. |
+| `refactor` | Simplify the implementation and comments while keeping tests passing. Requires completed implementation, or a selected review finding that only needs refactoring. |
+| `review-haskell` | Review Haskell correctness, performance, style, and maintainability after refactoring. |
+| `review-security` | Review Cardano on-chain/off-chain safety, exploits, and protocol liveness after refactoring. The two reviewers can run in either order. |
+| `walkthrough` | Ask three to five questions about the finished code and give feedback. Available after both reviews are resolved; normally optional. |
+| `handoff` | Write the local PR description and final reports after both reviews are resolved. Does not push or open a PR. |
+
+For example, `run my-feature refactor` starts refactoring; replace only the phase
+argument to choose another available phase. Finishing one never starts the next.
+Validation, repair attempts, and multiple patches within the chosen phase can run
+automatically. A changed checkout between phases blocks continuation: restore the
+saved files and revision, or start a new task for the changed checkout.
+
+`resume my-feature` returns to an unfinished phase or its pending question or
+approval. It does not select the next phase. Saved tasks, including older completed
+interview-only tasks, can continue with `run my-feature tests`.
+
+### Optional start flags
+
+`--interview-only` is still accepted for compatibility, but it is no longer needed:
+`start` already stops after the interview, and you can start tests later on the
+same task. An interview does not create a worktree, write tests, or make commits.
+
+`--walkthrough` records that you want the code questions before handoff. It does
+not launch them automatically: choose `run my-feature walkthrough` after reviews.
+During the walkthrough, `skip` ends the questions; handoff remains a separate
+phase. Without the flag, you can choose either walkthrough or handoff after reviews.
+
+Both flags belong after `start` and its task name. For example:
+
+```sh
+nix run .#local -- --repo "/path/to/project" start my-feature \
+  "Describe the feature or bug here" --walkthrough
+```
+
+## Other ways to run the harness
+
+The examples below use `haskell-harness` directly. That command is available in a
+Nix development shell or an activated uv environment. You can use the same
+arguments after `nix run .#local --` without entering a shell.
+
+### Nix packages and shells
+
+| Command | Purpose |
+| --- | --- |
+| `nix run .#local -- backends` | List configured backend names and the default selection. It does not check login or start agents. |
+| `nix run .#claude-code -- doctor` | Supply the Claude Code CLI through Nix, select its profile, and check its login. |
+| `nix run . -- backends` | Run the provider-independent package. Agent CLIs must already be installed if you use this package to start tasks. |
+| `nix develop` | Enter a shell with the harness and its development tools. Type `exit` to leave it. |
+| `nix develop .#local` | Enter that shell with the default agent CLI also available. |
+| `nix develop .#claude-code` | Enter that shell with the Claude Code CLI also available. |
+
+The optional `nix run` packages select their matching backend automatically.
+Development shells supply the CLI but do not change the configured backend.
+To select another installed backend and model explicitly:
+
+```sh
+haskell-harness --repo "/path/to/project" --backend claude-code --model opus \
+  start my-feature "Describe the feature or bug here"
+```
+
+`--backend claude-code` chooses the agent runtime; `--model opus` selects its
+model. Both are global options and go before `start`. Pass `--backend` on each
+invocation, or set `default_backend` in your user configuration to keep that choice.
+
+Backend profiles, model overrides, per-role routing, authentication probes, and the
+protocol for custom model/API bridges are described in [BACKENDS.md](BACKENDS.md).
+The workflow and its approval gates are the same for every backend.
+
 ### Without Nix
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git, then:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git. From
+the harness clone, install its dependencies and activate the environment:
 
 ```sh
 uv sync --locked --no-dev
@@ -32,83 +209,22 @@ source .venv/bin/activate
 haskell-harness backends
 ```
 
-uv downloads a compatible Python if necessary and installs the locked dependencies
-in this clone's `.venv`. Activate that environment in each new terminal before
-using `haskell-harness`. You can also run a command without activating it:
+| Command | Purpose |
+| --- | --- |
+| `uv sync --locked --no-dev` | Install the dependencies in `uv.lock` into `.venv`, downloading compatible Python if needed. `--locked` refuses changes to the lockfile; `--no-dev` excludes development tools. |
+| `source .venv/bin/activate` | Make `haskell-harness` available in this terminal. Repeat in new terminals; use `deactivate` to leave the environment. |
+| `haskell-harness backends` | List configured backend names and the default selection. |
+
+To run a single command without activating the environment:
 
 ```sh
 uv run --locked --no-dev haskell-harness backends
 ```
 
-Install and sign in to your chosen agent CLI separately, or configure a bridge to
-your model service. Backend setup is described in [BACKENDS.md](BACKENDS.md).
-
-### With Nix
-
-Enter the development environment to use the same `haskell-harness` commands:
-
-```sh
-nix develop
-haskell-harness backends
-```
-
-Alternatively, `nix run . -- backends` runs the harness and lists its configured
-backend profiles. These optional packages also supply the selected agent CLI:
-
-```sh
-nix run .#local -- doctor
-# Or use the bundled alternative:
-nix run .#claude-code -- doctor
-```
-
-Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
-
-### Start a task
-
-Check your selected backend:
-
-```sh
-haskell-harness doctor
-# To select a different backend:
-haskell-harness --backend claude-code doctor
-```
-
-`doctor` without `--repo` checks the harness tools and selected backends only. It
-does not require Nix or look for a project checkout. Add `--repo` to also check
-the target's Nix requirements. Backend authentication uses that backend's
-normal saved login or configured environment; the harness does not read credentials.
-Use the backend's normal login command if its authentication check fails.
-
-Choose the Git checkout to work on. No target path is assumed or discovered:
-
-```sh
-printf 'Target Git checkout: '
-read -r TARGET_REPO
-haskell-harness --repo "$TARGET_REPO" start my-feature \
-  "Describe the feature or bug here" --walkthrough
-```
-
-To stop after agreeing on a specification, add `--interview-only`; that mode
-works without Nix. A full Hydra task needs Nix once code validation begins.
-
-All task commands require `--repo`. The harness records the supplied checkout's
-current HEAD and creates a separate local branch and worktree when you accept the
-specification. For work based on master, update your chosen checkout to the master
-revision you want before starting. The harness does not switch or update that branch.
-
-To use an already installed CLI, select its profile with `--backend`:
-
-```sh
-haskell-harness --repo "$TARGET_REPO" --backend claude-code --model opus \
-  start my-feature "Describe the feature or bug here"
-```
-
-Pass `--backend` on each invocation, or set `default_backend` in your user
-configuration to keep using that profile.
-
-Backend profiles, model overrides, per-role routing, authentication probes, and the
-protocol for custom model/API bridges are described in [BACKENDS.md](BACKENDS.md).
-The workflow and its approval gates are the same for every backend.
+`uv run` prepares the environment and runs the following command with its locked
+dependencies. Install and sign in to your chosen agent CLI separately, or
+configure a model bridge as described in [BACKENDS.md](BACKENDS.md). The harness
+and interviews work without Nix; Hydra's code validation still requires Nix.
 
 ## The conversation
 
@@ -128,18 +244,100 @@ silence never approve anything. Test approval is tied to the exact validated fil
 a changed worktree requires `recheck` and fresh approval. You can inspect the full
 diff in your editor using the displayed worktree path.
 
+Only the actions offered at the current gate are accepted:
+
+| Action | Meaning |
+| --- | --- |
+| `answer TEXT` | Answer an interview or walkthrough question. |
+| `question TEXT` | Ask for an explanation of the current specification, tests, or finding without approving it. |
+| `revise TEXT` | Request changes to the specification or current patch. A request to change approved tests stops for an explicitly started tests phase. |
+| `approve` | Accept the displayed specification or exact validated tests. It finishes that phase. |
+| `recheck` | Rerun validation of the current patch. Changed tests still need fresh approval. |
+| `accept_red REASON` | Record evidence that a red-phase Nix failure comes only from the expected failing tests. Test approval remains a separate step. |
+| `retry` | Retry the failed operation in the current phase after addressing its error. |
+| `reject` | Reject an implementation/refactoring proposal to change approved tests. The active agent must produce another proposal. |
+| `fix ID ...` | Select review findings to address. The harness offers the required tests or refactoring phase; start it with `run`. |
+| `dismiss ID ...` | Dismiss selected findings with a written reason, which the terminal asks you for. |
+| `skip` | End the optional walkthrough questions. |
+| `quit` or `exit` | Leave the terminal conversation at its current gate and return later with `resume`. |
+
 `quit` pauses at the gate. Continue later, including after a terminal interruption:
 
 ```sh
-haskell-harness --repo "$TARGET_REPO" resume my-feature
-haskell-harness --repo "$TARGET_REPO" status my-feature
+haskell-harness --repo "/path/to/project" resume my-feature
+haskell-harness --repo "/path/to/project" status my-feature
 ```
+
+`resume` continues only unfinished work in the selected phase. `status` displays
+progress without running work. Both use the task name supplied to `start`.
 
 State defaults to `$XDG_STATE_HOME/hydra-harness` or
 `~/.local/state/hydra-harness`, separate from the source checkout. Always use the
 same `--repo` and `--state-dir` when resuming. Tasks use separate LangGraph threads
 in SQLite, with local worktrees, proposals, logs, and reports alongside them.
 Avoid deleting the state directory while its Git worktrees are registered.
+
+## Project context
+
+Project knowledge is shared across tasks in `project-context.sqlite`, alongside
+the task checkpoint database. Each refresh stores complete source text, paths,
+content hashes, the source Git revision, and a timestamp. It does not modify the
+target checkout. The Hydra profile records the actual state constructors from
+the selected revision instead of assuming one fixed protocol version.
+
+Show the saved protocol overview, Head state declaration, and source inventory:
+
+```sh
+haskell-harness --repo "/path/to/project" context show
+```
+
+Read the full saved transition implementation:
+
+```sh
+haskell-harness --repo "/path/to/project" context show \
+  --source hydra-node/src/Hydra/HeadLogic.hs
+```
+
+`--source` here selects a file in the saved snapshot. To save additional general
+properties or team notes, commit them in a project document and include its path
+when refreshing:
+
+```sh
+haskell-harness --repo "/path/to/project" context refresh \
+  --profile hydra --source docs/team-properties.md
+```
+
+Replace `docs/team-properties.md` with your actual tracked document. Repeat
+`--source` for more files. Without `--profile hydra`, only your explicitly selected
+sources are saved, which also supports other Haskell projects. Refresh builds a
+new complete selection of sources; repeat any extra sources you want to retain.
+
+| Context command | Purpose |
+| --- | --- |
+| `context refresh --profile hydra` | Save the current committed protocol and implementation sources. Missing optional sources are reported; missing core sources are an error. |
+| `context refresh --source PATH` | Save explicitly chosen tracked documents. Repeat `--source` to include more files. |
+| `context show` | Inspect the latest selected snapshot's overview and sources. |
+| `context show --source PATH` | Read a saved source in full. |
+| `context history` | List snapshot IDs, source revisions, and creation times. |
+| `context show --snapshot ID` | Inspect a previous snapshot. Add `--source PATH` to read one of its sources. |
+| `context use TASK` | Select the latest context for an existing task between phases. |
+| `context use TASK --snapshot ID` | Select a specific historical snapshot for that task. |
+
+Replace `TASK`, `PATH`, and `ID` with your task name, source path, and snapshot ID.
+All context commands require `--repo`; they work without a model login. Global
+`--json` prints structured output instead of the human-readable view.
+
+New tasks pin the currently selected context snapshot. Every agent role receives
+source references, symbol names, and bounded excerpts from that same snapshot.
+Full sources remain available through `context show --source`. Refreshing the
+shared context does not silently change existing tasks. To update a saved task
+between phases, use `context use`; a pending question or approval must be resolved
+first. Tasks created before project context was added can use this command too.
+
+Before each agent call, source hashes are compared with its current worktree.
+Changed sources are listed and their old excerpts are withheld. The agent must
+read the current source for those details. Context is reference material, not
+proof that code is correct or permission to bypass the approval gates.
 
 ## Workflow and review gates
 
@@ -155,8 +353,11 @@ Interview and repository investigation
   → Independent Haskell correctness/style and Cardano security/liveness reviews
   → Developer chooses how to address findings; behavior fixes return to TDD
   → Optional developer walkthrough, one question at a time
-  → Local handoff
+  → Explicit local handoff
 ```
+
+The arrows show prerequisites, not automatic transitions. Use `run TASK PHASE`
+to choose each phase; the two review phases can run in either order.
 
 Each role has its own prompt under `src/hydra_harness/prompts`. The Haskell agents
 are instructed to follow repository conventions, use appropriate Haskell concepts,
@@ -168,11 +369,11 @@ progress, including adversarial sequences that could leave a head stuck.
 Findings include location, conditions, event sequence, evidence, impact, confidence,
 and a proposed fix. Use `fix` with finding IDs to initiate repairs; regression
 changes return to test authoring and your approval. Use `dismiss` only with a
-written rationale, which remains in the handoff. Reviews run again after fixes.
+written rationale, which remains in the handoff. Both reviews become required
+again after the fix is refactored; start them explicitly with their phase commands.
 
-`--walkthrough` enables three to five questions about the actual change. It gives
-feedback after each attempt and records the discussion. `skip` finishes without
-completing the walkthrough. `--interview-only` stops after accepting the specification.
+The walkthrough gives feedback and records the discussion. Finishing or skipping
+its questions stops before handoff, which is always a separate phase.
 
 ## Hydra validation and commits
 
@@ -182,10 +383,11 @@ harness invokes the following from its Hydra worktree:
 ```sh
 just lint
 just check
-just test <package>
+just test PACKAGE_NAME
 ```
 
 It invokes `just test` for every package named in the accepted specification.
+`PACKAGE_NAME` stands for an actual Cabal package name, such as `hydra-node`.
 Hydra's `just lint` includes formatting and a Cabal build with `-Werror`, including
 test components enabled by `cabal.project`. `just check` runs Hydra's Nix checks.
 The explicit Cabal run is also required for packages such as `hydra-cluster` and
@@ -193,11 +395,11 @@ The explicit Cabal run is also required for packages such as `hydra-cluster` and
 
 These commands run inside **Hydra's** dependency environment. It defaults to the
 explicitly selected checkout's flake. To use a separate dependency environment,
-set `DEPENDENCY_FLAKE` to the flake path you choose and pass it explicitly:
+pass its path explicitly when running code phases:
 
 ```sh
-haskell-harness --repo "$TARGET_REPO" --nix-flake "$DEPENDENCY_FLAKE" \
-  start fix-recovery "Describe the recovery issue"
+haskell-harness --repo "/path/to/project" --nix-flake "/path/to/dependency-flake" \
+  run my-feature tests
 ```
 
 The `--nix-flake` checkout supplies tools; the worktree supplies the code being
@@ -214,7 +416,7 @@ that only the expected red tests caused that failure. It then returns to test
 review, where `approve` is still required. Green phases require every check to pass.
 
 Implementation cannot silently edit approved tests or Cabal wiring. Such proposals
-stop at `test_change_review`; `revise` sends them to the test author. `reject`
+stop at `test_change_review`; `revise` offers the tests phase for discussion. `reject`
 sends the developer's decision back to the implementation/refactoring agent.
 Uncommitted production changes must be saved or restored before revising tests.
 Configuration that controls validation, Git metadata, agent instructions, symlink
@@ -240,23 +442,89 @@ Nothing is pushed and no PR is created. Inspect the branch and reports, then use
 your normal publishing process. Agent review is advisory; it does not establish
 that a protocol has no security or liveness defects.
 
-## Automation and options
+## Command and option reference
 
-`--json` prints the current gate and exits. Explicit replies can be sent separately:
+Every example uses the same argument order:
 
-```sh
-haskell-harness --repo "$TARGET_REPO" --json status my-feature
-haskell-harness --repo "$TARGET_REPO" --json respond my-feature question \
-  --text "What happens if a participant disconnects?"
-haskell-harness --repo "$TARGET_REPO" --json respond my-feature approve \
-  --token <token-from-current-status>
+```text
+haskell-harness [global options] COMMAND [command arguments]
 ```
 
-Global flags precede the subcommand. Other options include `--backend`, `--model`,
-`--config`, `--agent-timeout`, `--check-timeout`, and `--state-dir`. Run `--help`
-for the complete interface. Each agent invocation uses the selected backend with a
-role-specific prompt and schema-validated JSON response. Switching a backend does
-not change the saved workflow state or bypass an approval gate.
+With Nix, replace `haskell-harness` with `nix run .#local --`. Task names use 1–64
+letters, digits, underscores, or hyphens and must begin with a letter or digit.
+
+| Command | Purpose |
+| --- | --- |
+| `backends` | List configured backend profiles and the default selection. No checkout is needed. |
+| `doctor` | Check tools and backend authentication probes. With `--repo`, also check the target's Nix requirements. Does not build or run tests. |
+| `start TASK [REQUEST]` | Create a task and run its interview. If `REQUEST` is omitted, ask for it in the terminal. |
+| `run TASK PHASE` | Start one available phase of a saved task. It cannot bypass prerequisites or approvals. |
+| `resume TASK` | Continue interrupted work or return to a pending gate in the current phase. A completed phase remains stopped. |
+| `status TASK` | Display saved progress and the available next phases without invoking agents. |
+| `respond TASK ACTION` | Send one explicit response to the current gate, then return. |
+| `context refresh/show/history/use` | Manage the shared project knowledge described above. |
+
+Global options go **before** the command:
+
+| Option | Meaning and default |
+| --- | --- |
+| `--repo PATH` | Root of the target Git checkout. Required for task and context commands; there is no default path. |
+| `--state-dir PATH` | Base directory for SQLite data, worktrees, logs, and reports. Defaults to `$XDG_STATE_HOME/hydra-harness` or `~/.local/state/hydra-harness`. Must be outside the target checkout. Use the same value on later invocations. |
+| `--nix-flake PATH` | Target dependency flake used for validation. Defaults to the selected `--repo`; use the same override when resuming or running later code phases. |
+| `--backend NAME` | Select a backend for every agent. Otherwise use user configuration and per-role routing. |
+| `--model ID` | Override the model for every agent. Otherwise use the selected backend and role configuration. |
+| `--config FILE` | Load a user-owned backend TOML file. Without it, use the optional standard user configuration described in [BACKENDS.md](BACKENDS.md). |
+| `--agent-timeout SECONDS` | Override each agent call's timeout. Otherwise use the backend setting; built-in profiles default to 600 seconds. |
+| `--check-timeout SECONDS` | Maximum time for each validation command. Default: 3600 seconds. |
+| `--unsigned-commits` | Disable signing only for commits made by this invocation. Otherwise respect Git signing settings. |
+| `--json` | Print structured results and leave interactive replies to `respond`. Work requested by `start`, `run`, or `resume` still runs up to a gate or phase boundary. |
+| `--help` | Show command help and exit. Put it after a subcommand for that command's options. |
+
+Options specific to `start`:
+
+| Option | Meaning |
+| --- | --- |
+| `--interview-only` | Compatibility option. Starting already stops after the interview, and the same task can continue later. |
+| `--walkthrough` | Require an explicitly started walkthrough before handoff. You can still use `skip` during the questions. |
+
+Options specific to `respond`:
+
+| Option | Meaning |
+| --- | --- |
+| `--text TEXT` | The answer, question, requested revision, dismissal reason, or red-failure explanation. |
+| `--token TOKEN` | Current approval token, required for `approve` and `accept_red`. Read `prompt.approval_token` from `--json status`. |
+| `--finding ID` | Finding to fix or dismiss. Repeat the option for multiple IDs. |
+
+For example, `nix run .#local -- run --help` lists phase names and
+`nix run .#local -- start --help` explains the start options.
+
+## Scripted responses
+
+Get the saved gate as JSON:
+
+```sh
+haskell-harness --repo "/path/to/project" --json status my-feature
+```
+
+Ask a question about that gate without approving it:
+
+```sh
+haskell-harness --repo "/path/to/project" --json respond my-feature question \
+  --text "What happens if a participant disconnects?"
+```
+
+Read status again after the reply, then approve with its current token. Replace
+`TOKEN_FROM_STATUS` with the value of `prompt.approval_token`:
+
+```sh
+haskell-harness --repo "/path/to/project" --json respond my-feature approve \
+  --token "TOKEN_FROM_STATUS"
+```
+
+Tokens are tied to the gate and validated content; an old token cannot approve a
+new version. Each agent invocation uses the selected backend with a role-specific
+prompt and schema-validated JSON response. Switching a backend does not change
+saved workflow state or bypass an approval gate.
 
 ## Develop and check the harness
 
@@ -269,12 +537,19 @@ just test
 just check
 ```
 
+In the harness repository, `just lint` checks Python lint, Python formatting, and
+Nix formatting; `just test` runs the harness's Python tests; `just check` runs its
+Nix flake checks. These are different recipes from those in a Hydra checkout.
+
 Or run the reproducible check directly:
 
 ```sh
 nix flake check
 nix build
 ```
+
+`nix flake check` validates the harness flake and runs its test/lint checks.
+`nix build` builds the default runnable package and links it as `result`.
 
 Without Nix, run the Python tests and lint checks using uv:
 
@@ -283,6 +558,10 @@ uv run --locked pytest
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 ```
+
+Here `pytest` runs the tests, `ruff check .` checks Python lint, and
+`ruff format --check .` verifies formatting without rewriting files. `uv run
+--locked` supplies development dependencies from the existing lockfile.
 
 The Nix formatting and flake checks still run through the Nix commands above.
 
@@ -303,9 +582,10 @@ sandbox: custom backends run with the capabilities of their local process and
 integrations. Backend configurations are user-owned and are never automatically
 loaded from the target repository. Use trusted backends and review the diffs.
 
-The SQLite format and workflow state are currently version 0.1. Finish existing
-tasks before upgrading the harness; cross-version checkpoint migration is not
-implemented. If a commit hook changes content, the harness stops for revalidation.
+Completed interview-only tasks can continue with `run TASK tests`. Older tasks
+saved in automatic full-workflow mode retain that behavior; new tasks stop between
+phases. General migration across future checkpoint format versions is not provided.
+If a commit hook changes content, the harness stops for revalidation.
 Large tasks should be split: each agent response is one focused full-file patch,
 with bounded context and a maximum of twelve automatic incremental patches.
 

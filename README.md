@@ -451,6 +451,12 @@ outside the target checkout; the error prints the path to `stdout.txt` and
 `stderr.txt`. These files can contain task and source details, so inspect them
 before sharing. No response is applied without successful validation.
 
+If an otherwise valid response contains unexpected fields whose values are `null`,
+`""`, `[]`, or `{}`, the harness discards those empty additions and prints their
+field names. Missing required fields, incorrect types, and unexpected fields with
+information still stop the workflow. For example, an extra `out_of_scope_note: []`
+does not lose the interview, but it cannot replace the required `out_of_scope` field.
+
 Agent calls run in the background using the selected backend's existing login.
 They do not inherit the parent terminal's Orca pane or session identity, so desktop
 status hooks cannot report a child call as the parent conversation. A backend CLI

@@ -1,8 +1,9 @@
 """Validate agent handoffs before they can affect workflow state."""
 
+import copy
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 class Record(BaseModel):
@@ -101,3 +102,34 @@ SCHEMAS = {
 
 def schema_for(role, context):
     return Explanation if context.get("intent") == "explain" else SCHEMAS[role]
+
+
+def validate_response(role, context, value, *, notify=None):
+    """Discard only empty unexpected fields; keep all other validation strict."""
+    schema = schema_for(role, context)
+    try:
+        validated = schema.model_validate(value)
+    except ValidationError as error:
+        errors = error.errors()
+        if not all(
+            item["type"] == "extra_forbidden"
+            and (
+                item["input"] is None
+                or isinstance(item["input"], (str, list, dict))
+                and len(item["input"]) == 0
+            )
+            for item in errors
+        ):
+            raise
+        cleaned = copy.deepcopy(value)
+        paths = []
+        for item in errors:
+            parent = cleaned
+            for part in item["loc"][:-1]:
+                parent = parent[part]
+            del parent[item["loc"][-1]]
+            paths.append(".".join(map(str, item["loc"])))
+        validated = schema.model_validate(cleaned)
+        if notify:
+            notify("Ignored empty extra response fields: " + ", ".join(paths))
+    return validated.model_dump(exclude_unset=True)

@@ -15,7 +15,7 @@ from langgraph.types import Command, interrupt
 from .backends import BackendResponseError
 from .project_context import ContextStore, state_directory
 from .reports import pr_description
-from .schemas import schema_for
+from .schemas import validate_response
 from .validation import classify_validation, test_evidence
 from .workspace import Workspace, digest, git, is_test_path, resolve_base, save_json
 
@@ -401,7 +401,7 @@ class Harness:
                     path.write_text(text)
                     path.chmod(0o600)
                 raise ValueError(f"{error}\nBackend response saved in: {directory}") from error
-            result = schema_for(role, context).model_validate(result).model_dump(exclude_unset=True)
+            result = validate_response(role, context, result, notify=self.progress)
             if workspace.fingerprint() != before:
                 raise ValueError(
                     "Agent changed the checkout directly; inspect and restore it before retrying"

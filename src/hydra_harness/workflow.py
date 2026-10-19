@@ -12,10 +12,21 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
+from .project_context import ContextStore, state_directory
 from .reports import pr_description
 from .schemas import schema_for
 from .validation import classify_validation, test_evidence
 from .workspace import Workspace, digest, git, is_test_path, save_json
+
+PHASE_NODES = {
+    "tests": "tests",
+    "implement": "implement",
+    "refactor": "refactor",
+    "review-haskell": "review_haskell",
+    "review-security": "review_security",
+    "walkthrough": "walkthrough",
+    "handoff": "finish",
+}
 
 
 class Harness:
@@ -33,10 +44,9 @@ class Harness:
         self.repository = Path(repository).expanduser().resolve()
         if Path(git(self.repository, "rev-parse", "--show-toplevel")).resolve() != self.repository:
             raise ValueError("Repository must be the root of a Git checkout")
-        self.state_dir = Path(state_dir).expanduser().resolve() / digest(str(self.repository))[:16]
-        if self.state_dir.is_relative_to(self.repository):
-            raise ValueError("State directory must be outside the source checkout")
+        self.state_dir = state_directory(self.repository, state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.context = ContextStore(self.state_dir)
         self.agent, self.execute = agent, execute
         self.max_repair_rounds = max(1, max_repair_rounds)
         self.unsigned_commits = unsigned_commits
@@ -95,13 +105,13 @@ class Harness:
             raise ValueError(f"Unknown task: {task_id}")
         return state
 
-    def start(self, task_id, request, *, mode="full", walkthrough=False):
+    def start(self, task_id, request, *, mode="phased", walkthrough=False):
         with self._lock():
             config = self._config(task_id)
             if self.graph.get_state(config).values:
                 raise ValueError(f"Task already exists: {task_id}; resume it instead")
-            if mode not in {"full", "interview"} or not request.strip():
-                raise ValueError("A request and a full or interview mode are required")
+            if mode not in {"phased", "full", "interview"} or not request.strip():
+                raise ValueError("A request and a phased, full, or interview mode are required")
             if git(self.repository, "status", "--porcelain"):
                 raise ValueError("Start from a clean checkout so the task has an unambiguous base")
             directory = self.state_dir / task_id
@@ -122,6 +132,7 @@ class Harness:
                 "review_round": 0,
                 "dispositions": [],
                 "attempts": 0,
+                "project_context_id": self.context.latest_id(),
             }
             self.graph.invoke(state, config)
             return self._view(self._state(task_id))
@@ -139,6 +150,48 @@ class Harness:
                 self.graph.invoke(None, self._config(task_id))
                 state = self._state(task_id)
             return self._view(state)
+
+    def run_phase(self, task_id, phase):
+        """Start one eligible phase from a saved boundary, never bypass a pending gate."""
+        with self._lock():
+            state = copy.deepcopy(self._state(task_id))
+            config = self._config(task_id)
+            if self.graph.get_state(config).next:
+                raise ValueError("The current phase is pending; use resume and answer its gate")
+            available = self._available_phases(state)
+            if phase not in available:
+                raise ValueError(
+                    f"Phase {phase!r} is not available; "
+                    f"choose from: {', '.join(available) or 'none'}"
+                )
+            expected = state.get("phase_fingerprint", state.get("gate_fingerprint"))
+            if self._workspace(state).fingerprint() != expected:
+                raise ValueError(
+                    "Checkout changed since the completed phase; restore the saved revision "
+                    "and files, or start a new task for the changed checkout"
+                )
+            state["mode"], state["selected_phase"] = "phased", phase
+            state["next"] = (
+                "worktree" if phase == "tests" and "worktree" not in state else PHASE_NODES[phase]
+            )
+            state["prompt"], state["attempts"], state["patch_count"] = {}, 0, 0
+            self.graph.invoke(state, config)
+            return self._view(self._state(task_id))
+
+    def use_context(self, task_id, snapshot_id=None):
+        """Select shared knowledge explicitly while a task is between phases."""
+        with self._lock():
+            config = self._config(task_id)
+            state = copy.deepcopy(self._state(task_id))
+            if self.graph.get_state(config).next:
+                raise ValueError("The current phase is pending; finish it before changing context")
+            if state["stage"] == "ready":
+                raise ValueError("This task is finished; start a new task to use different context")
+            snapshot = self.context.get(snapshot_id)
+            state["project_context_id"] = snapshot["id"]
+            self.graph.update_state(config, state)
+            save_json(Path(state["report_directory"]) / "current-review.json", self._view(state))
+            return self._view(self._state(task_id))
 
     def respond(self, task_id, action, **fields):
         with self._lock():
@@ -164,6 +217,7 @@ class Harness:
 
     def close(self):
         self.connection.close()
+        self.context.close()
 
     def _workspace(self, state):
         return Workspace(state.get("worktree", self.repository))
@@ -171,11 +225,58 @@ class Harness:
     def _view(self, state):
         view = {
             key: state[key]
-            for key in ("task_id", "stage", "prompt", "worktree", "report_directory")
+            for key in (
+                "task_id",
+                "stage",
+                "prompt",
+                "worktree",
+                "report_directory",
+                "project_context_id",
+            )
             if key in state
         }
         view["revision"] = self._workspace(state).revision
+        if state["stage"] == "specification_ready":
+            view["prompt"] = {**view["prompt"], "available_phases": ["tests"]}
         return view
+
+    def _available_phases(self, state):
+        following = {
+            "specification_ready": ["tests"],
+            "tests_requested": ["tests"],
+            "tests_ready": ["implement"],
+            "implementation_ready": ["refactor"],
+            "refactor_requested": ["refactor"],
+            "walkthrough_ready": ["handoff"],
+        }
+        if state["stage"] in {"refactor_ready", "reviews_ready"}:
+            missing = [
+                phase
+                for phase, role in (
+                    ("review-haskell", "haskell_reviewer"),
+                    ("review-security", "security_reviewer"),
+                )
+                if state.get(role, {}).get("revision") != state["review_revision"]
+            ]
+            if missing:
+                return missing
+            return ["walkthrough"] if state["walkthrough_enabled"] else ["walkthrough", "handoff"]
+        return following.get(state["stage"], [])
+
+    def _phase_complete(self, state, stage, summary):
+        state["stage"], state["next"] = stage, "end"
+        state["phase_fingerprint"] = self._workspace(state).fingerprint()
+        state["prompt"] = {
+            "summary": summary,
+            "actions": [],
+            "available_phases": self._available_phases(state),
+        }
+        reports = Path(state["report_directory"])
+        save_json(reports / "specification.json", state["specification"])
+        save_json(reports / "patches.json", state["commits"])
+        save_json(reports / "dispositions.json", state["dispositions"])
+        save_json(reports / "walkthrough.json", state.get("walkthrough_answers", []))
+        save_json(reports / "current-review.json", self._view(state))
 
     def _node(self, name):
         def run(original):
@@ -229,6 +330,10 @@ class Harness:
                 for patch in state["commits"]
             ],
         }
+        if state.get("project_context_id"):
+            context["project_context"] = self.context.for_agent(
+                state["project_context_id"], workspace
+            )
         if state.get("validation"):
             context["validation"] = state["validation"]
         return {**context, **extra}
@@ -475,9 +580,17 @@ class Harness:
         if state["role"] == "test_author":
             state["approved_tests"] = workspace.test_manifest(state["test_paths"])
             state["attempts"], state["patch_count"], state["next"] = 0, 0, "implement"
+            if state["mode"] == "phased":
+                self._phase_complete(
+                    state, "tests_ready", "Approved tests committed. Tests phase complete."
+                )
         elif state["role"] == "implementer":
             if state["proposal"].get("complete", True):
                 state["attempts"], state["patch_count"], state["next"] = 0, 0, "refactor"
+                if state["mode"] == "phased":
+                    self._phase_complete(
+                        state, "implementation_ready", "Implementation complete and validated."
+                    )
             else:
                 self._more_patches(state, "implement")
         elif not state["proposal"].get("complete", True):
@@ -485,7 +598,11 @@ class Harness:
         else:
             state["review_revision"] = revision
             state["review_round"] += 1
+            state.pop("haskell_reviewer", None)
+            state.pop("security_reviewer", None)
             state["next"] = "review_haskell"
+            if state["mode"] == "phased":
+                self._phase_complete(state, "refactor_ready", "Refactoring complete and validated.")
 
     def _more_patches(self, state, next_node):
         state["patch_count"] = state.get("patch_count", 0) + 1
@@ -516,13 +633,18 @@ class Harness:
         state["next"] = next_node
 
     def _review_haskell(self, state):
-        self._review(state, "haskell_reviewer", "review_security")
+        following = "review_gate" if state["mode"] == "phased" else "review_security"
+        self._review(state, "haskell_reviewer", following)
 
     def _review_security(self, state):
         self._review(state, "security_reviewer", "review_gate")
 
     def _review_gate(self, state):
-        findings = state["haskell_reviewer"]["findings"] + state["security_reviewer"]["findings"]
+        findings = [
+            finding
+            for role in ("haskell_reviewer", "security_reviewer")
+            for finding in state.get(role, {}).get("findings", [])
+        ]
         if len({f["id"] for f in findings}) != len(findings):
             raise ValueError("Reviewer finding IDs must be unique")
         dismissed = {
@@ -538,6 +660,10 @@ class Harness:
             )
         else:
             state["next"] = "walkthrough" if state["walkthrough_enabled"] else "finish"
+            if state["mode"] == "phased":
+                self._phase_complete(
+                    state, "reviews_ready", "Selected review complete. Findings resolved."
+                )
 
     def _walkthrough(self, state):
         state["questions"] = self._ask(state, "walkthrough")["questions"]
@@ -548,8 +674,11 @@ class Harness:
         reports = Path(state["report_directory"])
         reports.mkdir(parents=True, exist_ok=True)
         save_json(reports / "specification.json", state["specification"])
-        if state["mode"] == "interview":
-            state["stage"] = "specification_ready"
+        if state["mode"] == "interview" or "worktree" not in state:
+            self._phase_complete(
+                state, "specification_ready", "Specification approved. Interview complete."
+            )
+            return
         else:
             workspace = self._workspace(state)
             if workspace.revision != state["review_revision"] or git(
@@ -589,7 +718,7 @@ class Harness:
             self._gate(state, stage, {**state["prompt"], **answer}, state["prompt"]["actions"])
         elif action == "approve":
             state["next"] = (
-                ("finish" if state["mode"] == "interview" else "worktree")
+                ("worktree" if state["mode"] == "full" else "finish")
                 if stage == "specification_review"
                 else "commit"
             )
@@ -636,6 +765,10 @@ class Harness:
                         },
                         ["answer", "skip"],
                     )
+            if state["next"] == "finish" and state["mode"] == "phased":
+                self._phase_complete(
+                    state, "walkthrough_ready", "Walkthrough finished. Handoff can be prepared."
+                )
         elif action in {"fix", "dismiss"}:
             selected = [f for f in state["findings"] if f["id"] in response["finding_ids"]]
             if action == "dismiss":
@@ -651,6 +784,13 @@ class Harness:
             else:
                 state["selected_findings"], state["attempts"] = selected, 0
                 state["next"] = "tests" if any(f["needs_test"] for f in selected) else "refactor"
+                if state["mode"] == "phased":
+                    next_stage = (
+                        "tests_requested" if state["next"] == "tests" else "refactor_requested"
+                    )
+                    self._phase_complete(
+                        state, next_stage, "Fix selected. Start the indicated phase to address it."
+                    )
         else:
             state["messages"].append(
                 {"stage": stage, "action": action, "text": response.get("text", "")}
@@ -662,5 +802,11 @@ class Harness:
                 stage in {"test_review", "test_change_review"} or state.get("role") == "test_author"
             ):
                 state["next"] = "tests"
+                if stage == "test_change_review" and state["mode"] == "phased":
+                    self._phase_complete(
+                        state,
+                        "tests_requested",
+                        "Test revision requested. Start the tests phase to discuss it.",
+                    )
             else:
                 state["next"] = "implement" if state["role"] == "implementer" else "refactor"

@@ -27,3 +27,4 @@ class View(TypedDict, total=False):
     worktree: str
     revision: str
     report_directory: str
+    project_context_id: str | None

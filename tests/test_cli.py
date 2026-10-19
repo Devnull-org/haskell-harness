@@ -10,11 +10,12 @@ import pytest
 
 from hydra_harness.cli import doctor, main, parser
 
-from .conftest import SPECIFICATION
+from .conftest import SOURCE, SPECIFICATION
 from .helpers import executable
 
 
-def test_cli_persists_a_conversation_across_processes(repository, tmp_path):
+@pytest.mark.parametrize("start_options", [[], ["--interview-only"]])
+def test_cli_persists_a_conversation_across_processes(repository, tmp_path, start_options):
     envelope = {
         "type": "result",
         "is_error": False,
@@ -51,12 +52,14 @@ def test_cli_persists_a_conversation_across_processes(repository, tmp_path):
         )
         return json.loads(result.stdout)
 
-    view = call("start", "interview", "Fix increment", "--interview-only")
+    view = call("start", "interview", "Fix increment", *start_options)
     assert view["stage"] == "specification_review"
     assert call("status", "interview")["prompt"] == view["prompt"]
     assert call("resume", "interview")["prompt"] == view["prompt"]
     done = call("respond", "interview", "approve", "--token", view["prompt"]["approval_token"])
     assert done["stage"] == "specification_ready"
+    assert done["prompt"]["available_phases"] == ["tests"]
+    assert call("resume", "interview") == done
 
 
 def test_task_commands_require_an_explicit_checkout(capsys):
@@ -107,3 +110,17 @@ def test_doctor_requires_nix_for_target_validation(target_flag, tmp_path, monkey
 def test_nonexistent_explicit_checkout_fails_before_backend_use(tmp_path, capsys):
     assert main(["--repo", str(tmp_path / "missing"), "start", "task", "Fix it"]) == 1
     assert "Target checkout does not exist" in capsys.readouterr().err
+
+
+def test_context_commands_need_no_backend_configuration(repository, tmp_path, monkeypatch, capsys):
+    def forbidden(*args):
+        pytest.fail("Context commands must not load model configuration")
+
+    monkeypatch.setattr("hydra_harness.cli.load_settings", forbidden)
+    args = ["--repo", str(repository), "--state-dir", str(tmp_path / "saved"), "--json", "context"]
+    assert main([*args, "refresh", "--source", SOURCE]) == 0
+    snapshot = json.loads(capsys.readouterr().out)
+    assert main([*args, "show", "--source", SOURCE]) == 0
+    assert json.loads(capsys.readouterr().out)["content"] == (repository / SOURCE).read_text()
+    assert main([*args, "history"]) == 0
+    assert json.loads(capsys.readouterr().out)[0]["id"] == snapshot["id"]

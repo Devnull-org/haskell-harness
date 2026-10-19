@@ -8,8 +8,10 @@ import sys
 from pathlib import Path
 
 from .config import RoutedAgent, load_settings
+from .project_context import ContextStore, state_directory
 from .validation import LocalExecutor
-from .workflow import Harness
+from .workflow import PHASE_NODES, Harness
+from .workspace import git
 
 
 def parser():
@@ -24,13 +26,19 @@ def parser():
         type=Path,
         default=Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
         / "hydra-harness",
+        help="Directory for saved tasks and worktrees (default: user state directory)",
     )
     result.add_argument("--nix-flake", type=Path, help="Hydra dependency flake (default: --repo)")
     result.add_argument("--config", type=Path, help="User-owned backend configuration (TOML)")
     result.add_argument("--backend", help="Backend profile for all agents")
     result.add_argument("--model", help="Model override for all agents")
     result.add_argument("--agent-timeout", type=float, help="Override backend timeout in seconds")
-    result.add_argument("--check-timeout", type=float, default=3600)
+    result.add_argument(
+        "--check-timeout",
+        type=float,
+        default=3600,
+        help="Timeout for each validation command in seconds (default: 3600)",
+    )
     result.add_argument(
         "--unsigned-commits",
         action="store_true",
@@ -40,24 +48,70 @@ def parser():
         "--json", action="store_true", help="Print the current gate as JSON and exit"
     )
     sub = result.add_subparsers(dest="command", required=True)
-    start = sub.add_parser("start", help="Start a task from this checkout's current HEAD")
-    start.add_argument("task_id")
+    start = sub.add_parser("start", help="Start a saved task with the requirements interview")
+    start.add_argument("task_id", help="Unique task name: letters, digits, underscores, or hyphens")
     start.add_argument(
         "request", nargs="?", help="Describe the feature or bug (prompted if omitted)"
     )
-    start.add_argument("--interview-only", action="store_true")
-    start.add_argument("--walkthrough", action="store_true")
-    for command in ("resume", "status"):
-        child = sub.add_parser(command)
-        child.add_argument("task_id")
+    start.add_argument(
+        "--interview-only",
+        action="store_true",
+        help="Compatibility option: start already stops after the interview; start tests with run",
+    )
+    start.add_argument(
+        "--walkthrough",
+        action="store_true",
+        help="Require an explicitly started code walkthrough before handoff",
+    )
+    phase = sub.add_parser("run", help="Run one available phase of a saved task")
+    phase.add_argument("task_id", help="Name of the saved task")
+    phase.add_argument(
+        "phase", choices=PHASE_NODES, help="Phase to start; status lists available phases"
+    )
+    for command, description in (
+        ("resume", "Continue the current phase or return to its pending question or approval"),
+        ("status", "Show saved progress and available phases without running an agent"),
+    ):
+        child = sub.add_parser(command, help=description)
+        child.add_argument("task_id", help="Name of the saved task")
     reply = sub.add_parser("respond", help="Answer a gate without entering the conversation")
-    reply.add_argument("task_id")
-    reply.add_argument("action")
-    reply.add_argument("--text", default="")
+    reply.add_argument("task_id", help="Name of the saved task")
+    reply.add_argument("action", help="One of the actions offered by the current gate")
+    reply.add_argument("--text", default="", help="Answer, question, revision request, or reason")
     reply.add_argument("--token", help="Approval token from status --json")
-    reply.add_argument("--finding", action="append", default=[])
+    reply.add_argument(
+        "--finding",
+        action="append",
+        default=[],
+        help="Finding ID to fix or dismiss; repeat for multiple findings",
+    )
     sub.add_parser("doctor", help="Check tools and backend configuration; --repo is optional")
     sub.add_parser("backends", help="List configured backend profiles")
+    context = sub.add_parser("context", help="Inspect or refresh shared project knowledge")
+    context_commands = context.add_subparsers(dest="context_command", required=True)
+    refresh = context_commands.add_parser(
+        "refresh", help="Save reference sources from the target's committed HEAD"
+    )
+    refresh.add_argument(
+        "--profile", choices=["hydra"], help="Import Hydra protocol and state machine sources"
+    )
+    refresh.add_argument(
+        "--source",
+        action="append",
+        default=[],
+        help="Additional tracked source path; repeat for multiple files",
+    )
+    show = context_commands.add_parser(
+        "show", help="Show saved protocol details and source references"
+    )
+    show.add_argument(
+        "--snapshot", help="Snapshot ID from context history (default: latest selection)"
+    )
+    show.add_argument("--source", help="Print one saved source in full")
+    context_commands.add_parser("history", help="List immutable project context snapshots")
+    use = context_commands.add_parser("use", help="Select context for a saved task between phases")
+    use.add_argument("task_id", help="Name of the saved task")
+    use.add_argument("--snapshot", help="Snapshot ID to select (default: latest selection)")
     return result
 
 
@@ -66,10 +120,15 @@ def render(view):
     if view.get("worktree"):
         print(f"Worktree: {view['worktree']}")
     print(f"Reports: {view['report_directory']}")
+    if view.get("project_context_id"):
+        print(f"Project context: {view['project_context_id']}")
     prompt = view.get("prompt", {})
     for key in ("error", "explanation", "summary", "answer", "feedback"):
         if prompt.get(key):
             print(f"\n{prompt[key]}")
+    if prompt.get("available_phases"):
+        print(f"\nAvailable phases: {', '.join(prompt['available_phases'])}")
+        print(f"Start one explicitly with: run {view['task_id']} PHASE")
     if "specification" in prompt:
         spec = prompt["specification"]
         print(f"\n{spec['problem']}\n\nExpected behavior: {spec['expected_behavior']}")
@@ -170,6 +229,54 @@ def doctor(args, agent):
     return 0 if okay else 1
 
 
+def context_command(args):
+    if Path(git(args.repo, "rev-parse", "--show-toplevel")).resolve() != args.repo:
+        raise ValueError("Repository must be the root of a Git checkout")
+    if args.context_command == "use":
+        with_harness = Harness(args.repo, args.state_dir, None, None)
+        try:
+            view = with_harness.use_context(args.task_id, args.snapshot)
+            if args.json:
+                print(json.dumps(view, indent=2))
+            else:
+                render(view)
+        finally:
+            with_harness.close()
+        return 0
+    with ContextStore(state_directory(args.repo, args.state_dir)) as store:
+        if args.context_command == "history":
+            result = store.history()
+        elif args.context_command == "refresh":
+            result = store.refresh(args.repo, profile=args.profile, sources=args.source)
+        else:
+            result = store.get(args.snapshot)
+        if args.context_command == "show" and args.source:
+            result = next((d for d in result["documents"] if d["path"] == args.source), None)
+            if result is None:
+                raise ValueError("That source is not in the selected context snapshot")
+            print(json.dumps(result, indent=2) if args.json else result["content"])
+        elif args.json:
+            print(json.dumps(result, indent=2))
+        elif isinstance(result, list):
+            for snapshot in result:
+                print(f"{snapshot['id']}  {snapshot['revision']}  {snapshot['created']}")
+        else:
+            print(f"Project context: {result['id']}\nSource revision: {result['revision']}")
+            print("Saved committed sources; working tree edits are not imported.")
+            for document in result["documents"]:
+                print(f"  {document['path']}: {document['purpose']}")
+            if result["missing_sources"]:
+                print(f"Optional sources absent: {', '.join(result['missing_sources'])}")
+            if args.context_command == "show":
+                for document in result["documents"]:
+                    if document["path"] == "docs/docs/protocol-overview.md":
+                        print("\n" + document["content"])
+                if result["state_declaration"]:
+                    print("\nRecorded HeadState declaration:\n" + result["state_declaration"])
+            print("Use context show --source PATH to read a saved source in full.")
+    return 0
+
+
 def main(argv=None):
     arguments = parser()
     args = arguments.parse_args(argv)
@@ -181,6 +288,8 @@ def main(argv=None):
             args.repo = args.repo.expanduser().resolve()
             if not args.repo.is_dir():
                 raise ValueError(f"Target checkout does not exist: {args.repo}")
+        if args.command == "context":
+            return context_command(args)
         settings = load_settings(args.config)
         agent = RoutedAgent(
             settings, backend=args.backend, model=args.model, timeout=args.agent_timeout
@@ -215,9 +324,11 @@ def main(argv=None):
             view = harness.start(
                 args.task_id,
                 request,
-                mode="interview" if args.interview_only else "full",
+                mode="interview" if args.interview_only else "phased",
                 walkthrough=args.walkthrough,
             )
+        elif args.command == "run":
+            view = harness.run_phase(args.task_id, args.phase)
         elif args.command == "respond":
             view = harness.respond(
                 args.task_id,

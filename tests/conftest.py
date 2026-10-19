@@ -154,7 +154,7 @@ def rig(repository, tmp_path):
 
 
 def reach_test_review(harness, *, walkthrough=False):
-    view = harness.start("increment", "Fix addOne", walkthrough=walkthrough)
+    view = harness.start("increment", "Fix addOne", mode="full", walkthrough=walkthrough)
     assert view.get("stage") == "specification_review", view
     return harness.respond("increment", "approve", approval_token=view["prompt"]["approval_token"])
 

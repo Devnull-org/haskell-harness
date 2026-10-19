@@ -11,12 +11,14 @@ from .config import RoutedAgent, load_settings
 from .project_context import ContextStore, state_directory
 from .validation import LocalExecutor
 from .workflow import PHASE_NODES, Harness
+from .workflow_help import WORKFLOW_HELP
 from .workspace import git
 
 
 def parser():
     result = argparse.ArgumentParser(
-        description="Haskell Harness: local, human-guided TDD workflows"
+        description="Haskell Harness: local, human-guided TDD workflows",
+        epilog="Run 'haskell-harness help' for a step-by-step workflow guide.",
     )
     result.add_argument(
         "--repo", type=Path, help="Target Git checkout (required for task commands)"
@@ -95,6 +97,7 @@ def parser():
     )
     sub.add_parser("doctor", help="Check tools and backend configuration; --repo is optional")
     sub.add_parser("backends", help="List configured backend profiles")
+    sub.add_parser("help", help="Walk through the workflow with commands and approval steps")
     context = sub.add_parser("context", help="Inspect or refresh shared project knowledge")
     context_commands = context.add_subparsers(dest="context_command", required=True)
     refresh = context_commands.add_parser(
@@ -290,6 +293,9 @@ def context_command(args):
 def main(argv=None):
     arguments = parser()
     args = arguments.parse_args(argv)
+    if args.command == "help":
+        print(json.dumps({"workflow": WORKFLOW_HELP}) if args.json else WORKFLOW_HELP)
+        return 0
     if args.command not in {"doctor", "backends"} and args.repo is None:
         arguments.error("task commands require --repo with the target Git checkout")
     harness = None

@@ -122,6 +122,33 @@ def test_scripted_start_requires_explicit_base(repository, tmp_path, monkeypatch
     assert not (tmp_path / "state").exists()
 
 
+def test_workflow_help_needs_no_repository_backend_or_nix(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", "")
+    assert main(["--config", str(tmp_path / "missing.toml"), "help"]) == 0
+    guide = capsys.readouterr().out
+    for phrase in (
+        "flake.nix",
+        "--repo",
+        "--base",
+        "doctor",
+        "context",
+        "start",
+        "approve",
+        "run my-feature tests",
+        "run my-feature implement",
+        "run my-feature refactor",
+        "review-haskell",
+        "review-security",
+        "walkthrough",
+        "handoff",
+        "status",
+        "resume",
+    ):
+        assert phrase in guide
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_task_commands_require_an_explicit_checkout(capsys):
     with pytest.raises(SystemExit) as error:
         main(["start", "task", "Fix it"])

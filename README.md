@@ -24,7 +24,17 @@ cd langgraph-harness
 
 ### With Nix
 
-First, check that the default agent backend is available and signed in:
+For a guided explanation of the workflow and its commands:
+
+```sh
+nix run .#local -- help
+```
+
+`help` explains setup, base selection, the interview, test approval, each code and
+review phase, and how to resume. It needs no target checkout or model login and
+does not start work. Use `--help` for a concise command and option reference.
+
+Check that the default agent backend is available and signed in:
 
 ```sh
 nix run .#local -- doctor
@@ -74,6 +84,38 @@ Changing `--repo` will not fix this Nix startup error.
 
 Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
 
+### Run directly from GitHub
+
+You can use the harness without cloning it. These commands work from any directory:
+
+```sh
+nix run github:Devnull-org/langgraph-harness#local -- help
+nix run github:Devnull-org/langgraph-harness#local -- --repo "/path/to/project" doctor
+```
+
+Replace `.` in any `nix run` example with `github:Devnull-org/langgraph-harness`.
+Keep the package selector (`#local` or `#claude-code`) and the arguments after `--`.
+The target project is still a local Git checkout selected with `--repo`.
+
+The same GitHub reference works for a development shell and the harness checks:
+
+```sh
+nix develop github:Devnull-org/langgraph-harness#local
+nix flake check github:Devnull-org/langgraph-harness
+```
+
+`nix develop` provides tools in the current directory; it does not create a writable
+harness clone there. Use a clone to edit the harness or run its local `just` recipes.
+`nix flake check` checks the fetched harness source. Commands that modify the harness,
+such as `nix flake update` or `nix fmt`, should be run in your harness clone.
+
+The GitHub reference uses the repository's default branch. Nix may cache it; add
+`--refresh` to fetch its latest state, for example
+`nix run --refresh github:Devnull-org/langgraph-harness#local -- help`.
+To pin the harness version, use `github:Devnull-org/langgraph-harness/COMMIT#local`,
+replacing `COMMIT` with a full commit hash. This selects the harness version;
+`start --base` below selects the target project's base.
+
 ### Save Hydra project knowledge
 
 Save protocol documentation and state-machine source from your target's committed
@@ -91,8 +133,8 @@ for inspection, updates, and custom sources.
 
 ### Start with the interview
 
-Choose a clean target checkout, including no untracked files. Start a task with
-your own description:
+Choose a target checkout and start a task with your own description. It can contain
+staged changes, unstaged changes, and untracked files:
 
 ```sh
 nix run .#local -- --repo "/path/to/project" start my-feature \
@@ -106,15 +148,32 @@ nix run .#local -- --repo "/path/to/project" start my-feature \
 | `my-feature` | Your name for this task, used later by `resume` and `status`. Choose a name not already used for this checkout. |
 | `"Describe the feature or bug here"` | Your initial request. Replace this text with what you want, or omit it to have the harness ask you. |
 
+The harness asks for a base branch or commit before the interview. Press Enter to
+accept the displayed current branch (`HEAD` for a detached checkout), or enter a
+different branch, tag, or commit. To select the base directly:
+
+```sh
+nix run .#local -- --repo "/path/to/project" start my-feature \
+  "Describe the feature or bug here" --base master
+```
+
+Replace `master` with the base you want. A remote-tracking branch such as
+`origin/master` must already exist locally; fetch it yourself if needed. The harness
+does not fetch or update branches. Scripts and `--json` require both `--base` and a
+request so they never wait for a startup prompt.
+
 **Each phase runs only when you choose it.** `start` runs the interview. The agent
 asks questions until the specification is ready for your approval, then saves it
 and stops. Approving the specification does not start test authoring.
 
-The harness records the target checkout's current HEAD and latest shared project
-context snapshot. It creates a separate branch and worktree only when you later
-start the tests phase. For work based on master, update your chosen checkout to
-the master revision you want before starting. The harness does not switch or
-update that branch.
+The harness resolves the selected base to an exact commit and records it with the
+latest shared project context snapshot. Each task gets a separate branch and
+worktree **before the interview**, so every agent reads the selected base. Local
+uncommitted files stay in your original checkout and are excluded from the task.
+The original checkout's files, index, and branch stay unchanged. Later changes to
+that checkout or its base branch do not change the saved task. `status` displays
+the selected base, pinned commit, and worktree path. All later phases reuse that
+worktree; you do not provide `--base` again.
 
 ### Continue one phase at a time
 
@@ -167,7 +226,8 @@ interview-only tasks, can continue with `run my-feature tests`.
 
 `--interview-only` is still accepted for compatibility, but it is no longer needed:
 `start` already stops after the interview, and you can start tests later on the
-same task. An interview does not create a worktree, write tests, or make commits.
+same task. An interview prepares the task's worktree but does not write tests or
+make commits.
 
 `--walkthrough` records that you want the code questions before handoff. It does
 not launch them automatically: choose `run my-feature walkthrough` after reviews.
@@ -411,8 +471,8 @@ The explicit Cabal run is also required for packages such as `hydra-cluster` and
 `hydra-tui` which do not have Nix test checks.
 
 These commands run inside **Hydra's** dependency environment. It defaults to the
-explicitly selected checkout's flake. To use a separate dependency environment,
-pass its path explicitly when running code phases:
+task worktree's flake, starting from the selected base. To use a separate dependency
+environment, pass its path explicitly when running code phases:
 
 ```sh
 haskell-harness --repo "/path/to/project" --nix-flake "/path/to/dependency-flake" \
@@ -473,8 +533,9 @@ letters, digits, underscores, or hyphens and must begin with a letter or digit.
 | Command | Purpose |
 | --- | --- |
 | `backends` | List configured backend profiles and the default selection. No checkout is needed. |
+| `help` | Walk through setup, base selection, approvals, phases, and resuming with examples. No checkout, backend configuration, or login is needed. |
 | `doctor` | Check tools and backend authentication probes. With `--repo`, also check the target's Nix requirements. Does not build or run tests. |
-| `start TASK [REQUEST]` | Create a task and run its interview. If `REQUEST` is omitted, ask for it in the terminal. |
+| `start TASK [REQUEST]` | Choose a base, create an isolated task worktree, and run the interview. In a terminal, ask for the base and request if omitted. |
 | `run TASK PHASE` | Start one available phase of a saved task. It cannot bypass prerequisites or approvals. |
 | `resume TASK` | Continue interrupted work or return to a pending gate in the current phase. A completed phase remains stopped. |
 | `status TASK` | Display saved progress and the available next phases without invoking agents. |
@@ -487,7 +548,7 @@ Global options go **before** the command:
 | --- | --- |
 | `--repo PATH` | Root of the target Git checkout. Required for task and context commands; there is no default path. |
 | `--state-dir PATH` | Base directory for SQLite data, worktrees, logs, and reports. Defaults to `$XDG_STATE_HOME/hydra-harness` or `~/.local/state/hydra-harness`. Must be outside the target checkout. Use the same value on later invocations. |
-| `--nix-flake PATH` | Target dependency flake used for validation. Defaults to the selected `--repo`; use the same override when resuming or running later code phases. |
+| `--nix-flake PATH` | Target dependency flake used for validation. Defaults to the task worktree (`--repo` for `doctor`, which has no task). Use the same override when resuming or running later code phases. |
 | `--backend NAME` | Select a backend for every agent. Otherwise use user configuration and per-role routing. |
 | `--model ID` | Override the model for every agent. Otherwise use the selected backend and role configuration. |
 | `--config FILE` | Load a user-owned backend TOML file. Without it, use the optional standard user configuration described in [BACKENDS.md](BACKENDS.md). |
@@ -501,6 +562,7 @@ Options specific to `start`:
 
 | Option | Meaning |
 | --- | --- |
+| `--base REF` | Base branch, tag, or commit. Asked in a terminal if omitted, with the current branch as the default (`HEAD` if detached). Required with `--json` or noninteractive input. Saved as an exact commit for all later phases. |
 | `--interview-only` | Compatibility option. Starting already stops after the interview, and the same task can continue later. |
 | `--walkthrough` | Require an explicitly started walkthrough before handoff. You can still use `skip` during the questions. |
 
@@ -516,6 +578,13 @@ For example, `nix run .#local -- run --help` lists phase names and
 `nix run .#local -- start --help` explains the start options.
 
 ## Scripted responses
+
+Start a task without interactive startup prompts:
+
+```sh
+haskell-harness --repo "/path/to/project" --json start my-feature \
+  "Describe the feature or bug here" --base master
+```
 
 Get the saved gate as JSON:
 
@@ -599,8 +668,11 @@ sandbox: custom backends run with the capabilities of their local process and
 integrations. Backend configurations are user-owned and are never automatically
 loaded from the target repository. Use trusted backends and review the diffs.
 
-Completed interview-only tasks can continue with `run TASK tests`. Older tasks
-saved in automatic full-workflow mode retain that behavior; new tasks stop between
+Completed interview-only tasks can continue with `run TASK tests`. Interviews saved
+before base selection was introduced keep their existing checkout checks until
+their worktree is created; start a new task with `--base` to use isolation from the
+beginning. Older tasks saved in automatic full-workflow mode retain that behavior;
+new tasks stop between
 phases. General migration across future checkpoint format versions is not provided.
 If a commit hook changes content, the harness stops for revalidation.
 Large tasks should be split: each agent response is one focused full-file patch,

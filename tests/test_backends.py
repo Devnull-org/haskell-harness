@@ -162,3 +162,59 @@ def test_relative_backend_path_uses_the_selected_checkout_for_diagnostics(tmp_pa
     agent = CommandAgent(Backend(command=["./agent-double"]))
     assert agent.doctor(checkout)[0]
     assert agent("interviewer", {}, checkout) == REPLY
+
+
+def test_backend_accepts_one_fenced_response_after_progress_commentary(tmp_path):
+    content = (
+        "I will inspect the code. Here are the questions.```json\n" + json.dumps(REPLY) + "\n```"
+    )
+    script = executable(tmp_path, f"print({json.dumps({'result': content})!r})\n")
+    assert (
+        CommandAgent(Backend(command=[script], response_fields=["result"]))(
+            "interviewer", {}, tmp_path
+        )
+        == REPLY
+    )
+
+
+def test_fenced_response_can_contain_backticks_in_json_strings(tmp_path):
+    reply = {"answer": "The example is ```haskell\\naddOne 0\\n``` in the docs."}
+    content = "Explanation follows.```json\n" + json.dumps(reply) + "\n```"
+    script = executable(tmp_path, f"print({json.dumps({'result': content})!r})\n")
+    assert (
+        CommandAgent(Backend(command=[script], response_fields=["result"]))(
+            "interviewer", {"intent": "explain"}, tmp_path
+        )
+        == reply
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "```json\n{}\n```\n```json\n" + json.dumps(REPLY) + "\n```",
+        "Commentary.```json\nnot json\n```",
+        "Commentary.```json\n{}\n```",
+        "Commentary without a structured response",
+    ],
+)
+def test_response_recovery_still_rejects_ambiguous_or_invalid_handoffs(tmp_path, content):
+    script = executable(tmp_path, f"print({json.dumps({'result': content})!r})\n")
+    with pytest.raises(ValueError, match="JSON|schema"):
+        CommandAgent(Backend(command=[script], response_fields=["result"]))(
+            "interviewer", {}, tmp_path
+        )
+
+
+def test_invalid_backend_output_is_saved_with_the_task(rig, tmp_path):
+    harness, _, _ = rig
+    script = executable(
+        tmp_path, "import sys\nprint('invalid response')\nprint('diagnostic', file=sys.stderr)\n"
+    )
+    harness.agent = CommandAgent(Backend(command=[script]))
+    view = harness.start("invalid", "Fix it")
+    assert view["stage"] == "agent_error"
+    directory = harness.state_dir / "invalid" / "backend-responses" / "0001-interviewer"
+    assert (directory / "stdout.txt").read_text() == "invalid response\n"
+    assert (directory / "stderr.txt").read_text() == "diagnostic\n"
+    assert str(directory) in view["prompt"]["error"]

@@ -149,6 +149,11 @@ read the files there. The harness does not automatically upload a repository to 
 API or grant a plain language model file access.
 
 Envelope responses can contain a JSON object or JSON text in the configured field.
+One fenced JSON block with surrounding progress commentary is also accepted;
+multiple blocks are rejected. The extracted object must still match the complete
+role schema. Invalid JSON/schema responses are saved in the task's
+`backend-responses` directory for local diagnosis. The terminal reports elapsed
+time every 15 seconds while waiting; this does not indicate model progress.
 Error envelopes, missing fields, malformed JSON, and schema mismatches stop at an
 error gate. There are no automatic provider fallbacks. All processes are terminated
 on timeout; changing the backend does not weaken test protection or validation.

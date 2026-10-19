@@ -12,6 +12,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
+from .backends import BackendResponseError
 from .project_context import ContextStore, state_directory
 from .reports import pr_description
 from .schemas import schema_for
@@ -349,7 +350,18 @@ class Harness:
         if cache.exists():
             result = json.loads(cache.read_text())
         else:
-            result = self.agent(role, context, workspace.path)
+            try:
+                result = self.agent(role, context, workspace.path)
+            except BackendResponseError as error:
+                directory = (
+                    Path(state["directory"]) / "backend-responses" / f"{state['seq']:04d}-{role}"
+                )
+                directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+                for filename, text in (("stdout.txt", error.stdout), ("stderr.txt", error.stderr)):
+                    path = directory / filename
+                    path.write_text(text)
+                    path.chmod(0o600)
+                raise ValueError(f"{error}\nBackend response saved in: {directory}") from error
             result = schema_for(role, context).model_validate(result).model_dump(exclude_unset=True)
             if workspace.fingerprint() != before:
                 raise ValueError(

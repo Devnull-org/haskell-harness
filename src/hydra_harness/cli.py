@@ -320,8 +320,16 @@ def main(argv=None):
                     raise ValueError("Supply a request when starting without prompts")
                 args.request = input("What do you want to build or fix?\n> ")
         settings = load_settings(args.config)
+
+        def progress(message):
+            print(message, file=sys.stderr, flush=True)
+
         agent = RoutedAgent(
-            settings, backend=args.backend, model=args.model, timeout=args.agent_timeout
+            settings,
+            backend=args.backend,
+            model=args.model,
+            timeout=args.agent_timeout,
+            progress=progress,
         )
         if args.command == "backends":
             names = sorted(settings.backends)
@@ -346,7 +354,7 @@ def main(argv=None):
             agent,
             LocalExecutor(nix_flake=args.nix_flake, timeout=args.check_timeout),
             unsigned_commits=args.unsigned_commits,
-            progress=lambda message: print(message, file=sys.stderr, flush=True),
+            progress=progress,
         )
         if args.command == "start":
             view = harness.start(

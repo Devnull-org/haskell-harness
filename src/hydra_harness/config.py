@@ -53,7 +53,7 @@ def load_settings(path=None):
 
 
 class RoutedAgent:
-    def __init__(self, settings, *, backend=None, model=None, timeout=None):
+    def __init__(self, settings, *, backend=None, model=None, timeout=None, progress=None):
         if backend is not None and backend not in settings.backends:
             raise ValueError(
                 f"Unknown backend {backend!r}; use the backends command to list profiles"
@@ -62,6 +62,7 @@ class RoutedAgent:
         self.backend = backend
         self.model = model
         self.timeout = timeout
+        self.progress = progress
 
     def resolve(self, role):
         route = self.settings.roles.get(role, Route())
@@ -71,7 +72,11 @@ class RoutedAgent:
         if model is None and self.backend is None:
             model = route.model
         return CommandAgent(
-            self.settings.backends[name], name=name, model=model, timeout=self.timeout
+            self.settings.backends[name],
+            name=name,
+            model=model,
+            timeout=self.timeout,
+            progress=self.progress,
         )
 
     def __call__(self, role, context, cwd):

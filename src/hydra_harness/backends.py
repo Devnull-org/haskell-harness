@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import re
 import shutil
 from importlib.resources import files
 from pathlib import Path
@@ -12,6 +13,30 @@ from pydantic import Field, field_validator
 
 from .process import run_process
 from .schemas import Record, schema_for
+
+
+class BackendResponseError(ValueError):
+    """Keep an invalid response available for local diagnostics."""
+
+    def __init__(self, message, stdout, stderr):
+        super().__init__(message)
+        self.stdout, self.stderr = stdout, stderr
+
+
+def decode_response(text):
+    """Accept a JSON response or one fenced JSON block with surrounding commentary."""
+    if not text.strip():
+        raise ValueError("Empty backend response")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        blocks = list(re.finditer(r"```(?:json)?[ \t]*\r?\n(.*?)\r?\n```", text, re.DOTALL))
+        if len(blocks) != 1:
+            raise ValueError("Expected one JSON object or one fenced JSON block") from None
+        block = blocks[0]
+        if "```" in text[: block.start()] + text[block.end() :]:
+            raise ValueError("Multiple response blocks are ambiguous") from None
+        return json.loads(block.group(1))
 
 
 class Backend(Record):
@@ -74,11 +99,12 @@ def prompt_for(role, context):
 class CommandAgent:
     """Adapt an agent CLI or an API bridge to the workflow's Agent protocol."""
 
-    def __init__(self, backend, *, name="custom", model=None, timeout=None):
+    def __init__(self, backend, *, name="custom", model=None, timeout=None, progress=None):
         self.backend = backend
         self.name = name
         self.model = model if model is not None else backend.model
         self.timeout = timeout if timeout is not None else backend.timeout
+        self.progress = progress
         Backend.positive_timeout(self.timeout)
 
     def environment(self):
@@ -120,19 +146,30 @@ class CommandAgent:
                 },
                 ensure_ascii=False,
             )
+        if self.progress:
+            self.progress(f"Backend {self.name!r}: waiting for {role} (timeout {self.timeout:g}s)")
         code, stdout, stderr = run_process(
             command,
             cwd,
             timeout=self.timeout,
             stdin=request,
             env=self.environment(),
+            progress=(
+                lambda elapsed: self.progress(
+                    f"Backend {self.name!r}: {role} still running ({elapsed:.0f}s elapsed)"
+                )
+            )
+            if self.progress
+            else None,
         )
+        if self.progress:
+            self.progress(f"Backend {self.name!r}: {role} returned; checking the response")
         if code:
             raise RuntimeError(
                 f"Backend {self.name!r} failed ({code}): {stderr[-4000:] or stdout[-4000:]}"
             )
         try:
-            result = json.loads(stdout)
+            result = decode_response(stdout)
             if not isinstance(result, dict):
                 raise ValueError("Output must be a JSON object")
             if self.backend.response_fields:
@@ -145,14 +182,11 @@ class CommandAgent:
                 else:
                     raise ValueError("Output is missing its configured response field")
             if isinstance(result, str):
-                result = result.strip()
-                if result.startswith("```json\n") and result.endswith("```"):
-                    result = result[8:-3].strip()
-                result = json.loads(result)
+                result = decode_response(result)
             return schema_for(role, context).model_validate(result).model_dump(exclude_unset=True)
         except (ValueError, TypeError) as error:
-            raise ValueError(
-                f"Backend {self.name!r} JSON/schema validation failed: {error}"
+            raise BackendResponseError(
+                f"Backend {self.name!r} JSON/schema validation failed: {error}", stdout, stderr
             ) from error
 
     def doctor(self, cwd):

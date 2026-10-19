@@ -24,19 +24,29 @@ class BackendResponseError(ValueError):
 
 
 def decode_response(text):
-    """Accept a JSON response or one fenced JSON block with surrounding commentary."""
+    """Accept one JSON response, allowing narration before it or around a code fence."""
     if not text.strip():
         raise ValueError("Empty backend response")
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         blocks = list(re.finditer(r"```(?:json)?[ \t]*\r?\n(.*?)\r?\n```", text, re.DOTALL))
-        if len(blocks) != 1:
+        if blocks:
+            if len(blocks) != 1:
+                raise ValueError("Multiple response blocks are ambiguous") from None
+            block = blocks[0]
+            if "```" in text[: block.start()] + text[block.end() :]:
+                raise ValueError("Multiple response blocks are ambiguous") from None
+            return json.loads(block.group(1))
+        start = text.find("{")
+        prefix = text[:start]
+        if start < 0 or "```" in prefix or any(char in prefix for char in "[]}"):
             raise ValueError("Expected one JSON object or one fenced JSON block") from None
-        block = blocks[0]
-        if "```" in text[: block.start()] + text[block.end() :]:
-            raise ValueError("Multiple response blocks are ambiguous") from None
-        return json.loads(block.group(1))
+        # Parse from the first object; never rescue a nested object from a broken response.
+        result, end = json.JSONDecoder().raw_decode(text, start)
+        if text[end:].strip():
+            raise ValueError("Expected only one JSON object after commentary") from None
+        return result
 
 
 class Backend(Record):
@@ -108,7 +118,18 @@ class CommandAgent:
         Backend.positive_timeout(self.timeout)
 
     def environment(self):
-        environment = dict(os.environ)
+        # A child agent must not report its activity as the desktop's parent session.
+        desktop_session = {
+            "ORCA_PANE_KEY",
+            "ORCA_TAB_ID",
+            "ORCA_WORKTREE_ID",
+            "ORCA_STRUCTURED_SESSION",
+        }
+        environment = {
+            name: value
+            for name, value in os.environ.items()
+            if name not in desktop_session and not name.startswith("ORCA_AGENT_")
+        }
         for name in self.backend.unset_env:
             environment.pop(name, None)
         return environment

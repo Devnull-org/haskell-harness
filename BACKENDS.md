@@ -149,8 +149,11 @@ read the files there. The harness does not automatically upload a repository to 
 API or grant a plain language model file access.
 
 Envelope responses can contain a JSON object or JSON text in the configured field.
-One fenced JSON block with surrounding progress commentary is also accepted;
-multiple blocks are rejected. The extracted object must still match the complete
+Introductory commentary followed by one JSON object, or one fenced JSON block with
+surrounding commentary, is also accepted. For an unfenced response, the first
+opening brace must begin the complete object and only whitespace may follow it;
+the parser never falls back to an object nested inside malformed JSON. Multiple
+objects or blocks are rejected. The extracted object must still match the complete
 role schema. Invalid JSON/schema responses are saved in the task's
 `backend-responses` directory for local diagnosis. The terminal reports elapsed
 time every 15 seconds while waiting; this does not indicate model progress.
@@ -159,7 +162,12 @@ error gate. There are no automatic provider fallbacks. All processes are termina
 on timeout; changing the backend does not weaken test protection or validation.
 
 Configure required credentials through the selected CLI/service's normal mechanism.
-Custom profiles inherit the process environment except for their explicit `unset_env`
+All profiles remove inherited `ORCA_AGENT_*`, `ORCA_PANE_KEY`, `ORCA_TAB_ID`,
+`ORCA_WORKTREE_ID`, and `ORCA_STRUCTURED_SESSION` variables from child processes.
+This prevents desktop hooks from attributing a background agent to its parent's
+session. It does not change the parent environment, saved login, or global hooks.
+Backend session history may still be visible in desktop apps that scan it.
+Other environment variables are inherited except for the profile's `unset_env`
 list. `doctor` verifies executable availability and runs the optional status probe;
 without a probe it does not claim to have verified authentication or model access.
 

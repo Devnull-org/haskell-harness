@@ -439,13 +439,21 @@ when the response arrives. Backend output may be buffered until the call finishe
 the elapsed-time messages indicate that the harness is still waiting, not that the
 model has completed a particular action. The configured agent timeout still applies.
 
-The harness accepts a JSON response or one fenced JSON block with surrounding
-commentary, then validates the complete object against the role's schema. Multiple
-blocks, invalid JSON, and missing required fields stop at `agent_error`. Failed
+The harness accepts a JSON response, including one object after introductory
+commentary or one fenced JSON block with surrounding commentary. It then validates
+the complete object against the role's schema. Multiple objects or blocks,
+invalid JSON, and missing required fields stop at `agent_error`. Failed
 JSON/schema responses are saved under the task's `backend-responses` directory,
 outside the target checkout; the error prints the path to `stdout.txt` and
 `stderr.txt`. These files can contain task and source details, so inspect them
 before sharing. No response is applied without successful validation.
+
+Agent calls run in the background using the selected backend's existing login.
+They do not inherit the parent terminal's Orca pane or session identity, so desktop
+status hooks cannot report a child call as the parent conversation. A backend CLI
+may still save its own session history, which desktop apps can discover and show
+as separate, sometimes empty chats. The harness conversation and approval prompts
+remain in the terminal where you launched it.
 
 At an `agent_error` prompt, `retry` repeats the failed step. If you have updated the
 harness, type `quit` in the old process and launch `resume TASK` with the updated

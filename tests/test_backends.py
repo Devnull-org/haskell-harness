@@ -1,6 +1,7 @@
 """Backends share schema validation, process controls, and prompt semantics."""
 
 import json
+import os
 
 import pytest
 
@@ -189,6 +190,51 @@ def test_fenced_response_can_contain_backticks_in_json_strings(tmp_path):
     )
 
 
+@pytest.mark.parametrize("prefix", ["I inspected the code.", "I inspected the code.\n\n"])
+def test_backend_accepts_narration_followed_by_one_unfenced_response(tmp_path, prefix):
+    reply = {"answer": 'The example uses {braces}, an escaped "quote", and ```haskell fences.'}
+    content = prefix + json.dumps(reply) + "\n"
+    script = executable(tmp_path, f"print({json.dumps({'result': content})!r})\n")
+    assert (
+        CommandAgent(Backend(command=[script], response_fields=["result"]))(
+            "interviewer", {"intent": "explain"}, tmp_path
+        )
+        == reply
+    )
+
+
+def test_backend_detaches_desktop_session_hooks_without_changing_login(tmp_path, monkeypatch):
+    routing = {
+        "ORCA_PANE_KEY": "parent-pane",
+        "ORCA_TAB_ID": "parent-tab",
+        "ORCA_WORKTREE_ID": "parent-worktree",
+        "ORCA_AGENT_HOOK_ENDPOINT": "/unused/endpoint",
+        "ORCA_AGENT_HOOK_PORT": "1",
+        "ORCA_AGENT_HOOK_TOKEN": "test-hook-token",
+        "ORCA_AGENT_LAUNCH_TOKEN": "parent-launch",
+        "ORCA_AGENT_PANE": "parent-pane-alias",
+        "ORCA_AGENT_LAUNCH": "parent-launch-alias",
+        "ORCA_AGENT_SESSION_ID": "parent-session",
+        "ORCA_STRUCTURED_SESSION": "1",
+    }
+    for key, value in routing.items():
+        monkeypatch.setenv(key, value)
+    home = str(tmp_path / "existing-home")
+    monkeypatch.setenv("HOME", home)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "existing-config"))
+    script = executable(
+        tmp_path,
+        "import os\n"
+        f"assert not set({list(routing)!r}) & os.environ.keys()\n"
+        f"assert os.environ['HOME'] == {home!r}\n"
+        f"assert os.environ['XDG_CONFIG_HOME'] == {str(tmp_path / 'existing-config')!r}\n"
+        f"print({json.dumps(REPLY)!r})\n",
+    )
+    assert CommandAgent(Backend(command=[script]))("interviewer", {}, tmp_path) == REPLY
+    for key, value in routing.items():
+        assert os.environ[key] == value
+
+
 @pytest.mark.parametrize(
     "content",
     [
@@ -196,6 +242,11 @@ def test_fenced_response_can_contain_backticks_in_json_strings(tmp_path):
         "Commentary.```json\nnot json\n```",
         "Commentary.```json\n{}\n```",
         "Commentary without a structured response",
+        "Commentary.{}" + json.dumps(REPLY),
+        "Commentary." + json.dumps(REPLY) + " trailing prose",
+        'Commentary.{"broken": ' + json.dumps(REPLY),
+        "Commentary.[" + json.dumps(REPLY) + "]",
+        "Commentary.```json\n" + json.dumps(REPLY),
     ],
 )
 def test_response_recovery_still_rejects_ambiguous_or_invalid_handoffs(tmp_path, content):

@@ -15,6 +15,81 @@ testing, and committing Hydra patches still requires its full toolchain.
 
 ## Quick start
 
+### Before starting a project
+
+With Nix and Git already installed, run this **once per developer machine** from
+any directory. Skip the installation if you have already installed the harness:
+
+```sh
+nix profile add --refresh github:Devnull-org/langgraph-harness#local
+haskell-harness help
+haskell-harness doctor
+```
+
+The first command installs the harness and its default agent backend. `help` shows
+the workflow. `doctor` checks tools and the saved backend login. If it reports
+**Not logged in**, sign in through the selected agent CLI, then rerun `doctor`.
+An existing working login needs no further setup. Older Nix versions may call
+`profile add` `profile install`; see [installation details](#install-the-command-with-nix).
+
+For **each project**, use an existing local Git checkout. Replace the placeholder
+below with its actual path; these commands do not require a harness clone:
+
+```sh
+cd "/path/to/project"
+git branch --all
+haskell-harness --repo . doctor
+```
+
+`cd` enters the target project. `git branch --all` lists local and already fetched
+remote-tracking branches so you can choose a base. `--repo .` selects this checkout;
+the project doctor also checks Nix and its `flake.nix`. To update remote-tracking
+branches before choosing a base, optionally run `git fetch origin` (replace `origin`
+if your remote has another name). Fetching does not switch your branch or move
+uncommitted work.
+
+Optionally save shared project knowledge **before creating the first task**. For
+a Hydra checkout, run:
+
+```sh
+haskell-harness --repo . context refresh --profile hydra
+haskell-harness --repo . context show
+```
+
+For another project, use its actual committed documentation paths instead of the
+Hydra profile. For example, replace `docs/architecture.md` with a file in that repo:
+
+```sh
+haskell-harness --repo . context refresh --source docs/architecture.md
+haskell-harness --repo . context show
+```
+
+Choose the context example appropriate to your project, or skip it. `refresh`
+saves committed sources from the checkout's current HEAD; `show` lets you inspect
+them. Repeat `--source` to include more files. New tasks pin the latest saved
+snapshot; existing tasks keep theirs. See [Project context](#project-context).
+
+Then start the first feature or bug task:
+
+```sh
+haskell-harness --repo . start my-feature "Describe the feature or bug"
+```
+
+Replace `my-feature` with a unique task name and the description with your request.
+The harness asks for the base branch or commit and creates a separate worktree.
+You can supply `--base BRANCH_OR_COMMIT` to skip that prompt. Your original checkout
+may contain uncommitted changes. The interview stops after specification approval;
+later phases must be started explicitly.
+
+Interviews can run for any Git checkout. Code phases currently expect the
+[Hydra validation commands](#hydra-validation-and-commits): `just lint`, `just check`,
+and `just test PACKAGE_NAME`, with Cabal test results in `test-reports/*.xml`.
+Other projects need compatible recipes before running those phases. `doctor`
+checks tools, login, and flake presence; it does not verify those recipes or run
+builds and tests.
+
+### Run from a harness clone
+
 Clone the harness with `git clone`, then use `cd` to enter its directory:
 
 ```sh

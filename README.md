@@ -45,15 +45,32 @@ normal login command and your existing account, then rerun `doctor`. The harness
 uses the saved CLI login; it does not perform login itself or read credentials.
 
 Without `--repo`, `doctor` checks only the harness and backends. To also check the
-target's Nix executable and dependency flake:
+target's Nix executable and dependency flake, run this from the harness clone:
 
 ```sh
+cd "/path/to/langgraph-harness"
 nix run .#local -- --repo "/path/to/project" doctor
 ```
+
+`/path/to/langgraph-harness` is a placeholder for your harness clone, which contains
+the harness's `flake.nix`. Nix resolves `.` before starting the harness.
+`--repo` selects the target project after the harness starts; it does not change
+the current directory or tell Nix where to find the harness.
 
 `/path/to/project` is a placeholder: replace it with the root of your Git checkout.
 No path is assumed or discovered. Quoting the path also supports directory names
 containing spaces. `doctor` does not compile or run the project's test suite.
+
+To run from any directory, give Nix the path to the harness clone explicitly:
+
+```sh
+nix run "/path/to/langgraph-harness#local" -- --repo "/path/to/project" doctor
+```
+
+If `nix run .#local` reports that the current directory does not contain a
+`flake.nix` and ends with `could not find a flake.nix file`, the harness has not
+started yet. Change into the harness clone or use its explicit path as above.
+Changing `--repo` will not fix this Nix startup error.
 
 Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
 

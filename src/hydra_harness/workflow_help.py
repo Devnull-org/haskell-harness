@@ -35,6 +35,18 @@ Choose how to launch
   my-feature is your task name. Reuse it and the same --repo to continue later.
   help displays this guide without logging in, running agents, or creating tasks.
 
+Use the browser instead of terminal conversations
+    haskell-harness --repo /path/to/project serve
+  Open the printed URL, normally http://127.0.0.1:8765, and keep the command running.
+  serve --port 8766 selects another local port. The page shares tasks, worktrees,
+  saved CLI logins, project context, and approval gates with the terminal.
+  Choose Explore for analysis or Plan a feature or fix for the interview.
+  Enter adds a newline; Send or Ctrl/Command+Enter submits your message.
+  Stop model cancels generation. Edit previous message lets you change it and
+  send again; Retry unchanged repeats it. Completed steps remain saved.
+  Closing the tab leaves the server and active work running. Ctrl+C in the server
+  terminal stops it and cancels active work. Reopen serve to return to saved tasks.
+
 1. Check your tools and login
     haskell-harness --repo /path/to/project doctor
   If needed, sign in through your selected agent CLI with your existing account.
@@ -179,6 +191,7 @@ Command and option reference
     haskell-harness --help
     haskell-harness start --help
     haskell-harness explore --help
+    haskell-harness serve --help
     haskell-harness run --help
     haskell-harness restart --help
   Global options (--repo, --backend, --json) go before the command. start options

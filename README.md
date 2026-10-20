@@ -15,6 +15,45 @@ testing, and committing Hydra patches still requires its full toolchain.
 
 ## Quick start
 
+### Use the local browser interface
+
+From any directory:
+
+```sh
+nix run --refresh github:Devnull-org/langgraph-harness -- \
+  --repo "/path/to/project" serve
+```
+
+Replace `/path/to/project` with your Git checkout, then open the printed URL
+(normally **http://127.0.0.1:8765**) in your browser. Keep the command running.
+With an installed harness, use `haskell-harness --repo "/path/to/project" serve`;
+from a harness clone, use `nix run . -- --repo "/path/to/project" serve`.
+`serve --port 8766` chooses another port.
+
+The page uses the same saved tasks, project context, worktrees, model backends,
+and approval gates as the terminal. Existing tasks appear in the sidebar.
+Choose **Explore** for an explanation or options, or **Plan a feature or fix**
+for a requirements interview. Enter the base branch and task name before starting.
+Backend discovery runs when work starts; multiple usable backends produce a choice
+on the page. Your existing CLI logins are reused.
+Use **Check backends and resume** to check providers again for the selected task.
+
+- Enter adds a newline in the message editor; **Send** or Ctrl/Command+Enter submits it.
+- During generation, **Stop model** stops the local backend process and saves an
+  `agent_paused` task. You can keep drafting while it runs.
+- After stopping, use **Edit previous message**, change the instructions, and send
+  them again. **Retry unchanged** repeats the interrupted request.
+- Closing the browser tab keeps the server and active work running. Reopen the
+  printed URL and select the task to return. Stopping the server with Ctrl+C
+  cancels its active work; submitted messages and completed steps remain saved.
+- Approvals and later phases still require an explicit button click. You review
+  and approve tests before implementation.
+
+The server listens only on this machine's loopback address. It needs no separate
+web account and does not publish your project. It uses your model providers in the
+same way as the terminal. You can switch between the browser and terminal; run
+one active workflow operation per project at a time.
+
 ### Before starting a project
 
 With Nix and Git already installed, run this **once per developer machine** from
@@ -918,6 +957,7 @@ letters, digits, underscores, or hyphens and must begin with a letter or digit.
 | `backends` | List configured backend profiles and the default selection. No checkout is needed. |
 | `help` | Walk through setup, base selection, approvals, phases, and resuming with examples. No checkout, backend configuration, or login is needed. |
 | `doctor` | Check tools and backend authentication probes. With `--repo`, also check the target's Nix requirements. Does not build or run tests. |
+| `serve` | Start the local browser interface for the selected project. Prints its loopback URL; uses the same saved tasks and approvals as the terminal. |
 | `start TASK [REQUEST]` | Choose a base, create an isolated task worktree, and run the interview. In a terminal, ask for the base and request if omitted. |
 | `explore TASK [REQUEST]` | Choose a base, create a worktree, and deliver an analysis with follow-up discussion. Ask for the base and question if omitted in a terminal. No requirements interview or coding is started. |
 | `restart TASK [REQUEST]` | Start a new task from the original request, starting phase, and pinned base, leaving the original intact. Optional `REQUEST` replaces the original description. Prints the new task name. |
@@ -967,6 +1007,12 @@ Options specific to `abandon`:
 | Option | Meaning |
 | --- | --- |
 | `--yes` | Confirm permanent deletion of the task, worktree, local branch, and task files, including uncommitted changes. Skips the confirmation prompt; required with `--json` or noninteractive input. |
+
+Options specific to `serve`:
+
+| Option | Meaning |
+| --- | --- |
+| `--port PORT` | Local HTTP port, default `8765`. Use another port if it is occupied; `0` selects an available port. The host is always `127.0.0.1`. |
 
 Options specific to `respond`:
 
@@ -1029,8 +1075,10 @@ just test
 just check
 ```
 
-In the harness repository, `just lint` checks Python lint, Python formatting, and
-Nix formatting; `just test` runs the harness's Python tests; `just check` runs its
+In the harness repository, `just lint` checks Python lint, Python formatting,
+Nix formatting, browser asset formatting, and JavaScript syntax. Nix supplies
+Node and Prettier for development; using the browser interface needs neither.
+`just test` runs the harness's Python tests; `just check` runs its
 Nix flake checks. These are different recipes from those in a Hydra checkout.
 
 Or run the reproducible check directly:

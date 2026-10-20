@@ -327,7 +327,7 @@ class Harness:
     def _workspace(self, state):
         return Workspace(state.get("worktree", self.repository))
 
-    def _view(self, state):
+    def _view(self, state, *, inspect_worktree=True):
         view = {
             key: state[key]
             for key in (
@@ -343,11 +343,14 @@ class Harness:
             )
             if key in state
         }
-        view["revision"] = (
-            state.get("cleanup_revision")
-            if state["stage"] == "abandoning"
-            else self._workspace(state).revision
-        )
+        if state["stage"] == "abandoning":
+            view["revision"] = state.get("cleanup_revision")
+        elif inspect_worktree:
+            view["revision"] = self._workspace(state).revision
+        else:
+            # A browser poll reads checkpoints while another thread may remove a worktree.
+            commits = state.get("commits", [])
+            view["revision"] = commits[-1]["revision"] if commits else state["base"]
         if state["stage"] == "specification_ready":
             view["prompt"] = {**view["prompt"], "available_phases": self._available_phases(state)}
         return view

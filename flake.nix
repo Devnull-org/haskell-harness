@@ -128,6 +128,8 @@
                 pkgs.git
                 pkgs.just
                 pkgs.nixfmt
+                pkgs.nodejs
+                pkgs.prettier
                 pkgs.uv
               ]
               ++ extra;
@@ -157,6 +159,8 @@
         {
           commands = pkgs.runCommand "haskell-harness-commands-check" { } ''
             ${self.packages.${system}.default}/bin/haskell-harness help > help.txt
+            ${self.packages.${system}.default}/bin/haskell-harness serve --help > serve-help.txt
+            ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; assert "Stop model" in files("hydra_harness").joinpath("web", "index.html").read_text()'
             ${self.packages.${system}.default}/bin/hydra-harness help > legacy-help.txt
             cmp help.txt legacy-help.txt
             ${self.packages.${system}.default}/bin/haskell-harness --json backends > auto-backends.json
@@ -173,6 +177,8 @@
                   development.${system}
                   pkgs.git
                   pkgs.nixfmt
+                  pkgs.nodejs
+                  pkgs.prettier
                 ];
               }
               ''
@@ -185,6 +191,8 @@
                 ruff check .
                 ruff format --check .
                 nixfmt --check flake.nix
+                prettier --check src/hydra_harness/web
+                node --check src/hydra_harness/web/app.js
                 pytest -q
                 touch "$out"
               '';

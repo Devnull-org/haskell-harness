@@ -81,14 +81,15 @@ def classify_validation(results, expected_failures, *, phase):
 
 
 class LocalExecutor:
-    def __init__(self, *, nix_flake=None, timeout=3600):
+    def __init__(self, *, nix_flake=None, timeout=3600, cancel=None):
         self.nix_flake = str(Path(nix_flake).expanduser().resolve()) if nix_flake else None
         self.timeout = timeout
+        self.cancel = cancel
 
     def __call__(self, argv, cwd):
         actual = ["nix", "develop", self.nix_flake or str(cwd), "--command", *argv]
         started = time.time_ns()
-        code, stdout, stderr = run_process(actual, cwd, timeout=self.timeout)
+        code, stdout, stderr = run_process(actual, cwd, timeout=self.timeout, cancel=self.cancel)
         reports = []
         if argv[:2] == ["just", "test"]:
             for path in (cwd / "test-reports").glob("*.xml"):

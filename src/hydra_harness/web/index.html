@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="harness-token" content="HARNESS_SESSION_TOKEN" />
+    <title>Haskell Harness</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <aside>
+      <a class="brand" href="/">λ <span>Haskell Harness</span></a>
+      <div class="eyebrow">LOCAL WORKSPACE</div>
+      <div id="repository" class="repo"></div>
+      <button id="new-task" class="primary wide">＋ New task</button>
+      <div class="sidebar-heading">
+        SAVED WORK <button id="refresh" class="quiet">Refresh</button>
+      </div>
+      <nav id="tasks" aria-label="Saved tasks"></nav>
+      <div class="sidebar-footer">
+        Your work stays local.<br />Every next phase is your choice.
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <span class="eyebrow">WORKSPACE</span>
+          <h1 id="title">What would you like to work on?</h1>
+        </div>
+        <div>
+          <span id="backend" class="badge">Automatic backend</span
+          ><button id="choose-backend" class="quiet" hidden>
+            Check backends and resume
+          </button>
+        </div>
+      </header>
+      <div id="error" role="alert" hidden></div>
+      <section id="new-panel" class="panel">
+        <div class="eyebrow">START A CONVERSATION</div>
+        <h2>Explore an idea. Or plan a change.</h2>
+        <p class="muted">
+          Choose a starting point. You can pause, change direction, and come
+          back later.
+        </p>
+        <form id="new-form">
+          <div class="choices">
+            <label class="choice"
+              ><input type="radio" name="kind" value="explore" checked />
+              <span
+                ><strong>Explore</strong
+                ><small
+                  >Understand code and compare options. No code changes.</small
+                ></span
+              >
+            </label>
+            <label class="choice"
+              ><input type="radio" name="kind" value="start" />
+              <span
+                ><strong>Plan a feature or fix</strong
+                ><small
+                  >Work through requirements before writing tests.</small
+                ></span
+              >
+            </label>
+          </div>
+          <div class="fields">
+            <label
+              >Task name<input
+                id="task-name"
+                required
+                pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
+                placeholder="validation-options"
+            /></label>
+            <label>Base branch or commit<input id="base" required /></label>
+          </div>
+          <label
+            >Your question or idea<textarea
+              id="request"
+              rows="7"
+              required
+              placeholder="Describe what you want to understand or build. Paste an issue, add context, and take as many lines as you need."
+            ></textarea>
+          </label>
+          <div class="form-footer">
+            <span class="muted">Each task gets its own worktree.</span
+            ><button class="primary" type="submit">Start conversation →</button>
+          </div>
+        </form>
+      </section>
+      <section id="work" hidden>
+        <div id="task-meta" class="metadata"></div>
+        <div id="history"></div>
+        <div id="packet" class="panel"></div>
+        <section id="next-phases" class="panel" hidden>
+          <h2>Choose the next step</h2>
+          <div id="phases" class="button-row"></div>
+        </section>
+        <section id="composer" class="panel" hidden>
+          <div class="compose-top">
+            <label for="message">Your instructions</label
+            ><button id="edit-previous" class="quiet" hidden>
+              Edit previous message
+            </button>
+          </div>
+          <textarea
+            id="message"
+            rows="5"
+            placeholder="Ask a follow-up or describe what should change."
+          ></textarea>
+          <div id="findings"></div>
+          <div class="form-footer">
+            <div>
+              <select id="message-action" aria-label="Message action"></select
+              ><small class="muted"
+                >Enter adds a line · Ctrl/⌘ + Enter sends</small
+              >
+            </div>
+            <button id="send" class="primary">Send →</button>
+          </div>
+          <div id="actions" class="button-row"></div>
+        </section>
+        <div class="task-footer">
+          <button id="resume" class="quiet">Resume</button
+          ><button id="restart" class="quiet">Start a fresh attempt</button
+          ><button id="abandon" class="quiet danger">Abandon task</button>
+        </div>
+      </section>
+      <section id="activity" class="panel" hidden aria-live="polite">
+        <div class="activity-top">
+          <strong id="activity-label">Working…</strong
+          ><button id="stop" class="stop">■ Stop model</button>
+        </div>
+        <p id="activity-message" class="muted"></p>
+        <details>
+          <summary>Activity log</summary>
+          <pre id="log"></pre>
+        </details>
+      </section>
+      <section id="selection" class="panel" hidden>
+        <h2>Choose a backend</h2>
+        <p id="selection-description"></p>
+        <div id="backend-choices" class="button-row"></div>
+        <pre id="backend-checks"></pre>
+      </section>
+      <footer>
+        Haskell Harness · Explore → Interview → Tests → Implement → Refactor →
+        Review
+      </footer>
+    </main>
+    <dialog id="delete-dialog">
+      <form method="dialog">
+        <h2>Abandon this task?</h2>
+        <p>
+          This deletes its conversation, reports, local branch, and worktree,
+          including uncommitted work.
+        </p>
+        <pre id="delete-details"></pre>
+        <label
+          >Type the task name to confirm<input
+            id="delete-name"
+            autocomplete="off"
+        /></label>
+        <div class="form-footer">
+          <button value="cancel">Keep task</button
+          ><button id="delete-confirm" value="delete" class="danger">
+            Delete task
+          </button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

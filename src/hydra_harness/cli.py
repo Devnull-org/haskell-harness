@@ -136,6 +136,8 @@ def parser():
     sub.add_parser("doctor", help="Check tools and backend configuration; --repo is optional")
     sub.add_parser("backends", help="List configured backend profiles")
     sub.add_parser("help", help="Walk through the workflow with commands and approval steps")
+    browser = sub.add_parser("serve", help="Open workflows through a local browser interface")
+    browser.add_argument("--port", type=int, default=8765, help="Loopback port (default: 8765)")
     context = sub.add_parser("context", help="Inspect or refresh shared project knowledge")
     context_commands = context.add_subparsers(dest="context_command", required=True)
     refresh = context_commands.add_parser(
@@ -433,6 +435,11 @@ def _main(argv, cancellation):
             args.repo = args.repo.expanduser().resolve()
             if not args.repo.is_dir():
                 raise ValueError(f"Target checkout does not exist: {args.repo}")
+        if args.command == "serve":
+            from .webapp import serve
+
+            serve(args)
+            return 0
         if args.command == "context":
             return context_command(args)
         if args.command == "abandon":

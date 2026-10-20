@@ -6,7 +6,13 @@ let selected = null,
   timer = null,
   seenJob = null,
   deletePlan = null,
-  packetKey = "";
+  packetKey = "",
+  historyKey = "",
+  historyTask = null,
+  pendingMessage = null,
+  submitting = false,
+  refreshId = 0,
+  connectionError = null;
 const labels = {
   answer: "Answer",
   question: "Ask a question",
@@ -57,16 +63,31 @@ async function guard(action) {
   }
 }
 async function api(path, body) {
-  const options = { headers: { "X-Harness-Token": token } };
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), 10000);
+  const options = {
+    headers: { "X-Harness-Token": token },
+    signal: controller.signal,
+  };
   if (body !== undefined) {
     options.method = "POST";
     options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
-  const response = await fetch(path, options);
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Request failed");
-  return data;
+  try {
+    const response = await fetch(path, options);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Request failed");
+    return data;
+  } catch (e) {
+    if (controller.signal.aborted)
+      throw new Error(
+        "The server did not respond. Check status before sending again.",
+      );
+    throw e;
+  } finally {
+    clearTimeout(deadline);
+  }
 }
 function prose(text) {
   const node = el("div", undefined, "prose");
@@ -109,20 +130,49 @@ function message(who, text, human = false) {
   return node;
 }
 async function command(body) {
-  await api("/api/command", body);
-  if (body.command === "start" || body.command === "explore") {
-    selected = body.task_id;
-    packetKey = "";
+  if (submitting) return;
+  if (state?.job?.running)
+    throw new Error(
+      "An operation is still running. Stop it before sending another.",
+    );
+  submitting = true;
+  if (state) render();
+  try {
+    await api("/api/command", body);
+    if (body.command === "start" || body.command === "explore") {
+      selected = body.task_id;
+      packetKey = "";
+    }
+    await refresh();
+  } finally {
+    submitting = false;
+    if (state) render();
   }
-  await refresh();
 }
 async function refresh() {
+  const requestId = ++refreshId,
+    taskId = selected;
   clearTimeout(timer);
-  state = await api(
-    "/api/state" + (selected ? "?task=" + encodeURIComponent(selected) : ""),
-  );
-  render();
-  if (state.job?.running) timer = setTimeout(() => guard(refresh), 700);
+  try {
+    const next = await api(
+      "/api/state" + (taskId ? "?task=" + encodeURIComponent(taskId) : ""),
+    );
+    if (requestId !== refreshId || taskId !== selected) return;
+    state = next;
+    if (connectionError) error("");
+    connectionError = null;
+    render();
+  } catch (e) {
+    if (requestId !== refreshId || taskId !== selected) return;
+    connectionError = e.message;
+    error("Unable to refresh: " + e.message + " Retrying automatically…");
+  } finally {
+    if (requestId === refreshId && taskId === selected)
+      timer = setTimeout(
+        refresh,
+        connectionError ? 2000 : state?.job?.running ? 700 : 3000,
+      );
+  }
 }
 function render() {
   $("repository").textContent = state.repository;
@@ -130,6 +180,7 @@ function render() {
     state.backend === "auto" ? "Automatic backend" : state.backend;
   if (!$("base").value) $("base").value = state.base;
   const running = !!state.job?.running;
+  const busy = running || submitting || !!connectionError;
   $("tasks").replaceChildren();
   for (const task of state.tasks) {
     const item = button(
@@ -151,12 +202,12 @@ function render() {
     );
   $("new-panel").hidden = !!selected;
   $("work").hidden = !state.task;
-  $("new-task").disabled = running;
+  $("new-task").disabled = busy;
   $("choose-backend").hidden = !state.task;
-  $("choose-backend").disabled = running;
-  $("new-form").querySelector("button").disabled = running;
+  $("choose-backend").disabled = busy;
+  $("new-form").querySelector("button").disabled = busy;
   $("title").textContent = selected || "What would you like to work on?";
-  if (state.task) renderTask(state.task, running);
+  if (state.task) renderTask(state.task, busy);
   $("activity").hidden = !state.job;
   if (state.job) {
     const job = state.job;
@@ -211,6 +262,44 @@ function render() {
       .join("\n");
   }
 }
+function renderHistory(task) {
+  const messages = task.messages || [];
+  if (
+    pendingMessage?.task_id === task.task_id &&
+    messages
+      .slice(pendingMessage.after)
+      .some((item) => (item.text || item.question) === pendingMessage.text)
+  )
+    pendingMessage = null;
+  const pending =
+    pendingMessage?.task_id === task.task_id ? pendingMessage : null;
+  const key = JSON.stringify([task.task_id, task.request, messages, pending]);
+  if (key === historyKey) return;
+  const history = $("history");
+  const atBottom =
+    history.scrollTop + history.clientHeight >= history.scrollHeight - 60;
+  const switched = historyTask !== task.task_id;
+  historyKey = key;
+  historyTask = task.task_id;
+  history.replaceChildren(message("Initial request", task.request, true));
+  for (const item of messages) {
+    if (item.text) history.append(message("You", item.text, true));
+    else if (item.question) {
+      history.append(message("You", item.question, true));
+      if (item.answer) history.append(message("Agent", item.answer));
+    } else if (item.analysis)
+      history.append(
+        message("Explorer", item.summary + "\n\n" + item.analysis),
+      );
+  }
+  if (pending) {
+    const entry = message("You", pending.text, true);
+    entry.append(el("small", pending.status, "message-status"));
+    history.append(entry);
+  }
+  if (atBottom || switched || pending?.status === "Sending…")
+    history.scrollTop = history.scrollHeight;
+}
 function renderTask(task, running) {
   const prompt = task.prompt || {},
     actions = prompt.actions || [],
@@ -221,23 +310,9 @@ function renderTask(task, running) {
     el("div", "Worktree: " + (task.worktree || "Preparing")),
     el("div", "Reports: " + task.report_directory),
   );
+  renderHistory(task);
   if (key !== packetKey) {
     packetKey = key;
-    $("history").replaceChildren();
-    const history = el("details"),
-      summary = el("summary", "Conversation history");
-    history.append(summary, message("Initial request", task.request, true));
-    for (const item of task.messages || []) {
-      if (item.text) history.append(message("You", item.text, true));
-      else if (item.question) {
-        history.append(message("You", item.question, true));
-        if (item.answer) history.append(message("Agent", item.answer));
-      } else if (item.analysis)
-        history.append(
-          message("Explorer", item.summary + "\n\n" + item.analysis),
-        );
-    }
-    $("history").append(history);
     const packet = $("packet");
     packet.replaceChildren();
     if (prompt.summary) packet.append(el("h2", prompt.summary));
@@ -250,7 +325,8 @@ function renderTask(task, running) {
     if (prompt.answer) packet.append(prose(prompt.answer));
     if (prompt.exploration) {
       const a = prompt.exploration;
-      packet.append(el("h2", a.summary), prose(a.analysis));
+      if (!(task.messages || []).some((item) => item.analysis === a.analysis))
+        packet.append(el("h2", a.summary), prose(a.analysis));
       section(packet, "References", a.references.join("\n"));
       section(packet, "Open questions", a.open_questions.join("\n"));
     }
@@ -330,6 +406,7 @@ function renderTask(task, running) {
   for (const id of ["resume", "restart", "abandon"]) $(id).disabled = running;
 }
 async function respond(action) {
+  if (submitting || state?.job?.running) return;
   const text = $("message").value;
   if (
     [...textActions, "dismiss", "accept_red"].includes(action) &&
@@ -339,15 +416,34 @@ async function respond(action) {
   const ids = [...$("findings").querySelectorAll("input:checked")].map(
     (n) => n.value,
   );
-  await command({
-    command: "respond",
-    task_id: selected,
-    action,
-    text,
-    token: state.task.prompt.approval_token,
-    finding_ids: ids,
-  });
-  if ($("message").value === text) $("message").value = "";
+  if (textActions.includes(action) && text.trim()) {
+    pendingMessage = {
+      task_id: selected,
+      text,
+      after: (state.task.messages || []).length,
+      status: "Sending…",
+    };
+    renderHistory(state.task);
+  }
+  try {
+    await command({
+      command: "respond",
+      task_id: selected,
+      action,
+      text,
+      token: state.task.prompt.approval_token,
+      finding_ids: ids,
+    });
+    if (pendingMessage) pendingMessage.status = "Sent · waiting for the agent";
+    if ($("message").value === text) $("message").value = "";
+  } catch (e) {
+    if (pendingMessage)
+      pendingMessage.status =
+        "Delivery not confirmed · check status before resending";
+    throw e;
+  } finally {
+    if (state?.task) renderHistory(state.task);
+  }
 }
 $("new-form").onsubmit = (e) => {
   e.preventDefault();
@@ -368,6 +464,9 @@ $("new-task").onclick = () =>
     await refresh();
   });
 $("refresh").onclick = () => guard(refresh);
+$("latest-message").onclick = () => {
+  $("history").scrollTop = $("history").scrollHeight;
+};
 $("send").onclick = () => guard(() => respond($("message-action").value));
 $("message").onkeydown = (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !$("send").disabled) {

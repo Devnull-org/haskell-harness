@@ -45,6 +45,11 @@ on the page. Your existing CLI logins are reused.
 Use **Check backends and resume** to check providers again for the selected task.
 
 - Enter adds a newline in the message editor; **Send** or Ctrl/Command+Enter submits it.
+- The conversation stays visible, including your follow-up questions. A message
+  appears immediately when you send it and stays visible while the agent works.
+  **Latest message** jumps to the end; you can scroll back without losing your draft.
+- A temporary connection failure shows an error and retries status updates.
+  Submitted commands are never automatically sent again.
 - During generation, **Stop model** stops the local backend process and saves an
   `agent_paused` task. You can keep drafting while it runs.
 - After stopping, use **Edit previous message**, change the instructions, and send
@@ -1097,7 +1102,7 @@ just check
 In the harness repository, `just lint` checks Python lint, Python formatting,
 Nix formatting, browser asset formatting, and JavaScript syntax. Nix supplies
 Node and Prettier for development; using the browser interface needs neither.
-`just test` runs the harness's Python tests; `just check` runs its
+`just test` runs the browser interaction tests and the harness's Python tests; `just check` runs its
 Nix flake checks. These check the harness itself; project checks use its validation configuration.
 
 Or run the reproducible check directly:

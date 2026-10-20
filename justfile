@@ -6,15 +6,16 @@ lint:
   ruff check .
   ruff format --check .
   nixfmt --check flake.nix
-  prettier --check src/haskell_harness/web
+  prettier --check src/haskell_harness/web tests/web.test.cjs
   node --check src/haskell_harness/web/app.js
 
 format:
   ruff format .
   nixfmt flake.nix
-  prettier --write src/haskell_harness/web
+  prettier --write src/haskell_harness/web tests/web.test.cjs
 
 test:
+  node --test tests/web.test.cjs
   python -m pytest
 
 check:

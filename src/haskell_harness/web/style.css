@@ -315,6 +315,24 @@ select {
 .message .eyebrow {
   margin-bottom: 7px;
 }
+.conversation-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+#history {
+  max-height: min(58vh, 48rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 8px 2px 2px;
+  margin-bottom: 24px;
+}
+.message-status {
+  display: block;
+  color: var(--muted);
+  margin-top: 12px;
+}
 .prose {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

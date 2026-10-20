@@ -188,8 +188,9 @@
                 ruff check .
                 ruff format --check .
                 nixfmt --check flake.nix
-                prettier --check src/haskell_harness/web
+                prettier --check src/haskell_harness/web tests/web.test.cjs
                 node --check src/haskell_harness/web/app.js
+                node --test tests/web.test.cjs
                 pytest -q
                 touch "$out"
               '';

@@ -90,7 +90,17 @@
       </section>
       <section id="work" hidden>
         <div id="task-meta" class="metadata"></div>
-        <div id="history"></div>
+        <div class="conversation-heading">
+          <h2>Conversation</h2>
+          <button id="latest-message" class="quiet">Latest message ↓</button>
+        </div>
+        <div
+          id="history"
+          role="log"
+          aria-label="Conversation"
+          aria-live="polite"
+          tabindex="0"
+        ></div>
         <div id="packet" class="panel"></div>
         <section id="next-phases" class="panel" hidden>
           <h2>Choose the next step</h2>

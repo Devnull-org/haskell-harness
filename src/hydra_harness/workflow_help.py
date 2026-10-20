@@ -155,6 +155,11 @@ Start over while preserving the old task
   a quoted replacement description after the original task name.
 
 While waiting for an agent
+  Press Ctrl+C to stop generation and return to an agent_paused prompt.
+  Type corrected instructions, or revise to edit the previous message.
+  retry repeats it unchanged. quit saves the pause; resume returns to it without
+  automatically resending the cancelled request. Partial responses are discarded.
+  At the message editor, Ctrl+C still leaves without submitting the unsent draft.
   A spinner shows the agent role and elapsed time, then clears before your prompt.
   With --json, redirected stderr, or TERM=dumb, progress is printed every 15 seconds
   instead. The indicator shows waiting time, not the amount of completed work.

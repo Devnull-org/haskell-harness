@@ -14,7 +14,7 @@ from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
 from .cleanup import cleanup_plan, remove_resources
-from .failures import BackendError, BackendResponseError
+from .failures import AgentInterrupted, BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
 from .reports import exploration_report, pr_description
 from .schemas import validate_response
@@ -416,7 +416,18 @@ class Harness:
                     if state.get("validation") and not state.get("agent_integrity_fingerprint")
                     else ["retry"]
                 )
-                if isinstance(error, BackendError):
+                if isinstance(error, AgentInterrupted):
+                    self._gate(
+                        state,
+                        "agent_paused",
+                        {
+                            "summary": "Model request stopped. Your conversation is saved.",
+                            "guidance": "Revise your instructions, retry this request, or quit.",
+                            "draft": state["interrupted_draft"],
+                        },
+                        ["revise", "retry"],
+                    )
+                elif isinstance(error, BackendError):
                     self._gate(state, "backend_blocked", error.prompt(), ["retry"])
                 else:
                     self._gate(state, "agent_error", {"error": str(error)}, actions)
@@ -485,6 +496,20 @@ class Harness:
                         raise BackendResponseError(
                             str(error), json.dumps(result, ensure_ascii=False, default=str), ""
                         ) from error
+                except (AgentInterrupted, KeyboardInterrupt) as error:
+                    self._check_agent_checkout(state, workspace, before)
+                    latest = next(
+                        (
+                            message["text"]
+                            for message in reversed(state["messages"])
+                            if message.get("text")
+                        ),
+                        state["request"],
+                    )
+                    state["interrupted_draft"] = (
+                        extra.get("question") or extra.get("developer_answer") or latest
+                    )
+                    raise AgentInterrupted() from error
                 except BackendError as error:
                     self._save_backend_failure(state, role, attempt, error)
                     self._check_agent_checkout(state, workspace, before)
@@ -913,7 +938,21 @@ class Harness:
     def _reply(self, state):
         response = state.pop("response")
         action, stage = response["action"], state["stage"]
-        if stage == "exploration" and action == "done":
+        if stage == "agent_paused" and action == "revise":
+            if state["retry_node"] == "reply":
+                state.update(state.pop("failed_reply"))
+                state["response"]["text"] = response["text"]
+            else:
+                state["messages"].append(
+                    {
+                        "stage": stage,
+                        "action": "revise",
+                        "text": response["text"],
+                        "replaces_interrupted_instructions": state["interrupted_draft"],
+                    }
+                )
+            state["next"] = state["retry_node"]
+        elif stage == "exploration" and action == "done":
             self._phase_complete(
                 state, "exploration_ready", "Exploration saved. Start any further phase explicitly."
             )

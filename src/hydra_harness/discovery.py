@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from .backends import CommandAgent
-from .failures import DESCRIPTIONS, BackendError, failure_kind
+from .failures import DESCRIPTIONS, AgentInterrupted, BackendError, failure_kind
 from .process import ProcessError
 from .workspace import git
 
@@ -41,7 +41,11 @@ def discover(agent, cwd):
     progress = agent.progress or (lambda message: None)
     for name, backend in sorted(agent.settings.backends.items()):
         candidate = CommandAgent(
-            backend, name=name, model=agent.model, timeout=min(agent.timeout or backend.timeout, 60)
+            backend,
+            name=name,
+            model=agent.model,
+            timeout=min(agent.timeout or backend.timeout, 60),
+            cancellation=agent.cancellation,
         )
         progress(f"Checking backend {name!r} ({backend.command[0]})")
         check = {"name": name, "executable": backend.command[0], "available": False}
@@ -66,7 +70,11 @@ def discover(agent, cwd):
                     git(scratch, "-c", "init.templateDir=", "init", "--quiet")
                     candidate.check(scratch)
             check.update(available=True, message="Generation check passed")
+        except AgentInterrupted as error:
+            raise SelectionCancelled from error
         except (BackendError, ProcessError) as error:
+            if error.kind == "cancelled":
+                raise SelectionCancelled from error
             check.update(kind=error.kind, message=DESCRIPTIONS[error.kind])
         except (ValueError, RuntimeError, OSError) as error:
             check.update(kind="provider", message=str(error)[-1000:])

@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from .failures import BackendError, BackendResponseError, failure_kind
+from .failures import AgentInterrupted, BackendError, BackendResponseError, failure_kind
 from .process import ProcessError, run_process
 from .schemas import Record, schema_for, validate_response
 
@@ -114,7 +114,15 @@ class CommandAgent:
     """Adapt an agent CLI or an API bridge to the workflow's Agent protocol."""
 
     def __init__(
-        self, backend, *, name="custom", model=None, timeout=None, progress=None, activity=None
+        self,
+        backend,
+        *,
+        name="custom",
+        model=None,
+        timeout=None,
+        progress=None,
+        activity=None,
+        cancellation=None,
     ):
         self.backend = backend
         self.name = name
@@ -122,6 +130,7 @@ class CommandAgent:
         self.timeout = timeout if timeout is not None else backend.timeout
         self.progress = progress
         self.activity = activity
+        self.cancellation = cancellation
         Backend.positive_timeout(self.timeout)
 
     def environment(self):
@@ -156,6 +165,14 @@ class CommandAgent:
         return self._request("interviewer", context, cwd, prompt, schema)
 
     def _request(self, role, context, cwd, prompt, schema):
+        scope = self.cancellation.request() if self.cancellation else nullcontext(None)
+        with scope as cancel:
+            result = self._request_once(role, context, cwd, prompt, schema, cancel)
+            if cancel is not None and cancel.is_set():
+                raise AgentInterrupted()
+            return result
+
+    def _request_once(self, role, context, cwd, prompt, schema, cancel):
         replacements = {"{schema}": json.dumps(schema), "{model}": self.model, "{role}": role}
         arguments = list(self.backend.command)
         if self.model is not None:
@@ -190,6 +207,8 @@ class CommandAgent:
         label = "availability check" if context.get("backend_check") else role.replace("_", " ")
         if self.progress:
             self.progress(f"Backend {self.name!r}: waiting for {label} (timeout {self.timeout:g}s)")
+            if self.cancellation and self.cancellation.previous_handler is not None:
+                self.progress("Press Ctrl+C to stop generation and revise your instructions.")
         indicator = (
             self.activity(f"Backend {self.name!r}: {label} working")
             if self.activity
@@ -203,6 +222,7 @@ class CommandAgent:
                     timeout=self.timeout,
                     stdin=request,
                     env=self.environment(),
+                    cancel=cancel,
                     progress=(
                         lambda elapsed: self.progress(
                             f"Backend {self.name!r}: {label} still running ({elapsed:.0f}s elapsed)"
@@ -212,6 +232,8 @@ class CommandAgent:
                     else None,
                 )
         except ProcessError as error:
+            if error.kind == "cancelled":
+                raise AgentInterrupted() from error
             raise BackendError(
                 str(error), error.stdout, error.stderr, backend=self.name, kind=error.kind
             ) from error
@@ -278,7 +300,13 @@ class CommandAgent:
                 f"Backend {self.name!r}: executable found; no authentication probe configured",
             )
         command = [executable if item == "{executable}" else item for item in self.backend.probe]
-        code, out, err = run_process(command, cwd, timeout=30, env=self.environment())
+        code, out, err = run_process(
+            command,
+            cwd,
+            timeout=30,
+            env=self.environment(),
+            cancel=self.cancellation.closing if self.cancellation else None,
+        )
         output = out or err
         rejected = any(
             pattern.lower() in (out + err).lower() for pattern in self.backend.probe_reject_patterns

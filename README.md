@@ -592,6 +592,19 @@ Backend output may be buffered until the call finishes, so the indicator shows
 that the harness is waiting rather than measuring completed work. The configured
 agent timeout still applies.
 
+**Press Ctrl+C while the model is generating to stop its local process.** The
+harness returns to an `agent_paused` prompt in the same terminal, keeping submitted
+messages and the current worktree. Type corrected instructions directly, or type
+`revise` to reopen the previous message in the multiline editor. Use `retry` to
+repeat it unchanged, or `quit` to leave it saved. `resume` returns to this pause
+without automatically resending a cancelled request. Partial output is discarded;
+earlier completed patches remain. A stopped request never counts as approval.
+This also works when stopping a follow-up question at a test review.
+
+During a model call, Ctrl+C stops generation; at the message editor, Ctrl+C still
+leaves without submitting the unsent draft. Scripted interruptions return exit code
+130 and structured `agent_paused` status.
+
 The harness accepts a JSON response, including one object after introductory
 commentary or one fenced JSON block with surrounding commentary. It then validates
 the complete object against the role's schema. If parsing or validation fails,

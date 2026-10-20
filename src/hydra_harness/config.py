@@ -56,7 +56,15 @@ def load_settings(path=None):
 
 class RoutedAgent:
     def __init__(
-        self, settings, *, backend=None, model=None, timeout=None, progress=None, activity=None
+        self,
+        settings,
+        *,
+        backend=None,
+        model=None,
+        timeout=None,
+        progress=None,
+        activity=None,
+        cancellation=None,
     ):
         if backend not in {None, "auto"} and backend not in settings.backends:
             raise ValueError(
@@ -68,6 +76,7 @@ class RoutedAgent:
         self.timeout = timeout
         self.progress = progress
         self.activity = activity
+        self.cancellation = cancellation
 
     @property
     def automatic(self):
@@ -89,6 +98,7 @@ class RoutedAgent:
             timeout=self.timeout,
             progress=self.progress,
             activity=self.activity,
+            cancellation=self.cancellation,
         )
 
     def __call__(self, role, context, cwd):

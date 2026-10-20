@@ -2,6 +2,14 @@
 
 import re
 
+
+class AgentInterrupted(RuntimeError):
+    """The developer stopped generation; no response may be applied."""
+
+    def __init__(self):
+        super().__init__("Model request stopped")
+
+
 DESCRIPTIONS = {
     "quota": "reported a usage limit",
     "authentication": "requires authentication",

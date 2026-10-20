@@ -8,6 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from .cancellation import ModelCancellation
 from .config import RoutedAgent, load_settings
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
 from .project_context import ContextStore, state_directory
@@ -268,7 +269,11 @@ def conversation(harness, view, *, selected_backend=None):
         default_action = next(
             (action for action in ("answer", "question") if action in actions), None
         )
-        if default_action == "answer":
+        if view["stage"] == "agent_paused":
+            default_action = "revise"
+        if view["stage"] == "agent_paused":
+            print("Type corrected instructions, or 'revise' to edit the previous message.")
+        elif default_action == "answer":
             print("Type your answer here and press Enter; no command prefix is needed.")
         elif view["stage"] == "exploration":
             print("Type a follow-up question, or 'done' to finish the exploration.")
@@ -310,7 +315,16 @@ def conversation(harness, view, *, selected_backend=None):
             fields["finding_ids"] = (text or input("Finding IDs, separated by spaces: ")).split()
             text = ""
         if action in {"answer", "question", "revise", "dismiss", "accept_red"}:
-            fields["text"] = text if text.strip() else read_message("Your response: ")
+            fields["text"] = (
+                text
+                if text.strip()
+                else read_message(
+                    "Your response: ",
+                    default=view["prompt"].get("draft", "")
+                    if view["stage"] == "agent_paused"
+                    else "",
+                )
+            )
         try:
             view = harness.respond(view["task_id"], action, **fields)
         except (ValueError, RuntimeError, OSError) as error:
@@ -401,6 +415,11 @@ def context_command(args):
 
 
 def main(argv=None):
+    with ModelCancellation() as cancellation:
+        return _main(argv, cancellation)
+
+
+def _main(argv, cancellation):
     arguments = parser()
     args = arguments.parse_args(argv)
     if args.command == "help":
@@ -458,6 +477,7 @@ def main(argv=None):
             model=args.model,
             timeout=args.agent_timeout,
             progress=progress,
+            cancellation=cancellation,
             activity=spinner
             if sys.stderr.isatty() and not args.json and os.environ.get("TERM") != "dumb"
             else None,
@@ -537,6 +557,8 @@ def main(argv=None):
         else:
             view = conversation(harness, view, selected_backend=selected_backend)
             return 0
+        if view["stage"] == "agent_paused":
+            return 130
         return 1 if view["stage"] in {"agent_error", "backend_blocked", "validation_blocked"} else 0
     except SelectionCancelled:
         print("\nBackend selection cancelled. No project request was sent.", file=sys.stderr)

@@ -11,7 +11,7 @@ from prompt_toolkit import prompt
 from prompt_toolkit.key_binding import KeyBindings
 
 
-def read_message(message="> "):
+def read_message(message="> ", *, default=""):
     """Keep typed and pasted lines in one editable message until Enter submits it."""
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         return input(message)
@@ -28,7 +28,9 @@ def read_message(message="> "):
         event.current_buffer.insert_text("\n")
 
     print("Enter sends. Alt+Enter or Ctrl+J adds a newline. Pasted lines stay together.")
-    return prompt(message, multiline=True, prompt_continuation="  ", key_bindings=bindings)
+    return prompt(
+        message, default=default, multiline=True, prompt_continuation="  ", key_bindings=bindings
+    )
 
 
 @contextmanager

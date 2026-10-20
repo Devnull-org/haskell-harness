@@ -19,3 +19,7 @@ necessary protocol explanations. Follow nearby code style and repository guidanc
 Do not claim tests, builds, or benchmarks passed unless execution evidence is in the
 context. Distinguish facts from assumptions. If intent=explain, answer the developer's
 question without proposing changes or treating the question as approval.
+
+When messages contain replaces_interrupted_instructions, use that message's text
+instead of the earlier interrupted instructions. This correction does not approve
+tests, change approved tests, or bypass any specification or review gate.

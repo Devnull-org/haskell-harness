@@ -32,13 +32,44 @@ The built-in profiles are:
 | Profile | Behavior |
 | --- | --- |
 | `local` | Preserves the existing saved-session CLI integration and its read-only mode. |
+| `codex` | Uses Codex with saved CLI authentication, read-only shell access, no interactive approval prompts, and ephemeral sessions. |
 | `claude-code` | Uses Claude Code with read/search tools, plan mode, structured output, and no inherited MCP servers. |
 
 When using an existing CLI installation, it is resolved through `PATH`. To let Nix
-supply it, use `nix run .#local` or `nix run .#claude-code`. These packages select the
+supply it, use `nix run .#local`, `nix run .#codex`, or `nix run .#claude-code`. These packages select the
 matching profile automatically. The default `nix run .` package supplies only the
 harness and common tools. The corresponding optional development shells are
-`nix develop .#local` and `nix develop .#claude-code`.
+`nix develop .#local`, `nix develop .#codex`, and `nix develop .#claude-code`.
+
+The Codex profile uses the documented [non-interactive interface](https://learn.chatgpt.com/docs/non-interactive-mode):
+the prompt and role schema go through stdin, progress goes to stderr, and the
+final message goes to stdout for the harness's JSON/schema validation. It does
+not use `--json`, which produces an event stream instead of a single response.
+`--ephemeral` avoids saving a separate Codex session for every harness call.
+`--sandbox read-only` limits shell writes, and `--ask-for-approval never` prevents
+an unattended call from waiting for a separate approval prompt.
+
+`--ignore-user-config` and `--ignore-rules` skip personal Codex settings and
+execpolicy rules for these calls; authentication still uses the existing home
+directory and `CODEX_HOME`. Codex chooses its default model unless you select one
+with the harness's `--model` option or backend/role configuration. API-key and
+access-token environment overrides are omitted from the child process so it uses
+the saved CLI login. No global settings or credentials are changed. Personal
+gateway or other configuration requirements need a custom profile.
+
+`doctor` runs `codex login status`; it checks authentication, not available quota.
+Each provider has its own account and allowance. A working Codex / ChatGPT login
+does not provide usage to the `local` backend. To continue an existing task with
+Codex, quit the old process and run:
+
+```sh
+nix run --refresh github:Devnull-org/langgraph-harness#codex -- \
+  --repo "/path/to/project" resume my-feature
+```
+
+Use your existing task name, checkout, and any `--state-dir` override. At a saved
+`agent_error`, type `retry`; the next call uses Codex with the saved context.
+Switching backends does not discard answers or create a new worktree.
 
 The Claude Code profile uses its documented [headless interface and structured
 output](https://code.claude.com/docs/en/headless). Each invocation is independent;

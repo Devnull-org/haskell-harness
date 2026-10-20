@@ -14,6 +14,9 @@ Choose how to launch
 
   The profile installation includes the local backend CLI and selects it by
   default. It uses your existing login. No harness clone is needed.
+  For your saved Codex / ChatGPT login, replace #local with #codex:
+    nix run github:Devnull-org/langgraph-harness#codex -- doctor
+  #local and #codex use separate provider accounts and usage allowances.
   If Nix is older and does not recognize profile add, use profile install instead.
   Without Nix, from the harness clone with uv and Git installed:
     uv sync --locked --no-dev
@@ -93,6 +96,13 @@ Pause and continue whenever needed
   resume returns to the current question or finishes interrupted work. Use run
   to start a different phase; completed phases never advance automatically.
   Use the same --state-dir if you supplied one. No new --base is needed on resume.
+
+Switch backends on a saved task
+  Quit the old process, then select the backend when resuming:
+    haskell-harness --backend codex --repo /path/to/project resume my-feature
+  At an existing agent_error, type retry to send the failed step to Codex.
+  Your answers, approvals, base commit, and worktree are preserved.
+  Or use the GitHub Nix prefix above with #codex to supply its CLI too.
 
 Start over while preserving the old task
     haskell-harness --repo /path/to/project restart my-feature

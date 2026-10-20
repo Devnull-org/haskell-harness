@@ -32,6 +32,11 @@ the workflow. `doctor` checks tools and the saved backend login. If it reports
 An existing working login needs no further setup. Older Nix versions may call
 `profile add` `profile install`; see [installation details](#install-the-command-with-nix).
 
+To use your saved **Codex / ChatGPT login**, replace `#local` with `#codex`
+in the installation and run commands. `#local` is a separate backend with its
+own login and usage allowance; being signed in to a desktop chat does not select
+its provider for the harness. See [using Codex](#use-your-codex--chatgpt-login).
+
 For **each project**, use an existing local Git checkout. Replace the placeholder
 below with its actual path; these commands do not require a harness clone:
 
@@ -169,7 +174,7 @@ nix run github:Devnull-org/langgraph-harness#local -- --repo "/path/to/project" 
 ```
 
 Replace `.` in any `nix run` example with `github:Devnull-org/langgraph-harness`.
-Keep the package selector (`#local` or `#claude-code`) and the arguments after `--`.
+Keep the package selector (`#local`, `#codex`, or `#claude-code`) and the arguments after `--`.
 The target project is still a local Git checkout selected with `--repo`.
 
 The same GitHub reference works for a development shell and the harness checks:
@@ -369,7 +374,7 @@ backend, which uses your existing login. If your Nix version does not recognize
 [current Nix](https://nix.dev/manual/nix/2.32/command-ref/new-cli/nix3-profile-add).
 
 To install from your harness clone instead, use `nix profile add .#local` there.
-Use `#claude-code` in place of `#local` to install that backend, or omit the
+Use `#codex` or `#claude-code` in place of `#local` to install that backend, or omit the
 selector for the provider-independent package. Install one variant at a time;
 they expose the same command names. `hydra-harness` remains a compatibility alias.
 
@@ -381,10 +386,12 @@ profile is on your `PATH`. `nix run` remains available without a profile install
 | Command | Purpose |
 | --- | --- |
 | `nix run .#local -- backends` | List configured backend names and the default selection. It does not check login or start agents. |
+| `nix run .#codex -- doctor` | Supply the Codex CLI through Nix, select its profile, and check its saved login. |
 | `nix run .#claude-code -- doctor` | Supply the Claude Code CLI through Nix, select its profile, and check its login. |
 | `nix run . -- backends` | Run the provider-independent package. Agent CLIs must already be installed if you use this package to start tasks. |
 | `nix develop` | Enter a shell with the harness and its development tools. Type `exit` to leave it. |
 | `nix develop .#local` | Enter that shell with the default agent CLI also available. |
+| `nix develop .#codex` | Enter that shell with the Codex CLI also available. Select it with `--backend codex`. |
 | `nix develop .#claude-code` | Enter that shell with the Claude Code CLI also available. |
 
 The optional `nix run` packages select their matching backend automatically.
@@ -403,6 +410,39 @@ invocation, or set `default_backend` in your user configuration to keep that cho
 Backend profiles, model overrides, per-role routing, authentication probes, and the
 protocol for custom model/API bridges are described in [BACKENDS.md](BACKENDS.md).
 The workflow and its approval gates are the same for every backend.
+
+### Use your Codex / ChatGPT login
+
+These commands work from any directory, without cloning the harness:
+
+```sh
+nix run --refresh github:Devnull-org/langgraph-harness#codex -- doctor
+nix run --refresh github:Devnull-org/langgraph-harness#codex -- \
+  --repo "/path/to/project" resume my-feature
+```
+
+`#codex` supplies Codex and selects the `codex` backend. `doctor` checks the saved
+CLI login without generating a model response or checking the remaining usage
+allowance. `resume my-feature` opens the existing task with that backend. Replace
+the project path and task name with yours, and preserve any `--state-dir` override.
+Quit any older harness process first. If the saved task is at `agent_error`, type
+`retry` to repeat the failed step using Codex. Your answers, approvals, base, and
+worktree remain saved; switching backends does not require `restart`.
+
+If Codex reports that it is not logged in, sign in once with its bundled CLI:
+
+```sh
+nix develop github:Devnull-org/langgraph-harness#codex --command codex login
+```
+
+This opens Codex's normal login flow. An existing working Codex login needs no
+new API key or login. See the official [authentication documentation](https://learn.chatgpt.com/docs/auth).
+
+From a harness clone, use `nix run .#codex --` with the same arguments. Without
+Nix, install Codex separately and use `haskell-harness --backend codex doctor`
+or `haskell-harness --backend codex --repo "/path/to/project" resume my-feature`.
+All subsequent invocations should select the same backend, or install the
+`#codex` harness variant to select it by default.
 
 ### Without Nix
 

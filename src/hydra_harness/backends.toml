@@ -9,6 +9,13 @@ unset_env = ["CURSOR_API_KEY"]
 probe = ["{executable}", "status"]
 probe_reject_patterns = ["not logged in"]
 
+[backends.codex]
+command = ["codex", "--ask-for-approval", "never", "exec", "--sandbox", "read-only", "--color", "never", "--ephemeral", "--ignore-user-config", "--ignore-rules", "-"]
+model_args = ["--model", "{model}"]
+unset_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]
+probe = ["{executable}", "login", "status"]
+probe_reject_patterns = ["not logged in"]
+
 [backends.claude-code]
 command = ["claude", "--print", "--output-format", "json", "--permission-mode", "plan", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--json-schema", "{schema}"]
 response_fields = ["structured_output", "result"]

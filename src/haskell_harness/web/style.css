@@ -6,6 +6,68 @@
   --line: #dfe4e9;
   --accent: #225a49;
   --red: #ad3434;
+  --panel: #ffffff;
+  --sidebar: #eef1f4;
+  --field: #fcfdfe;
+  --soft: #f3f5f7;
+  --human: #edf4f0;
+  --human-line: #d9e6df;
+  --hover: #f6f9f8;
+  --hover-line: #8b9d96;
+  --primary-hover: #174435;
+  --primary-text: #ffffff;
+  --focus: #99c4b3;
+  --danger-bg: #fff0ef;
+  --danger-line: #ebc9c5;
+  --shadow: #182a3810;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121517;
+  --ink: #e7e9ec;
+  --muted: #a5aeb7;
+  --line: #3c444c;
+  --accent: #9ed6bf;
+  --red: #ffb0ac;
+  --panel: #1c2125;
+  --sidebar: #171b1f;
+  --field: #161b1e;
+  --soft: #252b30;
+  --human: #20332b;
+  --human-line: #40594b;
+  --hover: #28342e;
+  --hover-line: #719c88;
+  --primary-hover: #b9e8d4;
+  --primary-text: #14291f;
+  --focus: #9ed6bf;
+  --danger-bg: #3c2426;
+  --danger-line: #825154;
+  --shadow: #00000030;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121517;
+    --ink: #e7e9ec;
+    --muted: #a5aeb7;
+    --line: #3c444c;
+    --accent: #9ed6bf;
+    --red: #ffb0ac;
+    --panel: #1c2125;
+    --sidebar: #171b1f;
+    --field: #161b1e;
+    --soft: #252b30;
+    --human: #20332b;
+    --human-line: #40594b;
+    --hover: #28342e;
+    --hover-line: #719c88;
+    --primary-hover: #b9e8d4;
+    --primary-text: #14291f;
+    --focus: #9ed6bf;
+    --danger-bg: #3c2426;
+    --danger-line: #825154;
+    --shadow: #00000030;
+  }
 }
 * {
   box-sizing: border-box;
@@ -26,7 +88,7 @@ aside {
   width: 252px;
   flex-shrink: 0;
   padding: 30px 20px;
-  background: #eef1f4;
+  background: var(--sidebar);
   border-right: 1px solid var(--line);
   position: sticky;
   top: 0;
@@ -80,8 +142,8 @@ nav button {
   overflow-wrap: anywhere;
 }
 nav button.selected {
-  background: #fff;
-  box-shadow: 0 1px 4px #182a3810;
+  background: var(--panel);
+  box-shadow: 0 1px 4px var(--shadow);
 }
 nav small {
   display: block;
@@ -127,12 +189,12 @@ p {
   margin: 10px 0 18px;
 }
 .panel {
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 27px 30px;
   margin-bottom: 22px;
-  box-shadow: 0 2px 4px #26334303;
+  box-shadow: 0 2px 4px var(--shadow);
 }
 .muted {
   color: var(--muted);
@@ -143,7 +205,7 @@ p {
   border: 1px solid var(--line);
   border-radius: 20px;
   white-space: nowrap;
-  background: white;
+  background: var(--panel);
 }
 button,
 input,
@@ -156,13 +218,13 @@ button {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 9px 14px;
-  background: white;
+  background: var(--panel);
   color: var(--ink);
   font-weight: 500;
 }
 button:hover {
-  border-color: #8b9d96;
-  background: #f6f9f8;
+  border-color: var(--hover-line);
+  background: var(--hover);
 }
 button:disabled {
   opacity: 0.45;
@@ -171,10 +233,10 @@ button:disabled {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: var(--primary-text);
 }
 button.primary:hover {
-  background: #174435;
+  background: var(--primary-hover);
 }
 .wide {
   width: 100%;
@@ -189,9 +251,9 @@ button.primary:hover {
   color: var(--red);
 }
 .stop {
-  border-color: #e7bebe;
+  border-color: var(--danger-line);
   color: var(--red);
-  background: #fff7f7;
+  background: var(--danger-bg);
 }
 label {
   display: block;
@@ -202,11 +264,11 @@ input:not([type="radio"]):not([type="checkbox"]),
 textarea {
   display: block;
   width: 100%;
-  border: 1px solid #ced6de;
+  border: 1px solid var(--line);
   border-radius: 7px;
   padding: 11px 13px;
   margin-top: 7px;
-  background: #fcfdfe;
+  background: var(--field);
   color: var(--ink);
   font-weight: 400;
 }
@@ -219,7 +281,7 @@ input:focus,
 textarea:focus,
 button:focus-visible,
 select:focus {
-  outline: 2px solid #99c4b3;
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 .choices {
@@ -239,7 +301,7 @@ select:focus {
 }
 .choice:has(:checked) {
   border-color: var(--accent);
-  background: #f4f9f6;
+  background: var(--human);
 }
 .choice input {
   margin-top: 5px;
@@ -279,7 +341,7 @@ select {
   border: 1px solid var(--line);
   padding: 5px 9px;
   border-radius: 5px;
-  background: white;
+  background: var(--panel);
   font-size: 12px;
 }
 .button-row {
@@ -305,11 +367,11 @@ select {
   border-radius: 9px;
   margin-bottom: 16px;
   border: 1px solid var(--line);
-  background: white;
+  background: var(--panel);
 }
 .message.human {
-  background: #edf4f0;
-  border-color: #d9e6df;
+  background: var(--human);
+  border-color: var(--human-line);
   margin-left: 40px;
 }
 .message .eyebrow {
@@ -349,7 +411,7 @@ pre {
     monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  background: #f3f5f7;
+  background: var(--soft);
   padding: 14px;
   border-radius: 7px;
   max-height: 500px;
@@ -364,9 +426,9 @@ summary {
   color: var(--muted);
 }
 #error {
-  background: #fff0ef;
-  color: #9b2f2f;
-  border: 1px solid #ebc9c5;
+  background: var(--danger-bg);
+  color: var(--red);
+  border: 1px solid var(--danger-line);
   padding: 14px 18px;
   border-radius: 8px;
   margin-bottom: 20px;
@@ -389,7 +451,7 @@ summary {
 }
 footer {
   font-size: 11px;
-  color: #82909b;
+  color: var(--muted);
   text-align: center;
   margin-top: 42px;
 }
@@ -474,4 +536,83 @@ dialog::backdrop {
   .message.human {
     margin-left: 12px;
   }
+}
+
+a {
+  color: var(--accent);
+}
+select {
+  color: var(--ink);
+}
+dialog {
+  color: var(--ink);
+  background: var(--panel);
+}
+.guide-link {
+  font-size: 12px;
+  padding: 8px;
+  text-align: center;
+}
+.theme-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  margin-top: 18px;
+  color: var(--muted);
+}
+.walkthrough-choice {
+  margin-top: 18px;
+  font-weight: 400;
+}
+#context-sources {
+  min-height: 90px;
+  margin-bottom: 12px;
+}
+#context-documents {
+  max-height: 480px;
+  overflow: auto;
+}
+#context-snapshot {
+  max-width: 100%;
+}
+.guide {
+  max-width: 900px;
+  margin: 0 auto;
+}
+.guide h1 {
+  font-size: 38px;
+}
+.guide section {
+  scroll-margin-top: 20px;
+}
+.guide li {
+  margin-bottom: 10px;
+}
+.guide code {
+  background: var(--soft);
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+.guide pre code {
+  padding: 0;
+}
+.guide table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.guide th,
+.guide td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.guide .contents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 20px 0;
 }

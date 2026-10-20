@@ -6,6 +6,7 @@
     <meta name="harness-token" content="HARNESS_SESSION_TOKEN" />
     <title>Haskell Harness</title>
     <link rel="stylesheet" href="/style.css" />
+    <script defer src="/theme.js"></script>
     <script defer src="/app.js"></script>
   </head>
   <body>
@@ -18,6 +19,20 @@
         SAVED WORK <button id="refresh" class="quiet">Refresh</button>
       </div>
       <nav id="tasks" aria-label="Saved tasks"></nav>
+      <button id="project-tools" class="quiet">
+        Project settings &amp; context
+      </button>
+      <a class="guide-link" href="/guide" target="_blank" rel="noopener"
+        >Workflow guide ↗</a
+      >
+      <label class="theme-label"
+        >Appearance
+        <select data-theme-picker aria-label="Appearance">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
       <div class="sidebar-footer">
         Your work stays local.<br />Every next phase is your choice.
       </div>
@@ -36,6 +51,45 @@
         </div>
       </header>
       <div id="error" role="alert" hidden></div>
+      <section id="project-panel" class="panel" hidden>
+        <div class="compose-top">
+          <h2>Project settings</h2>
+          <button id="close-project" class="quiet">Close</button>
+        </div>
+        <p id="setup-status" class="muted"></p>
+        <label for="backend-setting">Model backend</label>
+        <div class="button-row">
+          <select id="backend-setting"></select>
+          <button id="save-backend">Use backend</button>
+        </div>
+        <p class="muted">
+          Automatic selection checks your existing logins when work starts and
+          lets you choose if several backends work.
+        </p>
+        <h2>Project context</h2>
+        <p class="muted">
+          Save committed documentation and source files as shared knowledge. New
+          tasks use the latest snapshot.
+        </p>
+        <label for="context-sources">File paths, one per line</label>
+        <textarea
+          id="context-sources"
+          rows="3"
+          placeholder="docs/architecture.md&#10;src/Example/State.hs"
+        ></textarea>
+        <button id="save-context">Save snapshot</button>
+        <p id="context-status" class="muted" role="status"></p>
+        <label for="context-snapshot">Saved snapshots</label>
+        <div class="button-row">
+          <select id="context-snapshot"></select>
+          <button id="read-context">Read snapshot</button>
+          <button id="use-context">Use for selected task</button>
+        </div>
+        <p class="muted">
+          An existing task can change snapshots only between completed phases.
+        </p>
+        <div id="context-documents"></div>
+      </section>
       <section id="new-panel" class="panel">
         <div class="eyebrow">START A CONVERSATION</div>
         <h2>Explore an idea. Or plan a change.</h2>
@@ -81,6 +135,10 @@
               required
               placeholder="Describe what you want to understand or build. Paste an issue, add context, and take as many lines as you need."
             ></textarea>
+          </label>
+          <label class="walkthrough-choice">
+            <input id="require-walkthrough" type="checkbox" />
+            Include a code walkthrough before handoff
           </label>
           <div class="form-footer">
             <span class="muted">Each task gets its own worktree.</span

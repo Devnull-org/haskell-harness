@@ -3,7 +3,6 @@
 import json
 import os
 import signal
-import sys
 import threading
 import time
 from pathlib import Path
@@ -16,7 +15,7 @@ from haskell_harness.process import ProcessError, run_process
 from haskell_harness.workflow import Harness
 
 from .conftest import SOURCE, SPECIFICATION, git, reach_test_review
-from .helpers import executable, terminal_process
+from .helpers import executable
 
 
 def interrupted(role, context, cwd):
@@ -134,64 +133,3 @@ def test_cancelled_backend_never_returns_its_partial_proposal(tmp_path):
         with pytest.raises(AgentInterrupted):
             agent("interviewer", {"request": "Original", "messages": []}, tmp_path)
     assert signal.getsignal(signal.SIGINT) == previous
-
-
-def test_terminal_sigint_stops_langgraph_worker_and_reopens_editable_instructions(
-    repository, tmp_path
-):
-    calls = tmp_path / "calls.jsonl"
-    ready = tmp_path / "ready"
-    backend = executable(
-        tmp_path,
-        "import json, os, sys, time\nfrom pathlib import Path\n"
-        "request = json.load(sys.stdin)\n"
-        f"path = Path({str(calls)!r})\n"
-        "first = not path.exists()\n"
-        "with path.open('a') as out: out.write(json.dumps(request) + '\\n')\n"
-        "if first:\n"
-        f"    Path({str(ready)!r}).write_text(str(os.getpid()))\n"
-        "    time.sleep(60)\n"
-        f"print({json.dumps({'specification': SPECIFICATION, 'questions': []})!r})\n",
-    )
-    config = tmp_path / "config.toml"
-    config.write_text(
-        'default_backend = "test"\n[backends.test]\ninput_format = "json"\n'
-        f"command = [{json.dumps(backend)}]\n"
-    )
-    args = [
-        sys.executable,
-        "-m",
-        "haskell_harness.cli",
-        "--repo",
-        str(repository),
-        "--state-dir",
-        str(tmp_path / "state"),
-        "--config",
-        str(config),
-        "start",
-        "stopped",
-        "Original instructions",
-        "--base",
-        "main",
-    ]
-    with terminal_process(args) as (process, expect, send):
-        expect("Press Ctrl+C to stop generation")
-        deadline = time.monotonic() + 5
-        while not ready.exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        assert ready.exists()
-        process.send_signal(signal.SIGINT)
-        expect("stopped: agent paused")
-        with pytest.raises(ProcessLookupError):
-            os.kill(int(ready.read_text()), 0)
-        expect(">")
-        send("revise")
-        expect("Original instructions")
-        send("\x01Revised: ")
-        expect("stopped: specification review")
-        expect(">")
-        send("quit")
-        assert process.wait(timeout=10) == 0
-    requests = [json.loads(line) for line in calls.read_text().splitlines()]
-    assert len(requests) == 2
-    assert requests[-1]["context"]["messages"][-1]["text"] == "Revised: Original instructions"

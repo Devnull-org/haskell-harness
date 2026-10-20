@@ -52,7 +52,9 @@ class ContextStore:
             "SELECT data FROM snapshots WHERE id = ?", (snapshot_id,)
         ).fetchone()
         if not row:
-            raise ValueError("No saved project context found; run context refresh first")
+            raise ValueError(
+                "No saved project context found; save sources in Project context first"
+            )
         return json.loads(row[0])
 
     def history(self):
@@ -65,7 +67,7 @@ class ContextStore:
 
     def refresh(self, repository, *, sources=()):
         if not sources:
-            raise ValueError("Choose at least one --source path")
+            raise ValueError("Choose at least one source path")
         revision = git(repository, "rev-parse", "HEAD")
         paths = {path: "Project reference" for path in sources}
         if len(paths) > 24:

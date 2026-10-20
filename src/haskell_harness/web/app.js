@@ -206,6 +206,8 @@ function render() {
   $("choose-backend").hidden = !state.task;
   $("choose-backend").disabled = busy;
   $("new-form").querySelector("button").disabled = busy;
+  for (const id of ["save-backend", "save-context", "use-context"])
+    $(id).disabled = busy || (id === "use-context" && !selected);
   $("title").textContent = selected || "What would you like to work on?";
   if (state.task) renderTask(state.task, busy);
   $("activity").hidden = !state.job;
@@ -443,6 +445,115 @@ async function respond(action) {
     if (state?.task) renderHistory(state.task);
   }
 }
+async function loadProject() {
+  const project = await api("/api/project");
+  $("setup-status").textContent = [
+    project.tools.git ? "Git ready" : "Git missing",
+    project.tools.nix ? "Nix ready" : "Nix needed for code validation",
+    project.tools.flake
+      ? "Project flake found"
+      : "Project flake needed for code validation",
+  ].join(" · ");
+  $("backend-setting").replaceChildren();
+  for (const item of [{ name: "auto", available: true }, ...project.backends]) {
+    const option = el(
+      "option",
+      item.name === "auto"
+        ? "Automatic selection"
+        : item.name + (item.available ? "" : " (executable missing)"),
+    );
+    option.value = item.name;
+    $("backend-setting").append(option);
+  }
+  $("backend-setting").value = project.backend;
+  const previous = $("context-snapshot").value;
+  $("context-snapshot").replaceChildren();
+  for (const snapshot of project.context.history) {
+    const option = el(
+      "option",
+      snapshot.created.slice(0, 16).replace("T", " ") +
+        " · " +
+        snapshot.revision.slice(0, 12),
+    );
+    option.value = snapshot.id;
+    $("context-snapshot").append(option);
+  }
+  $("context-snapshot").value = project.context.history.some(
+    (s) => s.id === previous,
+  )
+    ? previous
+    : project.context.latest || "";
+  $("context-status").textContent = project.context.latest
+    ? "Latest snapshot: " + project.context.latest.slice(0, 12)
+    : "No project context saved yet.";
+  $("read-context").disabled = !project.context.history.length;
+}
+async function changeProject(path, body) {
+  if (submitting || state?.job?.running) return;
+  submitting = true;
+  render();
+  try {
+    const result = await api(path, body);
+    await loadProject();
+    if (path === "/api/context") {
+      $("context-snapshot").value = result.id;
+      showContext(result);
+    }
+    await refresh();
+    return result;
+  } finally {
+    submitting = false;
+    render();
+  }
+}
+function showContext(snapshot) {
+  $("context-documents").replaceChildren();
+  for (const source of snapshot.documents) {
+    const details = el("details");
+    details.append(el("summary", source.path), el("pre", source.content));
+    $("context-documents").append(details);
+  }
+}
+$("project-tools").onclick = () =>
+  guard(async () => {
+    $("project-panel").hidden = false;
+    await loadProject();
+  });
+$("close-project").onclick = () => {
+  $("project-panel").hidden = true;
+};
+$("save-backend").onclick = () =>
+  guard(() =>
+    changeProject("/api/backend", { backend: $("backend-setting").value }),
+  );
+$("save-context").onclick = () =>
+  guard(() =>
+    changeProject("/api/context", {
+      sources: $("context-sources")
+        .value.split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    }),
+  );
+$("read-context").onclick = () =>
+  guard(async () => {
+    showContext(
+      await api(
+        "/api/context?snapshot=" +
+          encodeURIComponent($("context-snapshot").value),
+      ),
+    );
+  });
+$("use-context").onclick = () =>
+  guard(async () => {
+    const result = await changeProject("/api/context/use", {
+      task_id: selected,
+      snapshot: $("context-snapshot").value,
+    });
+    if (result)
+      $("context-status").textContent =
+        "Snapshot selected for " + result.task_id + ".";
+  });
 $("new-form").onsubmit = (e) => {
   e.preventDefault();
   guard(() =>
@@ -451,6 +562,7 @@ $("new-form").onsubmit = (e) => {
       task_id: $("task-name").value,
       request: $("request").value,
       base: $("base").value,
+      walkthrough: $("require-walkthrough").checked,
     }),
   );
 };

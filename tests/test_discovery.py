@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from haskell_harness.backends import Backend
-from haskell_harness.cli import doctor, parser
 from haskell_harness.config import RoutedAgent, Settings
 from haskell_harness.discovery import SelectionRequired, discover, select_backend
 
@@ -76,28 +75,16 @@ def test_one_usable_backend_is_selected_without_asking(tmp_path, monkeypatch):
     quota, _ = provider(tmp_path, "quota", failure="insufficient_quota")
     agent = RoutedAgent(Settings(backends={"okay": okay, "quota": quota}))
     monkeypatch.setattr("builtins.input", lambda _: pytest.fail("Only one backend is usable"))
-    assert select_backend(agent, tmp_path, interactive=True) == "okay"
+    assert select_backend(agent, tmp_path) == "okay"
     assert agent.resolve("implementer").name == "okay"
 
 
-def test_multiple_usable_backends_require_a_choice(tmp_path, monkeypatch, capsys):
-    first, _ = provider(tmp_path, "alpha")
-    second, _ = provider(tmp_path, "beta")
-    agent = RoutedAgent(Settings(backends={"alpha": first, "beta": second}))
-    answers = iter(["", "99", "beta"])
-    monkeypatch.setattr("builtins.input", lambda _: next(answers))
-    assert select_backend(agent, tmp_path, interactive=True) == "beta"
-    output = capsys.readouterr().out
-    assert "1. alpha" in output and "2. beta" in output
-    assert agent.resolve("interviewer").name == "beta"
-
-
-def test_scripts_report_choices_instead_of_guessing(tmp_path):
+def test_selection_returns_choices_for_the_page_instead_of_guessing(tmp_path):
     first, _ = provider(tmp_path, "alpha")
     second, _ = provider(tmp_path, "beta")
     agent = RoutedAgent(Settings(backends={"alpha": first, "beta": second}))
     with pytest.raises(SelectionRequired) as error:
-        select_backend(agent, tmp_path, interactive=False)
+        select_backend(agent, tmp_path)
     assert error.value.available == ["alpha", "beta"]
     assert agent.backend is None
 
@@ -107,7 +94,7 @@ def test_no_usable_backend_reports_every_failure(tmp_path):
     signed_out, _ = provider(tmp_path, "signed-out", logged_in=False)
     agent = RoutedAgent(Settings(backends={"quota": quota, "signed-out": signed_out}))
     with pytest.raises(SelectionRequired) as error:
-        select_backend(agent, tmp_path, interactive=True)
+        select_backend(agent, tmp_path)
     assert error.value.available == []
     assert {check["kind"] for check in error.value.checks} == {"quota", "authentication"}
 
@@ -116,7 +103,7 @@ def test_explicit_backend_selection_skips_discovery(tmp_path, monkeypatch):
     backend, calls = provider(tmp_path, "chosen")
     agent = RoutedAgent(Settings(backends={"chosen": backend}), backend="chosen")
     monkeypatch.setattr("builtins.input", lambda _: pytest.fail("Explicit choice must be honored"))
-    assert select_backend(agent, tmp_path, interactive=True) == "chosen"
+    assert select_backend(agent, tmp_path) == "chosen"
     assert not calls.exists()
 
 
@@ -141,13 +128,3 @@ def test_structured_signed_out_status_is_identified(tmp_path):
     checks = discover(RoutedAgent(Settings(backends={"signed-out": backend})), tmp_path)
     assert checks[0]["kind"] == "authentication"
     assert not checks[0]["available"]
-
-
-def test_auto_doctor_succeeds_with_one_login_without_generating(tmp_path, monkeypatch, capsys):
-    okay, calls = provider(tmp_path, "okay")
-    signed_out, _ = provider(tmp_path, "signed-out", logged_in=False)
-    agent = RoutedAgent(Settings(backends={"okay": okay, "signed-out": signed_out}))
-    monkeypatch.chdir(tmp_path)
-    assert doctor(parser().parse_args(["doctor"]), agent) == 0
-    assert not calls.exists()
-    assert "Not logged in" in capsys.readouterr().out

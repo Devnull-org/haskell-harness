@@ -69,9 +69,7 @@ class RoutedAgent:
         cancellation=None,
     ):
         if backend not in {None, "auto"} and backend not in settings.backends:
-            raise ValueError(
-                f"Unknown backend {backend!r}; use the backends command to list profiles"
-            )
+            raise ValueError(f"Unknown backend {backend!r}; choose a profile in Project settings")
         self.settings = settings
         self.backend = backend
         self.model = model

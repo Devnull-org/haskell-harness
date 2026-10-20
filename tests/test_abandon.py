@@ -1,16 +1,12 @@
 """Abandoning an idea removes only its local task resources."""
 
 import copy
-import json
-import os
 import sqlite3
-import sys
 from pathlib import Path
 
 import pytest
 
 from .conftest import SOURCE, TEST, git, reach_test_review
-from .helpers import terminal_process
 
 
 def abandon(harness, task_id):
@@ -171,79 +167,3 @@ def test_abandon_does_not_remove_a_moved_worktree(rig, repository, tmp_path):
     with pytest.raises(ValueError, match="another worktree"):
         harness.abandon_plan("discard")
     assert (moved / SOURCE).exists()
-
-
-@pytest.mark.skipif(os.name != "posix", reason="Requires a POSIX terminal")
-def test_terminal_abandon_can_cancel_then_delete_without_a_backend(rig, tmp_path):
-    harness, agent, _ = rig
-    view = harness.start("discard", "An idea")
-    config = tmp_path / "invalid-config.toml"
-    config.write_text("This is not TOML and must not be needed to delete a task.")
-    args = [
-        sys.executable,
-        "-m",
-        "haskell_harness.cli",
-        "--repo",
-        str(harness.repository),
-        "--state-dir",
-        str(tmp_path / "state"),
-        "--config",
-        str(config),
-        "abandon",
-        "discard",
-    ]
-    with terminal_process(args) as (process, expect, send):
-        expect("Type 'discard' to delete it")
-        send("")
-        expect("Cancelled. The task is still saved.")
-        assert process.wait(timeout=10) == 0
-    assert harness.inspect("discard") == view
-    with terminal_process(args) as (process, expect, send):
-        expect("Type 'discard' to delete it")
-        send("discard")
-        expect("The saved task has been deleted.")
-        assert process.wait(timeout=10) == 0
-    assert not Path(view["worktree"]).exists()
-    assert len(agent.calls) == 1
-    with pytest.raises(ValueError, match="Unknown task"):
-        harness.inspect("discard")
-
-
-@pytest.mark.parametrize("yes", [False, True])
-def test_noninteractive_abandon_requires_explicit_confirmation(rig, tmp_path, capsys, yes):
-    from haskell_harness.cli import main
-
-    harness, _, _ = rig
-    view = harness.start("discard", "An idea")
-    result = main(
-        [
-            "--repo",
-            str(harness.repository),
-            "--state-dir",
-            str(tmp_path / "state"),
-            "--json",
-            "abandon",
-            "discard",
-            *(["--yes"] if yes else []),
-        ]
-    )
-    assert result == (0 if yes else 1)
-    assert Path(view["worktree"]).exists() is not yes
-    output = capsys.readouterr()
-    if yes:
-        assert json.loads(output.out)["stage"] == "abandoned"
-    else:
-        assert "requires --yes" in output.err
-
-
-def test_conversation_can_abandon_and_multiline_text_cannot(rig, monkeypatch):
-    from haskell_harness.cli import conversation
-
-    harness, agent, _ = rig
-    view = harness.start("discard", "An idea")
-    lines = iter(["abandon\nDiscuss this first", "abandon", "", "abandon", "discard"])
-    monkeypatch.setattr("builtins.input", lambda prompt: next(lines))
-    assert conversation(harness, view)["stage"] == "abandoned"
-    assert agent.calls[-1][1]["question"] == "abandon\nDiscuss this first"
-    assert len(agent.calls) == 2
-    assert not Path(view["worktree"]).exists()

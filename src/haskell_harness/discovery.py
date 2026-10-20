@@ -11,13 +11,13 @@ from .workspace import git
 
 
 class SelectionRequired(Exception):
-    """Return available choices to scripts without guessing on the user's behalf."""
+    """Return available choices for the developer to select on the page."""
 
     def __init__(self, checks):
         self.checks = checks
         self.available = [check["name"] for check in checks if check["available"]]
         super().__init__(
-            "Several backends are usable; choose one with --backend NAME"
+            "Several backends are usable; choose one on the page"
             if self.available
             else "No backend completed the availability check; inspect the results and try again"
         )
@@ -83,33 +83,14 @@ def discover(agent, cwd):
     return checks
 
 
-def select_backend(agent, cwd, *, interactive):
+def select_backend(agent, cwd):
     """Select the only usable backend or ask the developer to pick one."""
     if not agent.automatic:
         return agent.backend or agent.settings.default_backend
     checks = discover(agent, cwd)
     choice = SelectionRequired(checks)
-    if not choice.available or (len(choice.available) > 1 and not interactive):
+    if len(choice.available) != 1:
         raise choice
-    if len(choice.available) == 1:
-        selected = choice.available[0]
-    else:
-        print("\nSeveral backends are usable. Choose one for this session:")
-        for index, name in enumerate(choice.available, 1):
-            print(f"  {index}. {name}")
-        while True:
-            try:
-                answer = input("Backend number or name (quit to cancel): ").strip()
-            except (EOFError, KeyboardInterrupt) as error:
-                raise SelectionCancelled from error
-            if answer in {"quit", "exit"}:
-                raise SelectionCancelled
-            if answer in choice.available:
-                selected = answer
-                break
-            if answer.isascii() and answer.isdigit() and 1 <= int(answer) <= len(choice.available):
-                selected = choice.available[int(answer) - 1]
-                break
-            print("Choose one of the listed backend numbers or names.")
+    selected = choice.available[0]
     agent.backend = selected
     return selected

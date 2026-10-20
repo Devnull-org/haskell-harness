@@ -227,3 +227,83 @@ test("an unsuccessful submission leaves the question available for correction", 
   );
   assert.equal(ui.elements.get("send").disabled, false);
 });
+
+function theme(saved, blocked = false) {
+  const picker = {
+    value: "",
+    addEventListener: (_, fn) => {
+      picker.change = fn;
+    },
+  };
+  const root = { dataset: {} };
+  let stored = saved;
+  vm.runInNewContext(readFileSync("src/haskell_harness/web/theme.js", "utf8"), {
+    document: { documentElement: root, querySelectorAll: () => [picker] },
+    localStorage: {
+      getItem() {
+        if (blocked) throw new Error("Storage unavailable");
+        return stored;
+      },
+      setItem(_, value) {
+        if (blocked) throw new Error("Storage unavailable");
+        stored = value;
+      },
+    },
+  });
+  return { root, picker, saved: () => stored };
+}
+
+test("appearance restores the saved choice and remembers changes", () => {
+  const ui = theme("dark");
+  assert.equal(ui.root.dataset.theme, "dark");
+  assert.equal(ui.picker.value, "dark");
+  ui.picker.value = "light";
+  ui.picker.change();
+  assert.equal(ui.root.dataset.theme, "light");
+  assert.equal(ui.saved(), "light");
+  ui.picker.value = "system";
+  ui.picker.change();
+  assert.equal(ui.root.dataset.theme, "system");
+  assert.equal(ui.saved(), "system");
+});
+
+test("appearance follows the system initially and works without browser storage", () => {
+  assert.equal(theme("unknown").root.dataset.theme, "system");
+  const ui = theme(null, true);
+  assert.equal(ui.root.dataset.theme, "system");
+  ui.picker.value = "dark";
+  ui.picker.change();
+  assert.equal(ui.root.dataset.theme, "dark");
+});
+
+test("project controls save multiline source paths without starting an agent", async () => {
+  const ui = await app();
+  const requests = [];
+  ui.fetch(async (path, options) => {
+    requests.push([path, options.body && JSON.parse(options.body)]);
+    if (path === "/api/context")
+      return response({ id: "snapshot", documents: [] });
+    if (path === "/api/project")
+      return response({
+        backend: "auto",
+        backends: [],
+        tools: { git: true, nix: true, flake: true },
+        context: {
+          latest: "snapshot",
+          history: [
+            { id: "snapshot", revision: "abc123", created: "2026-10-20" },
+          ],
+        },
+      });
+    return response(snapshot());
+  });
+  ui.elements.get("context-sources").value =
+    "docs/design.md\n\nsrc/Example.hs\n";
+  await ui.elements.get("save-context").onclick();
+  assert.deepEqual(requests.find(([path]) => path === "/api/context")[1], {
+    sources: ["docs/design.md", "src/Example.hs"],
+  });
+  assert(!requests.some(([path]) => path === "/api/command"));
+  assert.equal(ui.elements.get("context-snapshot").value, "snapshot");
+  assert.equal(ui.elements.get("send").disabled, false);
+});

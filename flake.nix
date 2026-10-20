@@ -74,80 +74,51 @@
         system:
         let
           pkgs = pkgsFor system;
-          mkHarness =
-            extra: backend:
-            let
-              launcher = pkgs.writeShellApplication {
-                name = "haskell-harness";
-                runtimeInputs = [
-                  runtimes.${system}
-                  pkgs.git
-                  pkgs.nix
-                ]
-                ++ extra;
-                text = ''exec ${runtimes.${system}}/bin/haskell-harness ${
-                  lib.optionalString (backend != null) "--backend ${lib.escapeShellArg backend}"
-                } "$@"'';
-              };
-            in
-            pkgs.symlinkJoin {
-              name = "haskell-harness";
-              paths = [ launcher ];
-              meta.mainProgram = "haskell-harness";
-            };
         in
         {
-          default = mkHarness [
-            pkgs.cursor-cli
-            pkgs.codex
-            pkgs.claude-code
-          ] null;
-          local = mkHarness [ pkgs.cursor-cli ] "local";
-          codex = mkHarness [ pkgs.codex ] "codex";
-          claude-code = mkHarness [ pkgs.claude-code ] "claude-code";
+          default = pkgs.writeShellApplication {
+            name = "haskell-harness-web";
+            runtimeInputs = [
+              pkgs.git
+              pkgs.nix
+              pkgs.cursor-cli
+              pkgs.codex
+              pkgs.claude-code
+            ];
+            text = ''exec ${runtimes.${system}}/bin/python -m haskell_harness "$@"'';
+          };
         }
       );
-      apps = forAllSystems (
-        system:
-        lib.genAttrs [ "default" "local" "codex" "claude-code" ] (name: {
+      apps = forAllSystems (system: {
+        default = {
           type = "app";
-          program = "${self.packages.${system}.${name}}/bin/haskell-harness";
-          meta.description = "Run a local development workflow";
-        })
-      );
+          program = "${self.packages.${system}.default}/bin/haskell-harness-web";
+          meta.description = "Start the Haskell Harness local website";
+        };
+      });
       devShells = forAllSystems (
         system:
         let
           pkgs = pkgsFor system;
-          mkDevelopment =
-            extra:
-            pkgs.mkShell {
-              packages = [
-                development.${system}
-                pkgs.git
-                pkgs.just
-                pkgs.nixfmt
-                pkgs.nodejs
-                pkgs.prettier
-                pkgs.uv
-              ]
-              ++ extra;
-              UV_PYTHON_DOWNLOADS = "never";
-              UV_NO_SYNC = "1";
-              shellHook = ''
-                export PYTHONPATH="$PWD/src"
-              '';
-            };
         in
         {
-          default = mkDevelopment [
-            pkgs.cursor-cli
-            pkgs.codex
-            pkgs.claude-code
-          ];
-          local = mkDevelopment [ pkgs.cursor-cli ];
-          codex = mkDevelopment [ pkgs.codex ];
-          claude-code = mkDevelopment [ pkgs.claude-code ];
+          default = pkgs.mkShell {
+            packages = [
+              development.${system}
+              pkgs.git
+              pkgs.just
+              pkgs.nixfmt
+              pkgs.nodejs
+              pkgs.prettier
+              pkgs.uv
+              pkgs.cursor-cli
+              pkgs.codex
+              pkgs.claude-code
+            ];
+            UV_PYTHON_DOWNLOADS = "never";
+            UV_NO_SYNC = "1";
+            shellHook = ''export PYTHONPATH="$PWD/src"'';
+          };
         }
       );
       checks = forAllSystems (
@@ -156,14 +127,10 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          commands = pkgs.runCommand "haskell-harness-commands-check" { } ''
-            ${self.packages.${system}.default}/bin/haskell-harness help > help.txt
-            ${self.packages.${system}.default}/bin/haskell-harness serve --help > serve-help.txt
-            ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; assert "Stop model" in files("haskell_harness").joinpath("web", "index.html").read_text()'
-            ${self.packages.${system}.default}/bin/haskell-harness --json backends > auto-backends.json
-            ${runtimes.${system}}/bin/python -c 'import json; assert json.load(open("auto-backends.json"))["default"] == "auto"'
-            ${self.packages.${system}.codex}/bin/haskell-harness --json backends > codex-backends.json
-            ${runtimes.${system}}/bin/python -c 'import json; assert json.load(open("codex-backends.json"))["default"] == "codex"'
+          website = pkgs.runCommand "haskell-harness-website-check" { } ''
+            ${self.packages.${system}.default}/bin/haskell-harness-web --help > help.txt
+            ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; root = files("haskell_harness").joinpath("web"); assert "Stop model" in root.joinpath("index.html").read_text(); assert "Project context" in root.joinpath("guide.html").read_text()'
+            ${runtimes.${system}}/bin/python -c 'from importlib.metadata import distribution; assert not distribution("haskell-harness").entry_points'
             ${pkgs.codex}/bin/codex --ask-for-approval never exec --sandbox read-only --color never --ephemeral --ignore-user-config --ignore-rules - --help > codex-help.txt
             touch "$out"
           '';
@@ -190,6 +157,7 @@
                 nixfmt --check flake.nix
                 prettier --check src/haskell_harness/web tests/web.test.cjs
                 node --check src/haskell_harness/web/app.js
+                node --check src/haskell_harness/web/theme.js
                 node --test tests/web.test.cjs
                 pytest -q
                 touch "$out"

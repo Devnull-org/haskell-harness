@@ -104,7 +104,7 @@ def test_explicit_sources_record_project_architecture_and_state_types(repository
 
 def test_context_requires_explicit_source_selection(repository, tmp_path):
     with ContextStore(tmp_path / "context") as store:
-        with pytest.raises(ValueError, match="at least one --source"):
+        with pytest.raises(ValueError, match="at least one source"):
             store.refresh(repository)
         assert store.latest_id() is None
 

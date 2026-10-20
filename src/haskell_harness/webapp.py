@@ -1,15 +1,18 @@
-"""A loopback-only browser interface to the same persistent workflow."""
+"""The local website for persistent development workflows."""
 
 import json
 import secrets
+import shutil
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from urllib.parse import parse_qs, urlsplit
 
+from .backends import CommandAgent
 from .cancellation import ModelCancellation
 from .config import RoutedAgent, load_settings
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
+from .project_context import ContextStore, state_directory
 from .validation import LocalExecutor
 from .workflow import Harness
 from .workspace import git
@@ -26,6 +29,58 @@ class LocalApp:
         self.cancellation = ModelCancellation()
         self.shutdown = threading.Event()
         self.selected_backend = args.backend
+
+    def project(self):
+        with ContextStore(state_directory(self.args.repo, self.args.state_dir)) as context:
+            saved = {"latest": context.latest_id(), "history": context.history()}
+        flake = (self.args.nix_flake or self.args.repo).expanduser().resolve()
+        return {
+            "context": saved,
+            "backends": [
+                {"name": name, "available": bool(CommandAgent(backend).executable(self.args.repo))}
+                for name, backend in sorted(self.settings.backends.items())
+            ],
+            "backend": self.selected_backend or self.settings.default_backend,
+            "tools": {
+                "git": bool(shutil.which("git")),
+                "nix": bool(shutil.which("nix")),
+                "flake": (flake / "flake.nix").is_file(),
+            },
+        }
+
+    def context_snapshot(self, snapshot=None):
+        with ContextStore(state_directory(self.args.repo, self.args.state_dir)) as context:
+            return context.get(snapshot)
+
+    def project_change(self, operation, body):
+        with self.lock:
+            if self.job and self.job["running"]:
+                raise ValueError("Wait for the current operation before changing project settings")
+            if operation == "backend":
+                name = body.get("backend")
+                if not isinstance(name, str) or (
+                    name != "auto" and name not in self.settings.backends
+                ):
+                    raise ValueError("Unknown backend")
+                self.selected_backend = name
+                return {"backend": name}
+            harness = self.harness()
+            try:
+                if operation == "use":
+                    if not isinstance(body.get("task_id"), str) or not isinstance(
+                        body.get("snapshot"), str
+                    ):
+                        raise ValueError("Choose a task and saved snapshot")
+                    return harness.use_context(body["task_id"], body["snapshot"])
+                sources = body.get("sources")
+                if not isinstance(sources, list) or not all(
+                    isinstance(path, str) for path in sources
+                ):
+                    raise ValueError("Choose source file paths")
+                with harness._lock():
+                    return harness.context.refresh(self.args.repo, sources=sources)
+            finally:
+                harness.close()
 
     def harness(self, agent=None):
         return Harness(
@@ -108,6 +163,8 @@ class LocalApp:
         ids = command.get("finding_ids", [])
         if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
             raise ValueError("Finding IDs must be a list of names")
+        if not isinstance(command.get("walkthrough", False), bool):
+            raise ValueError("Walkthrough must be enabled or disabled")
         backend = command.get("backend", self.selected_backend)
         if backend is not None and backend != "auto" and backend not in self.settings.backends:
             raise ValueError("Unknown backend")
@@ -144,7 +201,7 @@ class LocalApp:
             if self.shutdown.is_set():
                 raise SelectionCancelled
             if action != "abandon":
-                selected = select_backend(agent, self.args.repo, interactive=False)
+                selected = select_backend(agent, self.args.repo)
                 self.selected_backend = selected
                 self.progress(f"Selected backend: {selected}")
             if self.shutdown.is_set():
@@ -158,6 +215,7 @@ class LocalApp:
                     command.get("request", ""),
                     base=command["base"],
                     phase="explore" if action == "explore" else "interview",
+                    walkthrough=command.get("walkthrough", False),
                 )
             elif action == "resume":
                 result = harness.resume(task_id, retry_backend=True)
@@ -258,14 +316,20 @@ def create_server(app, port=8765):
                     self.send(200, app.state(task_id))
                 elif path.path == "/api/abandon-plan":
                     self.send(200, app.abandon_plan(task_id))
-                elif path.path in {"/", "/app.js", "/style.css"}:
-                    name = "index.html" if path.path == "/" else path.path[1:]
+                elif path.path == "/api/project":
+                    self.send(200, app.project())
+                elif path.path == "/api/context":
+                    self.send(200, app.context_snapshot(query.get("snapshot", [None])[0]))
+                elif path.path in {"/", "/guide", "/app.js", "/theme.js", "/style.css"}:
+                    name = {"/": "index.html", "/guide": "guide.html"}.get(path.path, path.path[1:])
                     content = files("haskell_harness").joinpath("web", name).read_text()
                     if name == "index.html":
                         content = content.replace("HARNESS_SESSION_TOKEN", app.token)
                     types = {
                         "index.html": "text/html; charset=utf-8",
+                        "guide.html": "text/html; charset=utf-8",
                         "app.js": "text/javascript; charset=utf-8",
+                        "theme.js": "text/javascript; charset=utf-8",
                         "style.css": "text/css; charset=utf-8",
                     }
                     self.send(200, content.encode(), types[name])
@@ -288,6 +352,13 @@ def create_server(app, port=8765):
                     self.send(202, app.start(body))
                 elif self.path == "/api/stop":
                     self.send(200, {"stopping": app.cancellation.stop()})
+                elif self.path in {"/api/context", "/api/context/use", "/api/backend"}:
+                    operation = {
+                        "/api/context": "refresh",
+                        "/api/context/use": "use",
+                        "/api/backend": "backend",
+                    }[self.path]
+                    self.send(200, app.project_change(operation, body))
                 else:
                     self.send(404, {"error": "Not found"})
             except (ValueError, RuntimeError, OSError) as error:

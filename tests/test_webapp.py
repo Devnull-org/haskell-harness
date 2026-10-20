@@ -5,15 +5,17 @@ import json
 import os
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
-from haskell_harness.cli import parser
+from haskell_harness.__main__ import parser
 from haskell_harness.discovery import SelectionRequired
 from haskell_harness.webapp import LocalApp, create_server
 
 from .conftest import SPECIFICATION
 from .helpers import executable
+from .test_exploration import ANALYSIS
 
 
 @pytest.fixture
@@ -44,7 +46,6 @@ def browser_app(repository, tmp_path):
             str(tmp_path / "state"),
             "--config",
             str(config),
-            "serve",
             "--port",
             "0",
         ]
@@ -167,8 +168,7 @@ def test_closing_server_stops_generation_and_persists_pause(browser_app):
 def test_browser_asks_for_backend_without_losing_the_pending_request(browser_app, monkeypatch):
     _, call, calls, ready = browser_app
 
-    def choose(agent, cwd, *, interactive):
-        assert not interactive
+    def choose(agent, cwd):
         if agent.backend is None:
             raise SelectionRequired(
                 [
@@ -215,3 +215,178 @@ def test_browser_abandon_requires_task_name_and_current_confirmation_token(brows
     call("/api/command", {**request, "confirmation": "delete"})
     wait_for(lambda: not call("/api/state")[1]["job"]["running"])
     assert call("/api/state")[1]["tasks"] == []
+
+
+def test_browser_manages_project_context_without_a_model(browser_app):
+    app, call, calls, _ = browser_app
+    assert call("/api/project")[1]["context"]["history"] == []
+    assert call("/api/context", {"sources": []})[0] == 400
+    code, saved = call("/api/context", {"sources": ["CLAUDE.md"]})
+    assert code == 200
+    assert saved["documents"][0]["path"] == "CLAUDE.md"
+    assert call("/api/context?snapshot=" + saved["id"])[1] == saved
+    assert call("/api/project")[1]["context"]["latest"] == saved["id"]
+    assert not calls.exists()
+    assert call("/api/context", {"sources": ["../outside"]})[0] == 400
+    assert app.state()["tasks"] == []
+
+
+def test_context_selection_keeps_the_workflow_gate(browser_app):
+    app, call, _, ready = browser_app
+    saved = call("/api/context", {"sources": ["CLAUDE.md"]})[1]
+    call(
+        "/api/command",
+        {"command": "start", "task_id": "context", "request": "Original", "base": "main"},
+    )
+    wait_for(ready.exists)
+    assert call("/api/context", {"sources": ["CLAUDE.md"]})[0] == 400
+    assert call("/api/context/use", {"task_id": "context", "snapshot": saved["id"]})[0] == 400
+    call("/api/stop", {})
+    wait_for(lambda: not app.state()["job"]["running"])
+    assert call("/api/context/use", {"task_id": "context", "snapshot": saved["id"]})[0] == 400
+    call(
+        "/api/command",
+        {"command": "respond", "task_id": "context", "action": "retry"},
+    )
+    wait_for(lambda: not app.state()["job"]["running"])
+    token = app.state("context")["task"]["prompt"]["approval_token"]
+    call(
+        "/api/command",
+        {"command": "respond", "task_id": "context", "action": "approve", "token": token},
+    )
+    wait_for(lambda: not app.state()["job"]["running"])
+    code, view = call("/api/context/use", {"task_id": "context", "snapshot": saved["id"]})
+    assert code == 200
+    assert view["project_context_id"] == saved["id"]
+    assert view["stage"] == "specification_ready"
+
+
+def test_browser_backend_settings_are_explicit_and_do_not_invoke_models(browser_app):
+    app, call, calls, _ = browser_app
+    assert call("/api/backend", {"backend": "unknown"})[0] == 400
+    assert call("/api/backend", {"backend": "test"})[0] == 200
+    assert app.selected_backend == "test"
+    assert not calls.exists()
+    assert call("/api/backend", {"backend": "auto"})[0] == 200
+    assert app.selected_backend == "auto"
+
+
+def test_project_settings_resolve_backend_paths_against_the_project(browser_app):
+    app, call, calls, _ = browser_app
+    executable(app.args.repo, "raise AssertionError('Status must not execute a backend')\n")
+    app.settings.backends["test"].command = ["./agent-double"]
+    profiles = call("/api/project")[1]["backends"]
+    assert next(item for item in profiles if item["name"] == "test")["available"]
+    assert not calls.exists()
+
+
+def test_project_controls_require_same_origin_and_session_token(browser_app):
+    _, call, _, _ = browser_app
+    assert call("/guide", authenticated=False)[0] == 200
+    for path, body in (
+        ("/api/project", None),
+        ("/api/context", {"sources": ["CLAUDE.md"]}),
+        ("/api/context/use", {"task_id": "example", "snapshot": "invalid"}),
+        ("/api/backend", {"backend": "test"}),
+    ):
+        assert call(path, body, authenticated=False)[0] == 403
+        assert call(path, body, headers={"Origin": "https://attacker.example"})[0] == 403
+
+
+def test_browser_exploration_can_finish_and_reopen_without_coding(browser_app):
+    app, call, calls, _ = browser_app
+    executable(
+        calls.parent,
+        "import json, sys\nfrom pathlib import Path\nrequest = json.load(sys.stdin)\n"
+        f"with Path({str(calls)!r}).open('a') as out: out.write(json.dumps(request) + '\\n')\n"
+        f"print({json.dumps(ANALYSIS)!r})\n",
+    )
+    call(
+        "/api/command",
+        {"command": "explore", "task_id": "research", "request": "Compare options", "base": "main"},
+    )
+    wait_for(lambda: not app.state()["job"]["running"])
+    original = call("/api/state?task=research")[1]["task"]
+    assert original["stage"] == "exploration"
+    call(
+        "/api/command",
+        {"command": "respond", "task_id": "research", "action": "question", "text": "done\nWhy?"},
+    )
+    wait_for(lambda: not app.state()["job"]["running"])
+    assert app.state("research")["task"]["stage"] == "exploration"
+    call("/api/command", {"command": "respond", "task_id": "research", "action": "done"})
+    wait_for(lambda: not app.state()["job"]["running"])
+    reopened = LocalApp(app.args)
+    try:
+        task = reopened.state("research")["task"]
+        assert task["stage"] == "exploration_ready"
+        assert task["prompt"]["available_phases"] == ["explore", "interview"]
+        assert task["worktree"] == original["worktree"]
+        assert any(item.get("text") == "done\nWhy?" for item in task["messages"])
+        assert Path(task["prompt"]["report"]).is_file()
+        assert [json.loads(line)["role"] for line in calls.read_text().splitlines()] == [
+            "explorer",
+            "explorer",
+        ]
+    finally:
+        reopened.close()
+
+
+def test_browser_resume_retries_a_provider_failure_once_in_the_same_task(browser_app):
+    app, call, calls, _ = browser_app
+    executable(
+        calls.parent,
+        "import sys\nfrom pathlib import Path\n"
+        f"with Path({str(calls)!r}).open('a') as out: out.write('failure\\n')\n"
+        "print('Usage limit reached', file=sys.stderr)\nsys.exit(1)\n",
+    )
+    call(
+        "/api/command",
+        {"command": "start", "task_id": "quota", "request": "Keep this", "base": "main"},
+    )
+    wait_for(lambda: not app.state()["job"]["running"])
+    original = app.state("quota")["task"]
+    assert original["stage"] == "backend_blocked"
+    assert original["prompt"]["backend_failure"]["kind"] == "quota"
+    assert calls.read_text() == "failure\n"
+    executable(
+        calls.parent,
+        "import json, sys\nfrom pathlib import Path\njson.load(sys.stdin)\n"
+        f"with Path({str(calls)!r}).open('a') as out: out.write('success\\n')\n"
+        f"print({json.dumps({'specification': SPECIFICATION, 'questions': []})!r})\n",
+    )
+    call("/api/command", {"command": "resume", "task_id": "quota"})
+    wait_for(lambda: not app.state()["job"]["running"])
+    task = app.state("quota")["task"]
+    assert task["stage"] == "specification_review"
+    assert task["worktree"] == original["worktree"]
+    assert task["request"] == "Keep this"
+    assert calls.read_text() == "failure\nsuccess\n"
+
+
+def test_browser_can_require_a_walkthrough_and_restart_without_losing_the_old_task(browser_app):
+    app, call, _, ready = browser_app
+    call(
+        "/api/command",
+        {
+            "command": "start",
+            "task_id": "tour",
+            "request": "Original",
+            "base": "main",
+            "walkthrough": True,
+        },
+    )
+    wait_for(ready.exists)
+    call("/api/stop", {})
+    wait_for(lambda: not app.state()["job"]["running"])
+    original = app.state("tour")["task"]
+    call("/api/command", {"command": "restart", "task_id": "tour"})
+    wait_for(lambda: not app.state()["job"]["running"])
+    fresh = app.state()["job"]["result"]
+    assert fresh["task_id"] != original["task_id"]
+    assert app.state("tour")["task"] == original
+    harness = app.harness()
+    try:
+        assert harness._state(fresh["task_id"])["walkthrough_enabled"] is True
+    finally:
+        harness.close()

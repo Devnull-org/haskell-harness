@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from haskell_harness.backends import Backend, BackendResponseError, CommandAgent
-from haskell_harness.cli import main
 from haskell_harness.failures import BackendError
 
 from .conftest import SOURCE, SPECIFICATION, reach_test_review
@@ -243,44 +242,3 @@ def test_a_failed_agent_cannot_change_files_and_then_get_an_automatic_correction
     view = harness.respond("changed", "retry")
     assert view["stage"] == "specification_review"
     assert len(agent.calls) == 1
-
-
-@pytest.mark.parametrize("interactive", [True, False])
-def test_new_task_backend_failure_is_a_pause_and_quitting_is_a_clean_exit(
-    repository, tmp_path, monkeypatch, capsys, interactive
-):
-    script = executable(
-        tmp_path, "import sys\nprint('usage limit reached', file=sys.stderr)\nsys.exit(1)\n"
-    )
-    config = tmp_path / "backend.toml"
-    config.write_text(
-        f'default_backend = "test"\n[backends.test]\ncommand = [{json.dumps(script)}]\n'
-    )
-    monkeypatch.setattr("sys.stdin.isatty", lambda: interactive)
-    monkeypatch.setattr("builtins.input", lambda prompt: "quit")
-    code = main(
-        [
-            "--repo",
-            str(repository),
-            "--state-dir",
-            str(tmp_path / "state"),
-            "--config",
-            str(config),
-            *(["--json"] if not interactive else []),
-            "start",
-            "new-task",
-            "Fix increment",
-            "--base",
-            "main",
-        ]
-    )
-    output = capsys.readouterr()
-    assert "Traceback" not in output.out + output.err
-    if interactive:
-        assert code == 0
-        assert "backend blocked" in output.out
-        assert "usage limit" in output.out
-        assert "Actions: retry" in output.out
-    else:
-        assert code == 1
-        assert json.loads(output.out)["stage"] == "backend_blocked"

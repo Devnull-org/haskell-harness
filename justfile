@@ -8,6 +8,7 @@ lint:
   nixfmt --check flake.nix
   prettier --check src/haskell_harness/web tests/web.test.cjs
   node --check src/haskell_harness/web/app.js
+  node --check src/haskell_harness/web/theme.js
 
 format:
   ruff format .

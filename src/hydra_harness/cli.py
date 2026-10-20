@@ -89,6 +89,15 @@ def parser():
     restart.add_argument(
         "--base", help="New base branch or commit (default: original pinned commit)"
     )
+    abandon = sub.add_parser(
+        "abandon", help="Permanently delete a saved task, its local branch, and its worktree"
+    )
+    abandon.add_argument("task_id", help="Name of the task to delete")
+    abandon.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm deletion, including uncommitted task files, without prompting",
+    )
     phase = sub.add_parser("run", help="Run one available phase of a saved task")
     phase.add_argument("task_id", help="Name of the saved task")
     phase.add_argument(
@@ -205,6 +214,24 @@ def render(view):
             )
 
 
+def abandon_task(harness, task_id, *, yes=False, interactive=True):
+    plan = harness.abandon_plan(task_id)
+    if not yes:
+        if not interactive:
+            raise ValueError("Abandoning without a terminal requires --yes; nothing was deleted")
+        print(f"\nPermanently delete task {task_id!r} ({plan['stage'].replace('_', ' ')})?")
+        print(f"Task files: {plan['directory']}")
+        print(f"Worktree: {plan['worktree']}")
+        print(f"Local branch: {plan['branch']}")
+        print("This deletes the conversation, reports, task commits, and uncommitted task files.")
+        print("The source checkout, shared project knowledge, and other tasks are kept.")
+        confirmation = read_message(f"Type {task_id!r} to delete it, or press Enter to cancel: ")
+        if confirmation != task_id:
+            print("Cancelled. The task is still saved.")
+            return None
+    return harness.abandon(task_id, confirmation_token=plan["confirmation_token"])
+
+
 def conversation(harness, view, *, selected_backend=None):
     while True:
         if selected_backend:
@@ -213,7 +240,7 @@ def conversation(harness, view, *, selected_backend=None):
         actions = view.get("prompt", {}).get("actions", [])
         if not actions:
             return view
-        print(f"\nActions: {', '.join(actions)}, quit (resume later)")
+        print(f"\nActions: {', '.join(actions)}, quit (resume later), abandon (delete task)")
         default_action = next(
             (action for action in ("answer", "question") if action in actions), None
         )
@@ -229,6 +256,16 @@ def conversation(harness, view, *, selected_backend=None):
         single_line = "\n" not in line and "\r" not in line
         if single_line and line.strip() in {"quit", "exit"}:
             return view
+        if single_line and line.strip() == "abandon":
+            try:
+                result = abandon_task(harness, view["task_id"])
+                if result:
+                    print(f"Abandoned {view['task_id']!r}. The saved task has been deleted.")
+                    return result
+            except (ValueError, RuntimeError, OSError) as error:
+                print(f"Cannot abandon task: {error}")
+                view = harness.inspect(view["task_id"])
+            continue
         command = re.fullmatch(r"(\w+)(?:[ \t]+|\n|$)(.*)", line.lstrip(" \t"), flags=re.DOTALL)
         action, text = command.groups() if command else ("", "")
         standalone = {"approve", "recheck", "retry", "reject", "skip"}
@@ -353,6 +390,19 @@ def main(argv=None):
                 raise ValueError(f"Target checkout does not exist: {args.repo}")
         if args.command == "context":
             return context_command(args)
+        if args.command == "abandon":
+            harness = Harness(args.repo, args.state_dir, None, None)
+            result = abandon_task(
+                harness,
+                args.task_id,
+                yes=args.yes,
+                interactive=sys.stdin.isatty() and not args.json,
+            )
+            if args.json:
+                print(json.dumps(result))
+            elif result:
+                print(f"Abandoned {args.task_id!r}. The saved task has been deleted.")
+            return 0
         if args.command == "start":
             interactive = sys.stdin.isatty() and not args.json
             if args.base is None:
@@ -469,7 +519,11 @@ def main(argv=None):
         print(f"hydra-harness: {error}", file=sys.stderr)
         return 1
     except (KeyboardInterrupt, EOFError):
-        print("\nStopped locally. Use resume with the same task ID to continue.", file=sys.stderr)
+        print(
+            "\nStopped locally. Use status with the same task ID to check saved progress. "
+            "Continue saved work with resume, or finish deletion with abandon.",
+            file=sys.stderr,
+        )
         return 130
     finally:
         if harness:

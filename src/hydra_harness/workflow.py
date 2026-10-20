@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
+from .cleanup import cleanup_plan, remove_resources
 from .failures import BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
 from .reports import pr_description
@@ -102,10 +103,12 @@ class Harness:
             raise ValueError("Task ID must use 1–64 letters, digits, underscores, or hyphens")
         return {"configurable": {"thread_id": task_id}, "recursion_limit": 500}
 
-    def _state(self, task_id):
+    def _state(self, task_id, *, allow_abandoning=False):
         state = self.graph.get_state(self._config(task_id)).values
         if not state:
             raise ValueError(f"Unknown task: {task_id}")
+        if state["stage"] == "abandoning" and not allow_abandoning:
+            raise ValueError(f"Task deletion is unfinished; run abandon {task_id} again")
         return state
 
     def start(self, task_id, request, *, base="HEAD", mode="phased", walkthrough=False):
@@ -182,7 +185,46 @@ class Harness:
 
     def inspect(self, task_id):
         with self._lock():
-            return self._view(self._state(task_id))
+            return self._view(self._state(task_id, allow_abandoning=True))
+
+    def _abandon_plan(self, task_id):
+        state = self._state(task_id, allow_abandoning=True)
+        plan = cleanup_plan(self.repository, self.state_dir, state)
+        checkpoint = self.graph.get_state(self._config(task_id)).config
+        return {**plan, "confirmation_token": digest([checkpoint, plan])}
+
+    def abandon_plan(self, task_id):
+        """Describe exactly which task resources a confirmation will remove."""
+        with self._lock():
+            return self._abandon_plan(task_id)
+
+    def abandon(self, task_id, *, confirmation_token):
+        """Delete one confirmed task, retaining shared knowledge and other tasks."""
+        with self._lock():
+            plan = self._abandon_plan(task_id)
+            if not confirmation_token:
+                raise ValueError("Task deletion requires confirmation")
+            if confirmation_token != plan["confirmation_token"]:
+                raise ValueError("Task changed since confirmation; inspect and confirm it again")
+            state = copy.deepcopy(self._state(task_id, allow_abandoning=True))
+            state.update(
+                stage="abandoning",
+                next="end",
+                cleanup_revision=plan["revision"],
+                prompt={
+                    "summary": f"Deletion is unfinished. Run abandon {task_id} again to finish.",
+                    "actions": [],
+                },
+            )
+            try:
+                self.graph.update_state(self._config(task_id), state, as_node="finish")
+                remove_resources(self.repository, plan)
+                self.graph.checkpointer.delete_thread(task_id)
+            except sqlite3.Error as error:
+                raise RuntimeError(
+                    f"Could not finish deleting task data; run abandon {task_id} again: {error}"
+                ) from error
+            return {"task_id": task_id, "stage": "abandoned"}
 
     def resume(self, task_id, *, retry_backend=False):
         """Continue interrupted execution without answering a human gate."""
@@ -287,7 +329,11 @@ class Harness:
             )
             if key in state
         }
-        view["revision"] = self._workspace(state).revision
+        view["revision"] = (
+            state.get("cleanup_revision")
+            if state["stage"] == "abandoning"
+            else self._workspace(state).revision
+        )
         if state["stage"] == "specification_ready":
             view["prompt"] = {**view["prompt"], "available_phases": ["tests"]}
         return view

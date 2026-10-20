@@ -112,6 +112,17 @@ Pause and continue whenever needed
   to start a different phase; completed phases never advance automatically.
   Use the same --state-dir if you supplied one. No new --base is needed on resume.
 
+Abandon an idea permanently
+    haskell-harness --repo /path/to/project abandon my-feature
+  Or type abandon at a conversation prompt. The harness lists the task files,
+  worktree, and local branch, then asks you to type the task name to delete them.
+  Enter cancels. Deletion includes the conversation, reports, task commits, and
+  uncommitted task files. You cannot resume it, but can reuse the name.
+  The source checkout, other tasks, and shared project knowledge are kept.
+  No backend or login is needed. Quit other conversations for that task first.
+  Add --yes to confirm without a prompt; scripts and --json require it.
+  If status shows abandoning after an error, repeat abandon to finish deletion.
+
 Switch backends on a saved task
   Quit the old process, then select the backend when resuming:
     haskell-harness --backend codex --repo /path/to/project resume my-feature

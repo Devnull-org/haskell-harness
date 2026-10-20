@@ -317,6 +317,38 @@ saved files and revision, or start a new task for the changed checkout.
 approval. It does not select the next phase. Saved tasks, including older completed
 interview-only tasks, can continue with `run my-feature tests`.
 
+### Abandon an idea permanently
+
+Type `abandon` at a conversation prompt, or run:
+
+```sh
+haskell-harness --repo "/path/to/project" abandon my-feature
+```
+
+With Nix, from any directory:
+
+```sh
+nix run --refresh github:Devnull-org/langgraph-harness -- \
+  --repo "/path/to/project" abandon my-feature
+```
+
+The harness shows the task files, worktree, and local branch, then asks you to type
+the task name to confirm deletion. Enter cancels. Confirming deletes the saved
+conversation and checkpoints, reports, backend diagnostics, task worktree, and
+local task branch, including uncommitted files and task commits. There is no
+harness archive to resume; you can reuse the task name for a new idea.
+
+The source checkout, other tasks (including separate restart attempts), and shared
+project knowledge stay available. Abandonment needs no model backend or login.
+If another terminal is using the task, quit that conversation first. The harness
+refuses deletion during an active workflow operation or when the worktree/branch
+no longer belongs to the task.
+
+For scripts, `abandon my-feature --yes` confirms the same permanent deletion
+without prompting. `--yes` is required with `--json` or noninteractive input.
+If cleanup fails partway, `status` shows `abandoning`; run `abandon my-feature`
+again to finish. Agents cannot resume a task while its deletion is unfinished.
+
 ### Start over without losing the previous attempt
 
 Use `restart` when you want a fresh interview. If another terminal is at a
@@ -617,6 +649,7 @@ prefixes remain available, including for text that would otherwise match a comma
 | `dismiss ID ...` | Dismiss selected findings with a written reason, which the terminal asks you for. |
 | `skip` | End the optional walkthrough questions. |
 | `quit` or `exit` | Leave the terminal conversation at its current gate and return later with `resume`. |
+| `abandon` | Show the task resources and ask for confirmation to permanently delete the idea and its local work. |
 
 `quit` pauses at the gate. Continue later, including after a terminal interruption:
 
@@ -817,6 +850,7 @@ letters, digits, underscores, or hyphens and must begin with a letter or digit.
 | `doctor` | Check tools and backend authentication probes. With `--repo`, also check the target's Nix requirements. Does not build or run tests. |
 | `start TASK [REQUEST]` | Choose a base, create an isolated task worktree, and run the interview. In a terminal, ask for the base and request if omitted. |
 | `restart TASK [REQUEST]` | Start a new task from the original request and pinned base, leaving the original intact. Optional `REQUEST` replaces the original description. Prints the new task name. |
+| `abandon TASK` | Confirm and permanently delete the saved task, reports, local branch, and worktree. No model backend is needed. |
 | `run TASK PHASE` | Start one available phase of a saved task. It cannot bypass prerequisites or approvals. |
 | `resume TASK` | Select a usable backend and retry a saved backend failure once, continue interrupted work, or return to a pending human gate. A completed phase remains stopped. |
 | `status TASK` | Display saved progress and the available next phases without invoking agents. |
@@ -853,6 +887,12 @@ Options specific to `restart`:
 | --- | --- |
 | `--as NAME` | New task name. Defaults to `TASK-restart-N`, using the next free number and shortening a long prefix to fit the task-name limit. Existing tasks are never overwritten. |
 | `--base REF` | Resolve a different base branch, tag, or commit. Defaults to the original task's exact saved commit, with no startup prompt. |
+
+Options specific to `abandon`:
+
+| Option | Meaning |
+| --- | --- |
+| `--yes` | Confirm permanent deletion of the task, worktree, local branch, and task files, including uncommitted changes. Skips the confirmation prompt; required with `--json` or noninteractive input. |
 
 Options specific to `respond`:
 

@@ -313,8 +313,10 @@ function renderTask(task, running) {
   renderHistory(task);
   if (key !== packetKey) {
     packetKey = key;
-    const packet = $("packet");
+    const packet = $("packet"),
+      notes = $("exploration-notes");
     packet.replaceChildren();
+    notes.replaceChildren();
     if (prompt.summary) packet.append(el("h2", prompt.summary));
     if (prompt.error) packet.append(prose(prompt.error));
     if (prompt.guidance) packet.append(prose(prompt.guidance));
@@ -327,9 +329,10 @@ function renderTask(task, running) {
       const a = prompt.exploration;
       if (!(task.messages || []).some((item) => item.analysis === a.analysis))
         packet.append(el("h2", a.summary), prose(a.analysis));
-      section(packet, "References", a.references.join("\n"));
-      section(packet, "Open questions", a.open_questions.join("\n"));
+      section(notes, "References", a.references.join("\n"));
+      section(notes, "Open questions", a.open_questions.join("\n"));
     }
+    notes.hidden = !notes.children.length;
     if (prompt.specification) {
       const spec = prompt.specification;
       packet.append(el("h2", spec.problem), prose(spec.expected_behavior));

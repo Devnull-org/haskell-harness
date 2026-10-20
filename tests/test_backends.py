@@ -264,8 +264,8 @@ def test_invalid_backend_output_is_saved_with_the_task(rig, tmp_path):
     )
     harness.agent = CommandAgent(Backend(command=[script]))
     view = harness.start("invalid", "Fix it")
-    assert view["stage"] == "agent_error"
+    assert view["stage"] == "backend_blocked"
     directory = harness.state_dir / "invalid" / "backend-responses" / "0001-interviewer"
     assert (directory / "stdout.txt").read_text() == "invalid response\n"
     assert (directory / "stderr.txt").read_text() == "diagnostic\n"
-    assert str(directory) in view["prompt"]["error"]
+    assert view["prompt"]["diagnostics"] == str(directory)

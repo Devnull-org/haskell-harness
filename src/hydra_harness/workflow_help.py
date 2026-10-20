@@ -100,7 +100,7 @@ Pause and continue whenever needed
 Switch backends on a saved task
   Quit the old process, then select the backend when resuming:
     haskell-harness --backend codex --repo /path/to/project resume my-feature
-  At an existing agent_error, type retry to send the failed step to Codex.
+  At backend_blocked (or an older agent_error), retry sends the failed step to Codex.
   Your answers, approvals, base commit, and worktree are preserved.
   Or use the GitHub Nix prefix above with #codex to supply its CLI too.
 
@@ -117,10 +117,16 @@ While waiting for an agent
   A spinner shows the agent role and elapsed time, then clears before your prompt.
   With --json, redirected stderr, or TERM=dumb, progress is printed every 15 seconds
   instead. The indicator shows waiting time, not the amount of completed work.
-  Invalid JSON/schema responses stop at agent_error and are saved under the task's
-  backend-responses directory; the error gives the path. Use retry to repeat that
-  step. After updating the harness, quit the old process and resume with the new
-  version before retrying. restart begins a fresh task instead.
+  Invalid JSON/schema responses get one automatic correction attempt. The same
+  backend receives the error and original response; your answers remain saved.
+  Large invalid replies are saved without correction. Validation and approval
+  gates still apply.
+  Unresolved responses and provider failures pause at backend_blocked with a
+  reason and diagnostics path. Quota, login, rate-limit, and timeout failures
+  are not automatically retried. Resolve the cause, then retry here, or quit
+  normally. --json and scripts return nonzero for blocked tasks.
+  Failed calls are saved under backend-responses, with a separate attempt-2
+  directory for a failed correction. restart is not needed to correct a reply.
 
 Command and option reference
     haskell-harness --help

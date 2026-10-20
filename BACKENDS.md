@@ -68,7 +68,7 @@ nix run --refresh github:Devnull-org/langgraph-harness#codex -- \
 ```
 
 Use your existing task name, checkout, and any `--state-dir` override. At a saved
-`agent_error`, type `retry`; the next call uses Codex with the saved context.
+`backend_blocked` (or an older `agent_error`), type `retry`; the next call uses Codex.
 Switching backends does not discard answers or create a new worktree.
 
 The Claude Code profile uses its documented [headless interface and structured
@@ -190,14 +190,35 @@ role schema. When the only validation errors are unexpected fields containing
 and the result is validated again. Known fields are unchanged. Nonempty additions,
 missing required fields, and type errors remain errors; `false` and `0` are not
 treated as empty. Backend configuration remains strict as well.
-Invalid JSON/schema responses are saved in the task's
-`backend-responses` directory for local diagnosis. Interactive terminals show a
+The workflow requests one automatic correction after invalid JSON/schema output,
+using the same role and backend with an additional `context.response_repair` object:
+`validation_error` describes the failure and `previous_response` holds the invalid
+output. Original context and human approval requirements remain in force. Bridges
+using JSON input receive these fields in the versioned request's `context`.
+Correction is skipped for output over 64 KB or combined context over 400 KB. Each invocation
+has its own configured timeout. There is no automatic retry after a provider
+failure, error envelope, process launch failure, or timeout.
+
+Failures are saved in the task's `backend-responses` directory, including raw
+stdout/stderr, partial output on timeout, and a `failure.json` record. A failed
+correction uses an `attempt-2` subdirectory so it cannot overwrite the first
+response. Before any correction, the workflow verifies that the checkout is
+unchanged. A valid response continues to the original human gate; invalid output
+never becomes a proposal.
+
+Interactive terminals show a
 spinner with the agent role and elapsed time. With `--json`, redirected stderr, or
 `TERM=dumb`, progress is printed every 15 seconds instead. These indicators show
 waiting time, not how much work the model has completed, and never use stdout.
-Error envelopes, missing fields, malformed JSON, and schema mismatches stop at an
-error gate. There are no automatic provider fallbacks. All processes are terminated
-on timeout; changing the backend does not weaken test protection or validation.
+Unresolved failures pause at `backend_blocked`. The prompt includes
+`backend_failure` with `backend` and `kind`, a `guidance` message, and a `diagnostics`
+path. Kinds are `quota`, `authentication`, `rate_limit`, `timeout`, `unavailable`,
+`invalid_response`, and `provider` for errors without a recognized category.
+Classification uses explicit error text; it does not claim to know the account's
+remaining balance. Scripts still return nonzero for blocked work. Interactive
+users can retry after addressing the cause or quit normally. There are no automatic
+provider fallbacks. Process groups are terminated on timeout; changing the backend
+does not weaken test protection or validation.
 
 Configure required credentials through the selected CLI/service's normal mechanism.
 All profiles remove inherited `ORCA_AGENT_*`, `ORCA_PANE_KEY`, `ORCA_TAB_ID`,

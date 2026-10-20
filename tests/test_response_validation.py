@@ -103,7 +103,7 @@ def test_saved_response_can_restore_the_interview_without_repeating_the_answer(r
 
     harness.agent = old_backend
     view = harness.respond("recover", "answer", text="Negative integers too.")
-    assert view["stage"] == "agent_error"
+    assert view["stage"] == "backend_blocked"
     saved = harness.state_dir / "recover/backend-responses/0003-interviewer/stdout.txt"
 
     def replay(role, context, cwd):

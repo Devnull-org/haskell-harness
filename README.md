@@ -425,7 +425,7 @@ nix run --refresh github:Devnull-org/langgraph-harness#codex -- \
 CLI login without generating a model response or checking the remaining usage
 allowance. `resume my-feature` opens the existing task with that backend. Replace
 the project path and task name with yours, and preserve any `--state-dir` override.
-Quit any older harness process first. If the saved task is at `agent_error`, type
+Quit any older harness process first. At `backend_blocked` (or an older `agent_error`), type
 `retry` to repeat the failed step using Codex. Your answers, approvals, base, and
 worktree remain saved; switching backends does not require `restart`.
 
@@ -484,17 +484,31 @@ agent timeout still applies.
 
 The harness accepts a JSON response, including one object after introductory
 commentary or one fenced JSON block with surrounding commentary. It then validates
-the complete object against the role's schema. Multiple objects or blocks,
-invalid JSON, and missing required fields stop at `agent_error`. Failed
-JSON/schema responses are saved under the task's `backend-responses` directory,
-outside the target checkout; the error prints the path to `stdout.txt` and
-`stderr.txt`. These files can contain task and source details, so inspect them
-before sharing. No response is applied without successful validation.
+the complete object against the role's schema. If parsing or validation fails,
+the harness asks the same backend for **one corrected response automatically**,
+including the validation error and previous output. It preserves the developer's
+answers and approval gates. The terminal reports the correction attempt; each
+call uses the configured agent timeout. Invalid output larger than 64 KB, or
+combined correction context larger than 400 KB, is saved without automatic correction.
+No response is applied without successful validation.
+
+If correction fails, the task pauses at `backend_blocked` and keeps the terminal
+open. Provider usage limits, authentication failures, rate limits, timeouts, and
+other provider errors also pause here, with a specific reason and next step.
+These provider failures are never retried automatically, and the harness never
+silently switches providers. A login check does not establish available quota.
+
+Failed calls are saved under the task's `backend-responses` directory, outside the
+checkout. `stdout.txt` and `stderr.txt` preserve the original diagnostics;
+`failure.json` records the category and error. A failed correction is saved in
+`attempt-2` alongside the original failure. These files can contain task and
+source details, so inspect them before sharing. The harness also checks that the
+agent did not alter the checkout before allowing a correction.
 
 If an otherwise valid response contains unexpected fields whose values are `null`,
 `""`, `[]`, or `{}`, the harness discards those empty additions and prints their
 field names. Missing required fields, incorrect types, and unexpected fields with
-information still stop the workflow. For example, an extra `out_of_scope_note: []`
+information require a corrected, valid reply. For example, an extra `out_of_scope_note: []`
 does not lose the interview, but it cannot replace the required `out_of_scope` field.
 
 Agent calls run in the background using the selected backend's existing login.
@@ -504,10 +518,15 @@ may still save its own session history, which desktop apps can discover and show
 as separate, sometimes empty chats. The harness conversation and approval prompts
 remain in the terminal where you launched it.
 
-At an `agent_error` prompt, `retry` repeats the failed step. If you have updated the
-harness, type `quit` in the old process and launch `resume TASK` with the updated
-version before choosing `retry`. `restart TASK` instead begins a fresh interview
-under a new task name, preserving the old attempt as described above.
+At a blocked prompt, `retry` repeats the step after you address its cause. `quit`
+leaves the conversation normally with the task saved. Scripts and `--json` return
+exit code 1 for blocked tasks, with a structured `backend_failure` and diagnostics
+path for backend failures. Errors in workspace integrity or other workflow
+operations remain `agent_error`.
+
+After updating the harness, quit the old process and run the new version to start
+or resume a task. `restart TASK` starts a fresh interview under a new name; it is
+not needed for the automatic response correction described above.
 
 The terminal shows the current specification, questions, test diff, or review
 findings, followed by available actions. Answer interview and walkthrough questions

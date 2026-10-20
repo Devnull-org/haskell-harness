@@ -11,8 +11,9 @@ from pathlib import Path
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
+from pydantic import ValidationError
 
-from .backends import BackendResponseError
+from .failures import BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
 from .reports import pr_description
 from .schemas import validate_response
@@ -336,8 +337,15 @@ class Harness:
                         key: copy.deepcopy(original[key]) for key in ("response", "stage", "prompt")
                     }
                 state["retry_node"] = name
-                actions = ["retry", "recheck"] if state.get("validation") else ["retry"]
-                self._gate(state, "agent_error", {"error": str(error)}, actions)
+                actions = (
+                    ["retry", "recheck"]
+                    if state.get("validation") and not state.get("agent_integrity_fingerprint")
+                    else ["retry"]
+                )
+                if isinstance(error, BackendError):
+                    self._gate(state, "backend_blocked", error.prompt(), ["retry"])
+                else:
+                    self._gate(state, "agent_error", {"error": str(error)}, actions)
             state["seq"] += 1
             save_json(journal, state)
             return state
@@ -385,29 +393,76 @@ class Harness:
         context = self._context(state, **extra)
         workspace = self._workspace(state)
         before = workspace.fingerprint()
+        if state.get("agent_integrity_fingerprint"):
+            self._check_agent_checkout(state, workspace, state["agent_integrity_fingerprint"])
+            del state["agent_integrity_fingerprint"]
         cache = Path(state["directory"]) / "proposals" / f"{state['seq']:04d}-{role}.json"
         if cache.exists():
             result = json.loads(cache.read_text())
         else:
-            try:
-                result = self.agent(role, context, workspace.path)
-            except BackendResponseError as error:
-                directory = (
-                    Path(state["directory"]) / "backend-responses" / f"{state['seq']:04d}-{role}"
-                )
-                directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-                for filename, text in (("stdout.txt", error.stdout), ("stderr.txt", error.stderr)):
-                    path = directory / filename
-                    path.write_text(text)
-                    path.chmod(0o600)
-                raise ValueError(f"{error}\nBackend response saved in: {directory}") from error
-            result = validate_response(role, context, result, notify=self.progress)
-            if workspace.fingerprint() != before:
-                raise ValueError(
-                    "Agent changed the checkout directly; inspect and restore it before retrying"
-                )
+            for attempt in range(2):
+                try:
+                    result = self.agent(role, context, workspace.path)
+                    try:
+                        result = validate_response(role, context, result, notify=self.progress)
+                    except ValidationError as error:
+                        raise BackendResponseError(
+                            str(error), json.dumps(result, ensure_ascii=False, default=str), ""
+                        ) from error
+                except BackendError as error:
+                    self._save_backend_failure(state, role, attempt, error)
+                    self._check_agent_checkout(state, workspace, before)
+                    # Repair only response formatting, once, within a bounded prompt.
+                    if (
+                        attempt == 0
+                        and isinstance(error, BackendResponseError)
+                        and len(error.stdout.encode()) <= 64_000
+                    ):
+                        correction = {
+                            **context,
+                            "response_repair": {
+                                "validation_error": str(error)[:4000],
+                                "previous_response": error.stdout,
+                            },
+                        }
+                        if len(json.dumps(correction, ensure_ascii=False).encode()) <= 400_000:
+                            context = correction
+                            self.progress(
+                                f"{state['task_id']}: invalid {role} response; "
+                                "requesting one correction"
+                            )
+                            continue
+                    raise
+                except (ValueError, RuntimeError, OSError):
+                    self._check_agent_checkout(state, workspace, before)
+                    raise
+                self._check_agent_checkout(state, workspace, before)
+                break
             save_json(cache, result)
         return result
+
+    @staticmethod
+    def _check_agent_checkout(state, workspace, before):
+        if workspace.fingerprint() != before:
+            state["agent_integrity_fingerprint"] = before
+            raise ValueError(
+                "Agent changed the checkout directly; inspect and restore it before retrying"
+            )
+
+    @staticmethod
+    def _save_backend_failure(state, role, attempt, error):
+        directory = Path(state["directory"]) / "backend-responses" / f"{state['seq']:04d}-{role}"
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        destination = directory if attempt == 0 else directory / f"attempt-{attempt + 1}"
+        destination.mkdir(exist_ok=True, mode=0o700)
+        for filename, text in (("stdout.txt", error.stdout), ("stderr.txt", error.stderr)):
+            path = destination / filename
+            path.write_text(text)
+            path.chmod(0o600)
+        metadata = destination / "failure.json"
+        save_json(metadata, {"backend": error.backend, "kind": error.kind, "error": str(error)})
+        metadata.chmod(0o600)
+        error.diagnostics = str(directory)
 
     def _interview(self, state):
         result = self._ask(state, "interviewer")

@@ -150,9 +150,11 @@ def render(view):
     if view.get("project_context_id"):
         print(f"Project context: {view['project_context_id']}")
     prompt = view.get("prompt", {})
-    for key in ("error", "explanation", "summary", "answer", "feedback"):
+    for key in ("error", "guidance", "explanation", "summary", "answer", "feedback"):
         if prompt.get(key):
             print(f"\n{prompt[key]}")
+    if prompt.get("diagnostics"):
+        print(f"\nBackend diagnostics: {prompt['diagnostics']}")
     if prompt.get("available_phases"):
         print(f"\nAvailable phases: {', '.join(prompt['available_phases'])}")
         print(f"Start one explicitly with: run {view['task_id']} PHASE")
@@ -239,7 +241,7 @@ def conversation(harness, view):
             fields["text"] = text or input("Your response: ")
         try:
             view = harness.respond(view["task_id"], action, **fields)
-        except (ValueError, RuntimeError) as error:
+        except (ValueError, RuntimeError, OSError) as error:
             print(f"Cannot continue: {error}")
 
 
@@ -423,7 +425,8 @@ def main(argv=None):
             render(view)
         else:
             view = conversation(harness, view)
-        return 1 if view["stage"] in {"agent_error", "validation_blocked"} else 0
+            return 0
+        return 1 if view["stage"] in {"agent_error", "backend_blocked", "validation_blocked"} else 0
     except (ValueError, RuntimeError, OSError) as error:
         print(f"hydra-harness: {error}", file=sys.stderr)
         return 1

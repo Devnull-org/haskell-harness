@@ -111,7 +111,10 @@ def test_cli_spinner_uses_only_interactive_stderr(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Requires a POSIX terminal")
-def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(repository, tmp_path):
+@pytest.mark.parametrize("invalid_first", [False, True])
+def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(
+    repository, tmp_path, invalid_first
+):
     import pty
     import select
 
@@ -122,6 +125,9 @@ def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(reposit
         "request = json.load(sys.stdin)\n"
         f"with Path({str(capture)!r}).open('a') as stream:\n"
         "    stream.write(json.dumps(request) + '\\n')\n"
+        f"if {invalid_first!r} and not request['context']['messages'] "
+        "and 'response_repair' not in request['context']:\n"
+        "    print('invalid first reply')\n    sys.exit(0)\n"
         "questions = [] if request['context']['messages'] else ['Which inputs should work?']\n"
         f"print(json.dumps({{'specification': {SPECIFICATION!r}, 'questions': questions}}))\n",
     )
@@ -195,7 +201,7 @@ def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(reposit
         send("quit")
         assert process.wait(timeout=10) == 0
     requests = [json.loads(line) for line in capture.read_text().splitlines()]
-    assert len(requests) == 2
+    assert len(requests) == 2 + invalid_first
     assert requests[-1]["context"]["messages"][-1]["text"] == "Negative integers too."
 
     with terminal("resume", "terminal") as (process, expect, send):
@@ -204,7 +210,7 @@ def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(reposit
         send("approve")
         expect("terminal: specification ready")
         assert process.wait(timeout=10) == 0
-    assert len(capture.read_text().splitlines()) == 2
+    assert len(capture.read_text().splitlines()) == 2 + invalid_first
 
 
 @pytest.mark.parametrize("start_options", [[], ["--interview-only"]])

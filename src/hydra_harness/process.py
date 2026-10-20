@@ -6,6 +6,14 @@ import subprocess
 import time
 
 
+class ProcessError(RuntimeError):
+    """Preserve partial output when a process cannot start or times out."""
+
+    def __init__(self, message, *, kind, stdout="", stderr=""):
+        super().__init__(message)
+        self.kind, self.stdout, self.stderr = kind, stdout, stderr
+
+
 def run_process(
     argv, cwd, *, timeout=600, stdin=None, env=None, progress=None, progress_interval=15
 ):
@@ -25,7 +33,9 @@ def run_process(
             start_new_session=True,
         )
     except OSError as error:
-        raise RuntimeError(f"Cannot run executable {argv[0]}: {error}") from error
+        raise ProcessError(
+            f"Cannot run executable {argv[0]}: {error}", kind="unavailable", stderr=str(error)
+        ) from error
     started = time.monotonic()
     try:
         while True:
@@ -45,15 +55,21 @@ def run_process(
                 if progress:
                     progress(elapsed)
     except BaseException as error:
+        stdout, stderr = "", ""
         try:
             os.killpg(process.pid, signal.SIGTERM)
-            process.communicate(timeout=3)
+            stdout, stderr = process.communicate(timeout=3)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
+            stdout, stderr = process.communicate()
         except ProcessLookupError:
-            process.wait()
+            stdout, stderr = process.communicate()
         if isinstance(error, subprocess.TimeoutExpired):
-            raise RuntimeError(f"{argv[0]} timed out after {timeout} seconds") from error
+            raise ProcessError(
+                f"{argv[0]} timed out after {timeout} seconds",
+                kind="timeout",
+                stdout=stdout,
+                stderr=stderr,
+            ) from error
         raise
     return process.returncode, stdout, stderr

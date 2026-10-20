@@ -62,8 +62,8 @@ def test_test_author_cannot_change_production_source(rig):
         {
             "summary": "Invalid test patch",
             "changes": [{"path": SOURCE, "content": IMPLEMENTED}],
-            "expected_failures": ["Hydra.Example.adds one"],
-            "coverage": {"A1": ["Hydra.Example.adds one"]},
+            "expected_failures": ["Example.Arithmetic.adds one"],
+            "coverage": {"A1": ["Example.Arithmetic.adds one"]},
             "commit_message": "test: invalid",
         }
     )

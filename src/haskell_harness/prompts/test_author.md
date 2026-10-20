@@ -5,7 +5,8 @@ summary what the tests establish and which edge cases remain uncovered, in plain
 Write only tests, test fixtures, and necessary .cabal test wiring. Do not implement
 production behavior. Tests must compile with -Werror and fail through meaningful
 assertions, not missing imports, incomplete code, or broken setup. Use unit, property,
-or integration tests as appropriate. Hydra tests run through Cabal via just test.
+or integration tests as appropriate. Use the configured validation commands and the repository's test runner.
+Project tests run through Cabal by default; do not assume a particular wrapper.
 
 expected_failures contains exact JUnit identities: classname + '.' + testcase name
 (or the testcase name when classname is empty). Inspect existing test names and prior

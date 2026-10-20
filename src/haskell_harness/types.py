@@ -1,6 +1,5 @@
 """Serializable boundaries between the workflow, agents, and command runner."""
 
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol, TypedDict
 
@@ -17,7 +16,10 @@ class Agent(Protocol):
     def __call__(self, role: str, context: dict[str, Any], cwd: Path) -> dict[str, Any]: ...
 
 
-Executor = Callable[[list[str], Path], CommandResult]
+class Executor(Protocol):
+    def __call__(
+        self, argv: list[str], cwd: Path, *, report_glob: str | None = None
+    ) -> CommandResult: ...
 
 
 class View(TypedDict, total=False):

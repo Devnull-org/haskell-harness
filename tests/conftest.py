@@ -9,20 +9,20 @@ import pytest
 
 from haskell_harness.contracts import Harness
 
-SOURCE = "hydra-node/src/Hydra/Example.hs"
-TEST = "hydra-node/test/Hydra/ExampleSpec.hs"
-BROKEN = "module Hydra.Example where\naddOne :: Int -> Int\naddOne x = x\n"
-IMPLEMENTED = "module Hydra.Example where\naddOne :: Int -> Int\naddOne x = x + 1\n"
-REFACTORED = "module Hydra.Example where\naddOne :: Int -> Int\naddOne = succ\n"
+SOURCE = "example-app/src/Example/Arithmetic.hs"
+TEST = "example-app/test/Example/ArithmeticSpec.hs"
+BROKEN = "module Example.Arithmetic where\naddOne :: Int -> Int\naddOne x = x\n"
+IMPLEMENTED = "module Example.Arithmetic where\naddOne :: Int -> Int\naddOne x = x + 1\n"
+REFACTORED = "module Example.Arithmetic where\naddOne :: Int -> Int\naddOne = succ\n"
 TEST_CONTENT = '-- Acceptance A1: increment the input.\nit "adds one" $ addOne 0 `shouldBe` 1\n'
-FAILURE_ID = "Hydra.Example.adds one"
+FAILURE_ID = "Example.Arithmetic.adds one"
 SPECIFICATION = {
     "problem": "addOne returns its input unchanged",
     "expected_behavior": "Return the input incremented by one",
     "acceptance_criteria": [{"id": "A1", "description": "addOne 0 returns 1"}],
     "out_of_scope": ["Changing unrelated arithmetic"],
     "constraints": ["Follow repository conventions", "Compile with -Werror"],
-    "packages": ["hydra-node"],
+    "packages": ["example-app"],
     "open_questions": [],
     "assumptions": [],
 }
@@ -48,8 +48,8 @@ def junit(*, failing=True, name="adds one", errors=False):
     failure = '<error message="test crashed" />' if errors else '<failure message="expected 1" />'
     content = failure if failing else ""
     return (
-        '<testsuite name="Hydra.Example" tests="1">'
-        f'<testcase classname="Hydra.Example" name="{name}">{content}</testcase>'
+        '<testsuite name="Example.Arithmetic" tests="1">'
+        f'<testcase classname="Example.Arithmetic" name="{name}">{content}</testcase>'
         "</testsuite>"
     )
 
@@ -110,14 +110,14 @@ class ScriptedExecutor:
         self.nix_error = False
         self.force_red = False
 
-    def __call__(self, argv, cwd):
+    def __call__(self, argv, cwd, *, report_glob=None):
         source = (cwd / SOURCE).read_text()
         self.calls.append((list(argv), Path(cwd), source))
-        if argv == ["just", "lint"] and self.lint_error:
+        if argv == ["hlint", "."] and self.lint_error:
             return command_result(argv, exit_code=1, stderr="GHC: unused binding [-Werror]")
-        if argv == ["just", "check"] and self.nix_error:
+        if argv == ["nix", "flake", "check"] and self.nix_error:
             return command_result(argv, exit_code=1, stderr="nix check failed: see log")
-        if argv[:2] == ["just", "test"]:
+        if report_glob:
             red = source == BROKEN or self.force_red
             return command_result(argv, exit_code=int(red), junit_xml=[junit(failing=red)])
         return command_result(argv)
@@ -125,7 +125,7 @@ class ScriptedExecutor:
 
 @pytest.fixture
 def repository(tmp_path):
-    repo = tmp_path / "hydra"
+    repo = tmp_path / "project"
     repo.mkdir()
     git(repo, "init", "-b", "main")
     git(repo, "config", "user.name", "Harness test")
@@ -136,8 +136,8 @@ def repository(tmp_path):
     (repo / SOURCE).write_text(BROKEN)
     (repo / TEST).parent.mkdir(parents=True)
     (repo / TEST).write_text("-- Existing tests\n")
-    (repo / "cabal.project").write_text("packages: hydra-node\ntests: True\n")
-    (repo / "hydra-node/hydra-node.cabal").write_text("name: hydra-node\n")
+    (repo / "cabal.project").write_text("packages: example-app\ntests: True\n")
+    (repo / "example-app/example-app.cabal").write_text("name: example-app\n")
     (repo / "CLAUDE.md").write_text("Use plain English comments. Never edit CHANGELOG.md.\n")
     git(repo, "add", ".")
     git(repo, "commit", "-m", "Initial fixture")

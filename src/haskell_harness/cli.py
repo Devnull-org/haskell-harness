@@ -39,7 +39,9 @@ def parser():
         type=Path,
         help="Dependency flake (default: task worktree; --repo for doctor)",
     )
-    result.add_argument("--config", type=Path, help="User-owned backend configuration (TOML)")
+    result.add_argument(
+        "--config", type=Path, help="User-owned backend and validation configuration (TOML)"
+    )
     result.add_argument(
         "--backend", help="Backend profile for all agents, or auto to check and choose (default)"
     )
@@ -144,17 +146,12 @@ def parser():
         "refresh", help="Save reference sources from the target's committed HEAD"
     )
     refresh.add_argument(
-        "--profile", choices=["hydra"], help="Import Hydra protocol and state machine sources"
-    )
-    refresh.add_argument(
         "--source",
         action="append",
-        default=[],
-        help="Additional tracked source path; repeat for multiple files",
+        required=True,
+        help="Tracked project source or document; repeat for multiple files",
     )
-    show = context_commands.add_parser(
-        "show", help="Show saved protocol details and source references"
-    )
+    show = context_commands.add_parser("show", help="Show saved project source references")
     show.add_argument(
         "--snapshot", help="Snapshot ID from context history (default: latest selection)"
     )
@@ -386,7 +383,7 @@ def context_command(args):
         if args.context_command == "history":
             result = store.history()
         elif args.context_command == "refresh":
-            result = store.refresh(args.repo, profile=args.profile, sources=args.source)
+            result = store.refresh(args.repo, sources=args.source)
         else:
             result = store.get(args.snapshot)
         if args.context_command == "show" and args.source:
@@ -406,12 +403,6 @@ def context_command(args):
                 print(f"  {document['path']}: {document['purpose']}")
             if result["missing_sources"]:
                 print(f"Optional sources absent: {', '.join(result['missing_sources'])}")
-            if args.context_command == "show":
-                for document in result["documents"]:
-                    if document["path"] == "docs/docs/protocol-overview.md":
-                        print("\n" + document["content"])
-                if result["state_declaration"]:
-                    print("\nRecorded HeadState declaration:\n" + result["state_declaration"])
             print("Use context show --source PATH to read a saved source in full.")
     return 0
 
@@ -513,6 +504,7 @@ def _main(argv, cancellation):
             LocalExecutor(nix_flake=args.nix_flake, timeout=args.check_timeout),
             unsigned_commits=args.unsigned_commits,
             progress=progress,
+            validation=settings.validation,
         )
         selected_backend = None
         if args.command != "status":

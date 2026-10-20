@@ -10,6 +10,7 @@ from pydantic import Field, model_validator
 
 from .backends import Backend, CommandAgent
 from .schemas import SCHEMAS, Record
+from .validation import ValidationConfig
 
 
 class Route(Record):
@@ -22,6 +23,7 @@ class Settings(Record):
     default_backend: str = "auto"
     backends: dict[str, Backend]
     roles: dict[str, Route] = Field(default_factory=dict)
+    validation: ValidationConfig = Field(default_factory=ValidationConfig)
 
     @model_validator(mode="after")
     def valid_routes(self):

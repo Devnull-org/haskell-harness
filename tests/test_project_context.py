@@ -1,4 +1,4 @@
-"""Shared protocol context stays traceable, durable, and separate from live edits."""
+"""Shared project context stays traceable, durable, and separate from live edits."""
 
 import pytest
 
@@ -12,7 +12,7 @@ def test_context_survives_restart_and_keeps_immutable_history(repository, tmp_pa
     with ContextStore(tmp_path / "context") as store:
         first = store.refresh(repository, sources=[SOURCE])
         assert first["revision"] == git(repository, "rev-parse", "HEAD")
-    (repository / SOURCE).write_text("module Hydra.Example where\n-- A new property\n")
+    (repository / SOURCE).write_text("module Example.Arithmetic where\n-- A new property\n")
     git(repository, "commit", "-am", "Change documented behavior")
     with ContextStore(tmp_path / "context") as store:
         assert store.latest_id() == first["id"]
@@ -80,32 +80,33 @@ def test_context_can_be_selected_for_an_existing_task_only_between_phases(rig):
     assert agent.calls[-1][1]["project_context"]["id"] == snapshot["id"]
 
 
-def test_hydra_profile_records_protocol_and_actual_state_constructors(repository, tmp_path):
+def test_explicit_sources_record_project_architecture_and_state_types(repository, tmp_path):
     sources = {
-        "docs/docs/protocol-overview.md": "# Head protocol\nAn agreed snapshot records the UTxO.\n",
-        "hydra-node/src/Hydra/HeadLogic/State.hs": (
-            "data HeadState tx\n  = Idle tx\n  | Open tx\n  deriving stock (Show)\n"
-        ),
-        "hydra-node/src/Hydra/HeadLogic.hs": (
-            "update :: Input -> State -> Outcome\nupdate = undefined\n"
-        ),
+        "docs/architecture.md": "# Queue service\nEvery accepted job can be retried.\n",
+        "src/Example/State.hs": "data JobState = Pending | Running | Finished\n",
+        "src/Example/Worker.hs": "advance :: JobState -> JobState\nadvance = id\n",
     }
     for name, content in sources.items():
         path = repository / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
     git(repository, "add", ".")
-    git(repository, "commit", "-m", "Add protocol sources")
+    git(repository, "commit", "-m", "Add project sources")
     with ContextStore(tmp_path / "context") as store:
-        snapshot = store.refresh(repository, profile="hydra")
+        snapshot = store.refresh(repository, sources=list(sources))
         assert {d["path"] for d in snapshot["documents"]} == set(sources)
-        assert "HeadState" in snapshot["state_declaration"]
-        assert "Open tx" in snapshot["state_declaration"]
-        assert snapshot["missing_sources"]
         context = store.for_agent(snapshot["id"], Workspace(repository))
         assert context["changed_sources"] == []
-        assert "agreed snapshot" in str(context)
-        assert any("update" in d["symbols"] for d in context["documents"])
+        assert "accepted job" in str(context)
+        assert any("JobState" in d["symbols"] for d in context["documents"])
+        assert any("advance" in d["symbols"] for d in context["documents"])
+
+
+def test_context_requires_explicit_source_selection(repository, tmp_path):
+    with ContextStore(tmp_path / "context") as store:
+        with pytest.raises(ValueError, match="at least one --source"):
+            store.refresh(repository)
+        assert store.latest_id() is None
 
 
 def test_context_prompt_excerpts_are_bounded_but_full_sources_are_saved(repository, tmp_path):

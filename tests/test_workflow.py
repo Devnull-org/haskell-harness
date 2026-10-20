@@ -57,9 +57,11 @@ def test_test_review_contains_diff_coverage_and_actual_red_evidence(rig, reposit
     assert "adds one" in packet["diff"]
     assert packet["coverage"]["A1"]
     assert packet["validation"]["status"] == "expected_red"
-    assert ["just", "lint"] in [argv for argv, _, _ in executor.calls]
-    assert ["just", "check"] in [argv for argv, _, _ in executor.calls]
-    assert ["just", "test", "hydra-node"] in [argv for argv, _, _ in executor.calls]
+    assert ["hlint", "."] in [argv for argv, _, _ in executor.calls]
+    assert ["nix", "flake", "check"] in [argv for argv, _, _ in executor.calls]
+    assert ["cabal", "test", "example-app", "--test-show-details=direct"] in [
+        argv for argv, _, _ in executor.calls
+    ]
     assert "implementer" not in [role for role, _, _ in agent.calls]
     assert (repository / TEST).read_text() == "-- Existing tests\n"
     assert (Path(view["worktree"]) / SOURCE).read_text() == BROKEN
@@ -84,8 +86,8 @@ def test_test_revisions_require_fresh_validation_and_approval(rig):
         {
             "summary": "Clarify the assertion",
             "changes": [{"path": TEST, "content": TEST_CONTENT + "-- Also document negatives.\n"}],
-            "expected_failures": ["Hydra.Example.adds one"],
-            "coverage": {"A1": ["Hydra.Example.adds one"]},
+            "expected_failures": ["Example.Arithmetic.adds one"],
+            "coverage": {"A1": ["Example.Arithmetic.adds one"]},
             "commit_message": "test: specify increment behavior",
         }
     )
@@ -155,9 +157,10 @@ def test_each_patch_is_validated_and_committed_in_order(rig, repository):
     ]
     for source in (BROKEN, IMPLEMENTED, REFACTORED):
         commands = [argv for argv, _, contents in executor.calls if contents == source]
-        assert ["just", "lint"] in commands
-        assert ["just", "check"] in commands
-        assert ["just", "test", "hydra-node"] in commands
+        assert ["hlint", "."] in commands
+        assert ["cabal", "build", "all", "--enable-tests", "--ghc-options=-Werror"] in commands
+        assert ["nix", "flake", "check"] in commands
+        assert ["cabal", "test", "example-app", "--test-show-details=direct"] in commands
     assert git(repository, "rev-parse", "HEAD") == base
     assert git(repository, "status", "--porcelain") == ""
     assert git(worktree, "status", "--porcelain") == ""
@@ -211,7 +214,7 @@ def test_security_findings_are_local_and_stop_the_ready_transition(rig):
                     "conditions": "A participant sends a duplicate message",
                     "sequence": ["Accept message", "Restart", "Replay message"],
                     "impact": "Recovery remains blocked",
-                    "evidence": "Illustrative fixture finding, not a Hydra vulnerability",
+                    "evidence": "Illustrative fixture finding, not a real vulnerability",
                     "confidence": "suspected",
                     "recommendation": "Add a regression test and inspect the transition",
                     "needs_test": True,
@@ -301,8 +304,8 @@ def test_review_bug_returns_to_test_author_and_developer_approval(rig):
         {
             "summary": "Cover the reviewed boundary case",
             "changes": [{"path": TEST, "content": TEST_CONTENT + "-- Boundary case regression\n"}],
-            "expected_failures": ["Hydra.Example.adds one"],
-            "coverage": {"A1": ["Hydra.Example.adds one"]},
+            "expected_failures": ["Example.Arithmetic.adds one"],
+            "coverage": {"A1": ["Example.Arithmetic.adds one"]},
             "commit_message": "test: cover reviewed boundary case",
         }
     )
@@ -348,8 +351,8 @@ def test_agent_edits_cannot_escape_the_worktree_or_change_git_metadata(rig, path
         {
             "summary": "Invalid file proposal",
             "changes": [{"path": path, "content": "invalid"}],
-            "expected_failures": ["Hydra.Example.adds one"],
-            "coverage": {"A1": ["Hydra.Example.adds one"]},
+            "expected_failures": ["Example.Arithmetic.adds one"],
+            "coverage": {"A1": ["Example.Arithmetic.adds one"]},
             "commit_message": "test: invalid proposal",
         }
     )

@@ -10,26 +10,6 @@ from pathlib import Path, PurePosixPath
 from .process import run_process
 from .workspace import digest, git
 
-HYDRA_SOURCES = {
-    "docs/docs/protocol-overview.md": "Head lifecycle, snapshots, and L1/L2 transfers",
-    "hydra-node/src/Hydra/HeadLogic/State.hs": "Head states and coordinated off-chain state",
-    "hydra-node/src/Hydra/HeadLogic/Input.hs": "Client, network, and chain inputs",
-    "hydra-node/src/Hydra/HeadLogic/Outcome.hs": "Effects, state changes, waiting, and errors",
-    "hydra-node/src/Hydra/HeadLogic/StateEvent.hs": "Persisted events, checkpoints, and replay",
-    "hydra-node/src/Hydra/HeadLogic.hs": "Pure transition handlers and state aggregation",
-    "hydra-node/src/Hydra/Node/State.hs": "Node state surrounding the Head state machine",
-    "hydra-node/src/Hydra/Node.hs": "Runtime dispatch, effect execution, and persistence",
-    "hydra-plutus/src/Hydra/Contract/HeadState.hs": "On-chain states and redeemers",
-    "hydra-plutus/src/Hydra/Contract/Head.hs": "On-chain transition validation",
-    "docs/docs/dev/protocol.md": "Protocol details, deposits, decommits, and snapshot agreement",
-    "docs/docs/dev/rollbacks/index.md": "Chain rollback and recovery behavior",
-}
-REQUIRED_HYDRA_SOURCES = {
-    "docs/docs/protocol-overview.md",
-    "hydra-node/src/Hydra/HeadLogic/State.hs",
-    "hydra-node/src/Hydra/HeadLogic.hs",
-}
-
 
 def state_directory(repository, root):
     directory = Path(root).expanduser().resolve() / digest(str(repository))[:16]
@@ -83,17 +63,14 @@ class ContextStore:
             )
         ]
 
-    def refresh(self, repository, *, profile=None, sources=()):
-        if profile not in {None, "hydra"}:
-            raise ValueError("Unknown context profile")
-        if profile is None and not sources:
-            raise ValueError("Choose --profile hydra or at least one --source path")
+    def refresh(self, repository, *, sources=()):
+        if not sources:
+            raise ValueError("Choose at least one --source path")
         revision = git(repository, "rev-parse", "HEAD")
-        paths = dict(HYDRA_SOURCES) if profile == "hydra" else {}
-        paths.update({path: "Additional project reference" for path in sources})
+        paths = {path: "Project reference" for path in sources}
         if len(paths) > 24:
             raise ValueError("Choose at most 24 context sources")
-        documents, missing, total_bytes = [], [], 0
+        documents, total_bytes = [], 0
         for name, purpose in paths.items():
             path = PurePosixPath(name)
             if (
@@ -108,10 +85,7 @@ class ContextStore:
                 raise ValueError(f"Invalid context source path: {name}")
             entry = git(repository, "ls-tree", revision, "--", name)
             if not entry:
-                if name in sources or name in REQUIRED_HYDRA_SOURCES:
-                    raise ValueError(f"Context source is not tracked at HEAD: {name}")
-                missing.append(name)
-                continue
+                raise ValueError(f"Context source is not tracked at HEAD: {name}")
             if entry.split()[0] not in {"100644", "100755"}:
                 raise ValueError(f"Context source must be a regular tracked file: {name}")
             code, content, error = run_process(
@@ -137,17 +111,11 @@ class ContextStore:
                     "symbols": list(dict.fromkeys(a or b for a, b in symbols)),
                 }
             )
-        state_source = next(
-            (d["content"] for d in documents if d["path"].endswith("HeadLogic/State.hs")), ""
-        )
-        declaration = re.search(r"^data HeadState\b.*?(?=^\S|\Z)", state_source, re.M | re.S)
         payload = {
-            "version": 1,
-            "profile": profile or "custom",
+            "version": 2,
             "revision": revision,
             "documents": documents,
-            "missing_sources": missing,
-            "state_declaration": declaration.group(0).rstrip() if declaration else "",
+            "missing_sources": [],
         }
         snapshot_id = digest(payload)
         snapshot = {**payload, "id": snapshot_id, "created": datetime.now(UTC).isoformat()}

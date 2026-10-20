@@ -39,6 +39,7 @@ class LocalApp:
             ),
             unsigned_commits=self.args.unsigned_commits,
             progress=self.progress,
+            validation=self.settings.validation,
         )
 
     def progress(self, message):

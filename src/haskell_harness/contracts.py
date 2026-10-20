@@ -3,7 +3,7 @@
 from .backends import Backend, CommandAgent
 from .config import RoutedAgent, Settings, load_settings
 from .types import Agent, CommandResult, Executor, View
-from .validation import classify_validation
+from .validation import ValidationConfig, classify_validation
 from .workflow import Harness
 
 __all__ = [
@@ -18,4 +18,5 @@ __all__ = [
     "Harness",
     "View",
     "classify_validation",
+    "ValidationConfig",
 ]

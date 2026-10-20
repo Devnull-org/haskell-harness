@@ -90,7 +90,7 @@ does not provide usage to the `local` backend. To continue an existing task with
 Codex, quit the old process and run:
 
 ```sh
-nix run --refresh github:Devnull-org/langgraph-harness#codex -- \
+nix run --refresh github:Devnull-org/haskell-harness#codex -- \
   --repo "/path/to/project" resume my-feature
 ```
 
@@ -112,6 +112,11 @@ Pass a file with `--config FILE`, or create
 `~/.config/haskell-harness/config.toml`). The file is optional; its parent directory
 does not need to exist. A missing file explicitly selected with `--config` is an
 error. Configuration is never automatically read from the target repository.
+
+The same file accepts a `[validation]` table for the project's lint, build, Nix,
+and test commands and its JUnit report pattern. See
+[validation and commits](README.md#validation-and-commits) for defaults and examples.
+New tasks save these settings so resuming them does not silently change their checks.
 
 For example, use a different model for security reviews:
 

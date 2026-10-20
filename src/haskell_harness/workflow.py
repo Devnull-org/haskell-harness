@@ -18,7 +18,7 @@ from .failures import AgentInterrupted, BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
 from .reports import exploration_report, pr_description
 from .schemas import validate_response
-from .validation import classify_validation, test_evidence
+from .validation import ValidationConfig, classify_validation, test_evidence
 from .workspace import Workspace, digest, git, is_test_path, resolve_base, save_json
 
 PHASE_NODES = {
@@ -45,6 +45,7 @@ class Harness:
         *,
         unsigned_commits=False,
         progress=None,
+        validation=None,
     ):
         self.repository = Path(repository).expanduser().resolve()
         if Path(git(self.repository, "rev-parse", "--show-toplevel")).resolve() != self.repository:
@@ -56,6 +57,7 @@ class Harness:
         self.max_repair_rounds = max(1, max_repair_rounds)
         self.unsigned_commits = unsigned_commits
         self.progress = progress or (lambda message: None)
+        self.validation = validation or ValidationConfig()
         self.connection = sqlite3.connect(
             self.state_dir / "checkpoints.sqlite", check_same_thread=False
         )
@@ -164,6 +166,7 @@ class Harness:
             "dispositions": [],
             "attempts": 0,
             "project_context_id": self.context.latest_id(),
+            "validation_config": self.validation.model_dump(),
         }
         if restarted_from:
             state["restarted_from"] = restarted_from
@@ -464,6 +467,7 @@ class Harness:
             "diff": workspace.diff(state["base"]),
             "approved_tests": state.get("approved_tests", {}),
             "selected_findings": state.get("selected_findings", []),
+            "validation_config": state.get("validation_config", self.validation.model_dump()),
             "patches": [
                 {key: patch[key] for key in ("revision", "role", "summary")}
                 for patch in state["commits"]
@@ -709,12 +713,19 @@ class Harness:
             raise ValueError(
                 "Untracked files are outside the review diff; inspect and git add them first"
             )
-        commands = [("lint", ["just", "lint"]), ("nix", ["just", "check"])]
-        commands += [(f"test:{p}", ["just", "test", p]) for p in state["specification"]["packages"]]
+        configuration = ValidationConfig.model_validate(
+            state.setdefault("validation_config", self.validation.model_dump())
+        )
+        commands = configuration.commands(state["specification"]["packages"])
         results = {}
         for name, command in commands:
             self.progress(f"{state['task_id']}: {' '.join(command)}")
-            results[name] = self.execute(command, workspace.path)
+            options = (
+                {"report_glob": configuration.report_pattern(name.removeprefix("test:"))}
+                if name.startswith("test:")
+                else {}
+            )
+            results[name] = self.execute(command, workspace.path, **options)
             save_json(
                 Path(state["directory"])
                 / "logs"

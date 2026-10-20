@@ -6,9 +6,9 @@ Choose how to launch
   From the harness clone (the directory containing its flake.nix):
     nix run . -- help
   From any directory, without cloning the harness:
-    nix run github:Devnull-org/langgraph-harness -- help
+    nix run github:Devnull-org/haskell-harness -- help
   Install the command with Nix (once, from any directory):
-    nix profile add --refresh github:Devnull-org/langgraph-harness
+    nix profile add --refresh github:Devnull-org/haskell-harness
   Then use it directly in your terminals:
     haskell-harness help
 
@@ -53,10 +53,10 @@ Use the browser instead of terminal conversations
   doctor checks tools and login; it does not build or test the project.
 
 2. Save shared project knowledge (optional)
-    haskell-harness --repo /path/to/project context refresh --profile hydra
-  The hydra profile imports protocol and state-machine sources from committed
-  HEAD. For another project, use --source docs/architecture.md with a real tracked
-  path; repeat --source for more files. context show displays the saved knowledge.
+    haskell-harness --repo /path/to/project context refresh --source docs/architecture.md
+  Use a real tracked path; repeat --source for architecture, invariants, or code.
+  Sources come from committed HEAD. context show displays the saved inventory;
+  context show --source PATH displays a saved source in full.
 
 3. Choose a base and describe the work
     haskell-harness --repo /path/to/project start my-feature "Describe the change"
@@ -101,7 +101,12 @@ Use the browser instead of terminal conversations
   Inspect the diff and validation evidence in the displayed worktree and reports.
   Use question TEXT or revise TEXT to discuss the tests; approve accepts them.
   Expected assertion failures are allowed here. Compilation, lint, and required
-  Nix checks still apply. For Hydra, project tests run through Cabal.
+  Nix checks still apply. Project tests run through Cabal by default.
+  Defaults use HLint, cabal build with -Werror and tests enabled, nix flake check,
+  and cabal test per package. Tests must produce fresh JUnit reports under
+  test-reports/. Configure [validation] in your user TOML to use project recipes
+  and another report pattern; select it with --config before the command.
+  New tasks keep their validation settings when resumed.
   Approval commits the tests and stops before implementation.
 
 6. Implement, then refactor
@@ -114,7 +119,7 @@ Use the browser instead of terminal conversations
 7. Run both reviews, in either order
     haskell-harness --repo /path/to/project run my-feature review-haskell
     haskell-harness --repo /path/to/project run my-feature review-security
-  These cover Haskell correctness/performance and Cardano security/liveness.
+  These cover Haskell correctness/performance and project security and recovery.
   Discuss findings with question TEXT; select fix ID or dismiss ID with a reason.
   status lists which phase is available to address a fix. Behavior changes return
   to tests and approval; refactoring a fix makes both reviews required again.

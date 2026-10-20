@@ -8,19 +8,25 @@ Run the harness with **uv or Nix** on macOS or Linux. Both use the Python
 dependencies pinned in `uv.lock`; the Nix environment also pins its tools in
 `flake.lock`. Nix remains available for reproducible development and checks.
 
-Nix is optional for installing and running the harness itself. **Hydra's code
-validation still requires Nix** for its dependency flake and Nix checks. Without
+Nix is optional for installing and running the harness itself. **Code validation
+requires Nix** for the project's dependency flake and Nix checks. Without
 Nix you can configure backends, run interviews, and inspect saved tasks. Building,
-testing, and committing Hydra patches still requires its full toolchain.
+testing, and committing patches requires the target project's toolchain.
 
 ## Quick start
+
+**Upgrading from an older release:** the default state and configuration
+directories are now named `haskell-harness`. Existing data is not moved or deleted.
+To reopen it, add `--state-dir /path/to/existing/state-root` before the command
+and, if you had a custom configuration, `--config /path/to/existing/config.toml`.
+Keep registered worktrees in their existing locations.
 
 ### Use the local browser interface
 
 From any directory:
 
 ```sh
-nix run --refresh github:Devnull-org/langgraph-harness -- \
+nix run --refresh github:Devnull-org/haskell-harness -- \
   --repo "/path/to/project" serve
 ```
 
@@ -60,7 +66,7 @@ With Nix and Git already installed, run this **once per developer machine** from
 any directory. Skip the installation if you have already installed the harness:
 
 ```sh
-nix profile add --refresh github:Devnull-org/langgraph-harness
+nix profile add --refresh github:Devnull-org/haskell-harness
 haskell-harness help
 haskell-harness doctor
 ```
@@ -104,23 +110,15 @@ branches before choosing a base, optionally run `git fetch origin` (replace `ori
 if your remote has another name). Fetching does not switch your branch or move
 uncommitted work.
 
-Optionally save shared project knowledge **before creating the first task**. For
-a Hydra checkout, run:
-
-```sh
-haskell-harness --repo . context refresh --profile hydra
-haskell-harness --repo . context show
-```
-
-For another project, use its actual committed documentation paths instead of the
-Hydra profile. For example, replace `docs/architecture.md` with a file in that repo:
+Optionally save shared project knowledge **before creating the first task**.
+Replace `docs/architecture.md` with a committed file in your project:
 
 ```sh
 haskell-harness --repo . context refresh --source docs/architecture.md
 haskell-harness --repo . context show
 ```
 
-Choose the context example appropriate to your project, or skip it. `refresh`
+This step is optional. `refresh`
 saves committed sources from the checkout's current HEAD; `show` lets you inspect
 them. Repeat `--source` to include more files. New tasks pin the latest saved
 snapshot; existing tasks keep theirs. See [Project context](#project-context).
@@ -139,20 +137,19 @@ You can supply `--base BRANCH_OR_COMMIT` to skip that prompt. Your original chec
 may contain uncommitted changes. The interview stops after specification approval;
 later phases must be started explicitly.
 
-Interviews can run for any Git checkout. Code phases currently expect the
-[Hydra validation commands](#hydra-validation-and-commits): `just lint`, `just check`,
-and `just test PACKAGE_NAME`, with Cabal test results in `test-reports/*.xml`.
-Other projects need compatible recipes before running those phases. `doctor`
-checks tools, login, and flake presence; it does not verify those recipes or run
-builds and tests.
+Interviews and exploration can run for any Git checkout. Code phases use
+[configurable validation commands](#validation-and-commits): Cabal builds and tests,
+HLint, and Nix checks by default. Configure your test runner to produce JUnit
+reports, or supply your team's existing check commands. `doctor` checks tools,
+login, and flake presence; it does not run the project checks.
 
 ### Run from a harness clone
 
 Clone the harness with `git clone`, then use `cd` to enter its directory:
 
 ```sh
-git clone git@github.com:Devnull-org/langgraph-harness.git
-cd langgraph-harness
+git clone git@github.com:Devnull-org/haskell-harness.git
+cd haskell-harness
 ```
 
 ### With Nix
@@ -191,11 +188,11 @@ Without `--repo`, `doctor` checks only the harness and backends. To also check t
 target's Nix executable and dependency flake, run this from the harness clone:
 
 ```sh
-cd "/path/to/langgraph-harness"
+cd "/path/to/haskell-harness"
 nix run . -- --repo "/path/to/project" doctor
 ```
 
-`/path/to/langgraph-harness` is a placeholder for your harness clone, which contains
+`/path/to/haskell-harness` is a placeholder for your harness clone, which contains
 the harness's `flake.nix`. Nix resolves `.` before starting the harness.
 `--repo` selects the target project after the harness starts; it does not change
 the current directory or tell Nix where to find the harness.
@@ -207,7 +204,7 @@ containing spaces. `doctor` does not compile or run the project's test suite.
 To run from any directory, give Nix the path to the harness clone explicitly:
 
 ```sh
-nix run "/path/to/langgraph-harness" -- --repo "/path/to/project" doctor
+nix run "/path/to/haskell-harness" -- --repo "/path/to/project" doctor
 ```
 
 If `nix run .` reports that the current directory does not contain a
@@ -222,11 +219,11 @@ Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
 You can use the harness without cloning it. These commands work from any directory:
 
 ```sh
-nix run github:Devnull-org/langgraph-harness -- help
-nix run github:Devnull-org/langgraph-harness -- --repo "/path/to/project" doctor
+nix run github:Devnull-org/haskell-harness -- help
+nix run github:Devnull-org/haskell-harness -- --repo "/path/to/project" doctor
 ```
 
-Replace `.` in any `nix run` example with `github:Devnull-org/langgraph-harness`.
+Replace `.` in any `nix run` example with `github:Devnull-org/haskell-harness`.
 Keep the arguments after `--`. An optional package selector such as `#codex`
 forces that backend; omit it for automatic selection.
 The target project is still a local Git checkout selected with `--repo`.
@@ -234,8 +231,8 @@ The target project is still a local Git checkout selected with `--repo`.
 The same GitHub reference works for a development shell and the harness checks:
 
 ```sh
-nix develop github:Devnull-org/langgraph-harness
-nix flake check github:Devnull-org/langgraph-harness
+nix develop github:Devnull-org/haskell-harness
+nix flake check github:Devnull-org/haskell-harness
 ```
 
 `nix develop` provides tools in the current directory; it does not create a writable
@@ -245,25 +242,25 @@ such as `nix flake update` or `nix fmt`, should be run in your harness clone.
 
 The GitHub reference uses the repository's default branch. Nix may cache it; add
 `--refresh` to fetch its latest state, for example
-`nix run --refresh github:Devnull-org/langgraph-harness -- help`.
-To pin the harness version, use `github:Devnull-org/langgraph-harness/COMMIT`,
+`nix run --refresh github:Devnull-org/haskell-harness -- help`.
+To pin the harness version, use `github:Devnull-org/haskell-harness/COMMIT`,
 replacing `COMMIT` with a full commit hash. This selects the harness version;
 `start --base` below selects the target project's base.
 
-### Save Hydra project knowledge
+### Save project knowledge
 
-Save protocol documentation and state-machine source from your target's committed
-HEAD before starting tasks:
+Save architecture documentation, important invariants, or implementation source
+from your target's committed HEAD before starting tasks:
 
 ```sh
-nix run . -- --repo "/path/to/project" context refresh --profile hydra
+nix run . -- --repo "/path/to/project" context refresh \
+  --source docs/architecture.md --source src/Example/State.hs
 ```
 
-`context refresh` creates a shared, versioned reference snapshot. `--profile hydra`
-selects the Head protocol overview, state types, transition handlers, inputs,
-effects, event replay, on-chain validators, and rollback documentation. It uses
-Git, not a model, and excludes uncommitted edits. See [Project context](#project-context)
-for inspection, updates, and custom sources.
+Replace the example paths with actual tracked files in your project.
+`context refresh` creates a shared, versioned reference snapshot from the files
+you select. It uses Git, not a model, and excludes uncommitted edits.
+See [Project context](#project-context) for inspection and updates.
 
 ### Start with the interview
 
@@ -346,7 +343,7 @@ The same pattern selects the later phases:
 | `implement` | Implement the approved tests with validated patches. Requires test approval. |
 | `refactor` | Simplify the implementation and comments while keeping tests passing. Requires completed implementation, or a selected review finding that only needs refactoring. |
 | `review-haskell` | Review Haskell correctness, performance, style, and maintainability after refactoring. |
-| `review-security` | Review Cardano on-chain/off-chain safety, exploits, and protocol liveness after refactoring. The two reviewers can run in either order. |
+| `review-security` | Review project security, trust boundaries, exploits, and recovery after refactoring. The two reviewers can run in either order. |
 | `walkthrough` | Ask three to five questions about the finished code and give feedback. Available after both reviews are resolved; normally optional. |
 | `handoff` | Write the local PR description and final reports after both reviews are resolved. Does not push or open a PR. |
 
@@ -366,9 +363,9 @@ interview-only tasks, can continue with `run my-feature tests` or `run my-featur
 explanation or compare approaches, use `explore` instead:
 
 ```sh
-nix run --refresh github:Devnull-org/langgraph-harness -- \
+nix run --refresh github:Devnull-org/haskell-harness -- \
   --repo "/path/to/project" explore validation-options \
-  "Explore options for custom validation before applying a transaction."
+  "Explore options for custom validation before processing a request."
 ```
 
 This works from any directory. From the harness clone, the prefix can be
@@ -394,7 +391,7 @@ If you already approved an interview whose scope was exploration, use its existi
 task name:
 
 ```sh
-nix run --refresh github:Devnull-org/langgraph-harness -- \
+nix run --refresh github:Devnull-org/haskell-harness -- \
   --repo "/path/to/project" run validation-options explore
 ```
 
@@ -421,7 +418,7 @@ haskell-harness --repo "/path/to/project" abandon my-feature
 With Nix, from any directory:
 
 ```sh
-nix run --refresh github:Devnull-org/langgraph-harness -- \
+nix run --refresh github:Devnull-org/haskell-harness -- \
   --repo "/path/to/project" abandon my-feature
 ```
 
@@ -503,7 +500,7 @@ You can use the same arguments after `nix run . --` without entering a shell.
 Install once from any directory, without cloning the harness:
 
 ```sh
-nix profile add --refresh github:Devnull-org/langgraph-harness
+nix profile add --refresh github:Devnull-org/haskell-harness
 haskell-harness help
 ```
 
@@ -563,8 +560,8 @@ The workflow and its approval gates are the same for every backend.
 These commands work from any directory, without cloning the harness:
 
 ```sh
-nix run --refresh github:Devnull-org/langgraph-harness#codex -- doctor
-nix run --refresh github:Devnull-org/langgraph-harness#codex -- \
+nix run --refresh github:Devnull-org/haskell-harness#codex -- doctor
+nix run --refresh github:Devnull-org/haskell-harness#codex -- \
   --repo "/path/to/project" resume my-feature
 ```
 
@@ -581,7 +578,7 @@ worktree remain saved; switching backends does not require `restart`.
 If Codex reports that it is not logged in, sign in once with its bundled CLI:
 
 ```sh
-nix develop github:Devnull-org/langgraph-harness#codex --command codex login
+nix develop github:Devnull-org/haskell-harness#codex --command codex login
 ```
 
 This opens Codex's normal login flow. An existing working Codex login needs no
@@ -619,7 +616,7 @@ uv run --locked --no-dev haskell-harness backends
 `uv run` prepares the environment and runs the following command with its locked
 dependencies. Install and sign in to your chosen agent CLI separately, or
 configure a model bridge as described in [BACKENDS.md](BACKENDS.md). The harness
-and interviews work without Nix; Hydra's code validation still requires Nix.
+and interviews work without Nix; project code validation still requires Nix.
 
 ## The conversation
 
@@ -780,20 +777,20 @@ Avoid deleting the state directory while its Git worktrees are registered.
 Project knowledge is shared across tasks in `project-context.sqlite`, alongside
 the task checkpoint database. Each refresh stores complete source text, paths,
 content hashes, the source Git revision, and a timestamp. It does not modify the
-target checkout. The Hydra profile records the actual state constructors from
-the selected revision instead of assuming one fixed protocol version.
+target checkout. The selection is explicit: include the architecture, invariants,
+and source files relevant to your own project.
 
-Show the saved protocol overview, Head state declaration, and source inventory:
+Show the saved source inventory:
 
 ```sh
 haskell-harness --repo "/path/to/project" context show
 ```
 
-Read the full saved transition implementation:
+Read one saved source in full:
 
 ```sh
 haskell-harness --repo "/path/to/project" context show \
-  --source hydra-node/src/Hydra/HeadLogic.hs
+  --source src/Example/State.hs
 ```
 
 `--source` here selects a file in the saved snapshot. To save additional general
@@ -802,19 +799,17 @@ when refreshing:
 
 ```sh
 haskell-harness --repo "/path/to/project" context refresh \
-  --profile hydra --source docs/team-properties.md
+  --source docs/architecture.md --source docs/team-properties.md
 ```
 
 Replace `docs/team-properties.md` with your actual tracked document. Repeat
-`--source` for more files. Without `--profile hydra`, only your explicitly selected
-sources are saved, which also supports other Haskell projects. Refresh builds a
-new complete selection of sources; repeat any extra sources you want to retain.
+`--source` for more files. Only explicitly selected sources are saved. Refresh
+builds a new complete selection; repeat any sources you want to retain.
 
 | Context command | Purpose |
 | --- | --- |
-| `context refresh --profile hydra` | Save the current committed protocol and implementation sources. Missing optional sources are reported; missing core sources are an error. |
 | `context refresh --source PATH` | Save explicitly chosen tracked documents. Repeat `--source` to include more files. |
-| `context show` | Inspect the latest selected snapshot's overview and sources. |
+| `context show` | Inspect the latest selected snapshot's sources. |
 | `context show --source PATH` | Read a saved source in full. |
 | `context history` | List snapshot IDs, source revisions, and creation times. |
 | `context show --snapshot ID` | Inspect a previous snapshot. Add `--source PATH` to read one of its sources. |
@@ -848,7 +843,7 @@ Interview and repository investigation
   → Commit the approved tests
   → Expert Haskell implementer produces focused, validated patches
   → Separate refactoring agent preserves behavior and simplifies the code
-  → Independent Haskell correctness/style and Cardano security/liveness reviews
+  → Independent Haskell correctness/style and security/recovery reviews
   → Developer chooses how to address findings; behavior fixes return to TDD
   → Optional developer walkthrough, one question at a time
   → Explicit local handoff
@@ -861,8 +856,9 @@ Each role has its own prompt under `src/haskell_harness/prompts`. The Haskell ag
 are instructed to follow repository conventions, use appropriate Haskell concepts,
 avoid speculative abstractions, consider strictness and allocation, and keep
 comments short and clear. Reviewers inspect the same final revision separately.
-The Cardano reviewer considers both on-chain safety and off-chain protocol
-progress, including adversarial sequences that could leave a head stuck.
+The security reviewer examines the project's documented trust boundaries, unsafe
+inputs, resource handling, concurrency, persistence, and recovery. Domain-specific
+risks come from the repository and its saved project context.
 
 Findings include location, conditions, event sequence, evidence, impact, confidence,
 and a proposed fix. Use `fix` with finding IDs to initiate repairs; regression
@@ -873,41 +869,64 @@ again after the fix is refactored; start them explicitly with their phase comman
 The walkthrough gives feedback and records the discussion. Finishing or skipping
 its questions stops before handoff, which is always a separate phase.
 
-## Hydra validation and commits
+## Validation and commits
 
-Hydra's tests are **Haskell tests run by Cabal**. For each proposed code patch the
-harness invokes the following from its Hydra worktree:
-
-```sh
-just lint
-just check
-just test PACKAGE_NAME
-```
-
-It invokes `just test` for every package named in the accepted specification.
-`PACKAGE_NAME` stands for an actual Cabal package name, such as `hydra-node`.
-Hydra's `just lint` includes formatting and a Cabal build with `-Werror`, including
-test components enabled by `cabal.project`. `just check` runs Hydra's Nix checks.
-The explicit Cabal run is also required for packages such as `hydra-cluster` and
-`hydra-tui` which do not have Nix test checks.
-
-These commands run inside **Hydra's** dependency environment. It defaults to the
-task worktree's flake, starting from the selected base. To use a separate dependency
-environment, pass its path explicitly when running code phases:
+Project tests are **Haskell tests run by Cabal**. Each code patch runs these
+commands in its worktree, inside `nix develop WORKTREE --command ...`:
 
 ```sh
-haskell-harness --repo "/path/to/project" --nix-flake "/path/to/dependency-flake" \
-  run my-feature tests
+hlint .
+cabal build all --enable-tests --ghc-options=-Werror
+nix flake check
+cabal test PACKAGE_NAME --test-show-details=direct
 ```
 
-The `--nix-flake` checkout supplies tools; the worktree supplies the code being
-built and tested. Use the same option when resuming. The harness flake does not
-replace Hydra's GHC, Cabal, or project dependencies.
+The test command runs for each Cabal package in the accepted specification.
+`PACKAGE_NAME` is your actual package name. The project's development shell must
+provide its GHC, Cabal, HLint, and other required tools. No `justfile` is assumed.
+The harness's own Nix environment does not supply project dependencies.
+
+Checks can be adapted using `[validation]` in your user configuration. Select a
+project-specific configuration explicitly with `--config /path/to/config.toml`;
+the harness never automatically executes configuration from the target checkout.
+For example, a team with existing recipes can use:
+
+```toml
+[validation]
+lint = ["just", "lint"]
+build = ["just", "build-strict"]
+nix = ["just", "check"]
+test = ["just", "test", "{package}"]
+junit_glob = "test-reports/{package}/**/*.xml"
+```
+
+Each command is an argument list, executed without a shell. `{package}` in `test`
+and `junit_glob` is replaced by the current package name. The build command must
+compile the code and tests with warnings treated as errors. Lint, build, Nix,
+and test checks are all required; empty command lists are rejected.
+Commands and report patterns are saved with new tasks and reused on resume.
+To use changed settings, start a new task or a fresh attempt. Older saved tasks
+without these settings adopt the selected configuration at their next validation.
+
+Cabal does not produce JUnit reports automatically for every test framework.
+Configure the project's test runner or a trusted wrapper to write them.
+The default report pattern is
+`test-reports/**/*.xml`; only fresh files inside the worktree are read. Adapt the
+pattern to your runner. Missing reports block approval; a nonzero exit code alone
+cannot establish that the intended assertion failed.
+Keep generated reports and build artifacts ignored by Git so they are not
+treated as source changes during validation.
+
+The dependency environment defaults to the task worktree's flake. To supply tools
+from a separate flake, pass `--nix-flake /path/to/dependency-flake`. Commands still
+run in the task worktree, so the default `nix flake check` checks that worktree.
+For a project without its own flake, configure `validation.nix` to check the
+appropriate dependency flake explicitly. Use the same `--nix-flake` on resume.
 
 Every commit must pass lint and strict compilation. Test-first commits may contain
 identified failing assertions; compiler errors, missing test reports, runner
 errors, and unrelated failing tests block progress. The harness reads fresh JUnit
-reports produced by Hydra's `just test` wrapper and compares exact test identities.
+reports produced by the configured test command and compares exact test identities.
 If a Nix check fails during the red phase, progress stops at `red_failure_review`.
 Inspect the full logs. `accept_red` requires a written explanation establishing
 that only the expected red tests caused that failure. It then returns to test
@@ -939,7 +958,7 @@ The displayed report directory contains:
 
 Nothing is pushed and no PR is created. Inspect the branch and reports, then use
 your normal publishing process. Agent review is advisory; it does not establish
-that a protocol has no security or liveness defects.
+that a project has no security or recovery defects.
 
 ## Command and option reference
 
@@ -977,7 +996,7 @@ Global options go **before** the command:
 | `--nix-flake PATH` | Target dependency flake used for validation. Defaults to the task worktree (`--repo` for `doctor`, which has no task). Use the same override when resuming or running later code phases. |
 | `--backend NAME` | Force a backend for every agent. `auto` checks all profiles and asks if several work; automatic selection is the default. Named user defaults and per-role routing remain available. |
 | `--model ID` | Override the model for every agent. Otherwise use the selected backend and role configuration. |
-| `--config FILE` | Load a user-owned backend TOML file. Without it, use the optional standard user configuration described in [BACKENDS.md](BACKENDS.md). |
+| `--config FILE` | Load user-owned backend and validation settings from TOML. Without it, use the optional standard user configuration described in [BACKENDS.md](BACKENDS.md). |
 | `--agent-timeout SECONDS` | Override each agent call's timeout. Otherwise use the backend setting; built-in profiles default to 600 seconds. |
 | `--check-timeout SECONDS` | Maximum time for each validation command. Default: 3600 seconds. |
 | `--unsigned-commits` | Disable signing only for commits made by this invocation. Otherwise respect Git signing settings. |
@@ -1079,7 +1098,7 @@ In the harness repository, `just lint` checks Python lint, Python formatting,
 Nix formatting, browser asset formatting, and JavaScript syntax. Nix supplies
 Node and Prettier for development; using the browser interface needs neither.
 `just test` runs the harness's Python tests; `just check` runs its
-Nix flake checks. These are different recipes from those in a Hydra checkout.
+Nix flake checks. These check the harness itself; project checks use its validation configuration.
 
 Or run the reproducible check directly:
 
@@ -1108,8 +1127,8 @@ The Nix formatting and flake checks still run through the Nix commands above.
 The harness's own tests are Python tests for orchestration, approval gates,
 process handling, and recovery. They use temporary repositories and scripted
 agents/build results. They never contact a model, access credentials, or compile
-Hydra. This suite tests the harness's control flow, not the quality of generated
-Haskell or security findings. The separate Hydra checks above are always Cabal/Nix.
+a target project. This suite tests the harness's control flow, not the quality of
+generated Haskell or security findings. Target projects use the checks configured above.
 
 For dependency changes, run `uv lock`, review the lockfile changes, and rerun
 the Python suite and `nix flake check`. Both installation paths use `uv.lock`.

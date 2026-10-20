@@ -14,7 +14,7 @@ needs more patches, set complete=false and describe the remaining work in summar
 
 Use short, plain English comments explaining intent, important invariants, or
 surprising behavior. Prefer clear names to comments that narrate code. Preserve
-necessary protocol explanations. Follow nearby code style and repository guidance.
+necessary design explanations. Follow nearby code style and repository guidance.
 
 Do not claim tests, builds, or benchmarks passed unless execution evidence is in the
 context. Distinguish facts from assumptions. If intent=explain, answer the developer's

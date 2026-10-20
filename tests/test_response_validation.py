@@ -46,7 +46,7 @@ def test_empty_extras_do_not_mask_other_schema_errors(problem):
     if problem == "missing":
         del spec["out_of_scope"]
     elif problem == "type":
-        spec["packages"] = "hydra-node"
+        spec["packages"] = "example-app"
     else:
         spec["acceptance_criteria"] = []
     notices = []

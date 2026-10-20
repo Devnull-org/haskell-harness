@@ -83,7 +83,7 @@ def test_remote_tracking_branch_tag_and_commit_can_be_bases(rig, repository, ref
     assert harness.start("task", "Fix it", base=ref)["base"] == base
 
 
-@pytest.mark.parametrize("base", ["missing-branch", "", "--all", "HEAD:hydra-node"])
+@pytest.mark.parametrize("base", ["missing-branch", "", "--all", "HEAD:example-app"])
 def test_invalid_base_does_not_reserve_task_or_call_agents(rig, repository, base):
     harness, agent, _ = rig
     before = git(repository, "worktree", "list", "--porcelain")

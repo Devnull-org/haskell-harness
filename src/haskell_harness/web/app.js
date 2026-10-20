@@ -350,12 +350,7 @@ function renderTask(task, running) {
     section(packet, "Validation", prompt.validation);
     section(packet, "Findings", prompt.findings);
     section(packet, "Feedback", prompt.feedback);
-    const details = el("details");
-    details.append(
-      el("summary", "Full review details"),
-      el("pre", JSON.stringify(prompt, null, 2)),
-    );
-    packet.append(details);
+    packet.hidden = !packet.children.length;
     $("message-action").replaceChildren();
     for (const action of actions.filter((a) => textActions.includes(a))) {
       const option = el("option", labels[action]);

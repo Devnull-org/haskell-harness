@@ -1,4 +1,22 @@
-"""Write a self-contained local PR draft from recorded workflow evidence."""
+"""Write local reports from recorded analysis and workflow evidence."""
+
+
+def exploration_report(state):
+    result = state["exploration"]
+    lines = [
+        f"# Exploration: {state['task_id']}",
+        "",
+        f"Inspected revision: `{result['revision']}`",
+        "",
+        result["summary"],
+        "",
+        result["analysis"],
+    ]
+    if result["references"]:
+        lines += ["", "## References", "", *[f"- {ref}" for ref in result["references"]]]
+    if result["open_questions"]:
+        lines += ["", "## Open questions", "", *[f"- {q}" for q in result["open_questions"]]]
+    return "\n".join(lines) + "\n"
 
 
 def pr_description(state):

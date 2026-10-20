@@ -78,8 +78,20 @@ def parser():
         action="store_true",
         help="Require an explicitly started code walkthrough before handoff",
     )
+    explore = sub.add_parser(
+        "explore",
+        help="Inspect code and discuss options without a requirements interview or coding",
+    )
+    explore.add_argument("task_id", help="Unique name for the saved exploration")
+    explore.add_argument(
+        "request", nargs="?", help="Question to investigate (multiline prompt if omitted)"
+    )
+    explore.add_argument(
+        "--base",
+        help="Base branch, tag, or commit; prompted in a terminal, required with --json or scripts",
+    )
     restart = sub.add_parser(
-        "restart", help="Start a fresh interview while preserving the old task"
+        "restart", help="Start a fresh interview or exploration while preserving the old task"
     )
     restart.add_argument("task_id", help="Existing task to start over from")
     restart.add_argument(
@@ -173,6 +185,18 @@ def render(view):
     if prompt.get("available_phases"):
         print(f"\nAvailable phases: {', '.join(prompt['available_phases'])}")
         print(f"Start one explicitly with: run {view['task_id']} PHASE")
+    if prompt.get("exploration"):
+        result = prompt["exploration"]
+        print(f"\n{result['summary']}\n\n{result['analysis']}")
+        if result["references"]:
+            print("\nReferences:")
+            for reference in result["references"]:
+                print(f"  {reference}")
+        if result["open_questions"]:
+            print("\nOpen questions (optional):")
+            for question in result["open_questions"]:
+                print(f"  {question}")
+        print(f"\nSaved analysis: {prompt['report']}")
     if "specification" in prompt:
         spec = prompt["specification"]
         print(f"\n{spec['problem']}\n\nExpected behavior: {spec['expected_behavior']}")
@@ -246,6 +270,8 @@ def conversation(harness, view, *, selected_backend=None):
         )
         if default_action == "answer":
             print("Type your answer here and press Enter; no command prefix is needed.")
+        elif view["stage"] == "exploration":
+            print("Type a follow-up question, or 'done' to finish the exploration.")
         elif default_action == "question":
             print(
                 "Type a question here, or use an action above. Approval requires 'approve' alone."
@@ -268,7 +294,7 @@ def conversation(harness, view, *, selected_backend=None):
             continue
         command = re.fullmatch(r"(\w+)(?:[ \t]+|\n|$)(.*)", line.lstrip(" \t"), flags=re.DOTALL)
         action, text = command.groups() if command else ("", "")
-        standalone = {"approve", "recheck", "retry", "reject", "skip"}
+        standalone = {"approve", "recheck", "retry", "reject", "skip", "done"}
         if action not in actions or (action in standalone and (not single_line or text.strip())):
             if default_action:
                 action, text = default_action, line
@@ -403,7 +429,7 @@ def main(argv=None):
             elif result:
                 print(f"Abandoned {args.task_id!r}. The saved task has been deleted.")
             return 0
-        if args.command == "start":
+        if args.command in {"start", "explore"}:
             interactive = sys.stdin.isatty() and not args.json
             if args.base is None:
                 if not interactive:
@@ -415,7 +441,11 @@ def main(argv=None):
             if not args.request:
                 if not interactive:
                     raise ValueError("Supply a request when starting without prompts")
-                print("What do you want to build or fix?")
+                print(
+                    "What do you want to explore?"
+                    if args.command == "explore"
+                    else "What do you want to build or fix?"
+                )
                 args.request = read_message()
         settings = load_settings(args.config)
 
@@ -471,6 +501,8 @@ def main(argv=None):
                 mode="interview" if args.interview_only else "phased",
                 walkthrough=args.walkthrough,
             )
+        elif args.command == "explore":
+            view = harness.start(args.task_id, args.request, base=args.base, phase="explore")
         elif args.command == "restart":
             view = harness.restart(
                 args.task_id, new_task_id=args.new_task_id, request=args.request, base=args.base

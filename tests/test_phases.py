@@ -37,7 +37,7 @@ def test_default_interview_stops_and_can_continue_after_restart(rig, repository,
     harness, agent, executor = rig
     completed = specification(harness)
     assert completed["stage"] == "specification_ready"
-    assert completed["prompt"]["available_phases"] == ["tests"]
+    assert completed["prompt"]["available_phases"] == ["explore", "tests"]
     assert Path(completed["worktree"]).is_dir()
     assert (Path(completed["report_directory"]) / "specification.json").is_file()
     assert roles(agent) == ["interviewer"]

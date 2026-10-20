@@ -31,6 +31,20 @@ class Interview(Record):
     questions: list[str]
 
 
+class Exploration(Record):
+    summary: str = Field(min_length=1, description="A direct answer to the research question.")
+    analysis: str = Field(
+        min_length=1,
+        description="Completed analysis in Markdown: findings, concrete options, and trade-offs.",
+    )
+    references: list[str] = Field(
+        description="Repository paths and line numbers supporting findings."
+    )
+    open_questions: list[str] = Field(
+        description="Remaining uncertainties, without requiring a choice."
+    )
+
+
 class Change(Record):
     path: str = Field(min_length=1, max_length=1024)
     content: str | None = Field(description="Complete UTF-8 file content; null deletes the file.")
@@ -90,6 +104,7 @@ class Explanation(Record):
 
 SCHEMAS = {
     "interviewer": Interview,
+    "explorer": Exploration,
     "test_author": Tests,
     "implementer": Patch,
     "refactorer": Patch,

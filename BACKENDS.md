@@ -208,6 +208,12 @@ if its underlying model has no file tools: it runs in the selected worktree and 
 read the files there. The harness does not automatically upload a repository to an
 API or grant a plain language model file access.
 
+Exploration uses the `explorer` role, configurable through `[roles.explorer]` like
+other roles. Its response contains `summary`, `analysis` (completed Markdown
+analysis), `references` (repository paths and lines), and `open_questions`.
+It delivers findings and options; it does not produce a specification or file
+changes. The harness supplies previous analysis and follow-up messages in context.
+
 Envelope responses can contain a JSON object or JSON text in the configured field.
 Introductory commentary followed by one JSON object, or one fenced JSON block with
 surrounding commentary, is also accepted. For an unfenced response, the first

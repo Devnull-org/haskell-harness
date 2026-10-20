@@ -60,6 +60,20 @@ Choose how to launch
   together. Escape followed by Enter also adds a newline.
   Scripts and --json require an explicit --base and request.
 
+  To explore code and compare options instead of specifying a change:
+    haskell-harness --repo /path/to/project explore my-question "Explore the alternatives"
+  This uses the same base prompt and multiline request editor. The explorer reads
+  the code and delivers an analysis, with references and trade-offs. Type follow-up
+  questions, quit to resume later, or done on its own to finish the discussion.
+  The latest analysis is saved in reports/exploration.md and exploration.json.
+  No tests, builds, source edits, or commits are made by this phase.
+  If you already approved a specification asking for an exploration:
+    haskell-harness --repo /path/to/project run my-feature explore
+  It uses that task's scope and clarifications; no restart or repeated issue is needed.
+  After done, stop there or use run TASK explore to reopen the exploration.
+  To implement an approach later, explicitly run TASK interview to agree on a
+  new specification. Research is background; tests still require your review.
+
 4. Discuss and approve the specification
   Type answers directly in the same terminal and press Enter; no answer prefix
   is needed. At the specification gate, plain text asks a question. Use revise
@@ -132,8 +146,9 @@ Switch backends on a saved task
 
 Start over while preserving the old task
     haskell-harness --repo /path/to/project restart my-feature
-  This starts a fresh interview named my-feature-restart-1 (or the next free
-  number). It reuses the original request and pinned commit, and creates a new
+  This repeats the original starting phase (interview or exploration), named
+  my-feature-restart-1 (or the next free number). It reuses the original request
+  and pinned commit, and creates a new
   worktree. The previous task, its files, and its commits stay available.
   Use the new task name shown in the output for all subsequent commands.
   Add --as my-feature-v2 to choose a name, --base main to select another base, or
@@ -158,8 +173,11 @@ While waiting for an agent
 Command and option reference
     haskell-harness --help
     haskell-harness start --help
+    haskell-harness explore --help
     haskell-harness run --help
     haskell-harness restart --help
   Global options (--repo, --backend, --json) go before the command. start options
-  (--base, --walkthrough) go after start. Use --json with respond for scripted gates.
+  (--base, --walkthrough) go after start. explore accepts --base after the command.
+  Use --json with respond for scripted gates. Exploration accepts question --text
+  TEXT or done; finishing it needs no approval token and starts no further work.
 """

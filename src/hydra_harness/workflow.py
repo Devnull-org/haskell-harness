@@ -16,12 +16,14 @@ from pydantic import ValidationError
 from .cleanup import cleanup_plan, remove_resources
 from .failures import BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
-from .reports import pr_description
+from .reports import exploration_report, pr_description
 from .schemas import validate_response
 from .validation import classify_validation, test_evidence
 from .workspace import Workspace, digest, git, is_test_path, resolve_base, save_json
 
 PHASE_NODES = {
+    "explore": "explore",
+    "interview": "interview",
     "tests": "tests",
     "implement": "implement",
     "refactor": "refactor",
@@ -60,6 +62,7 @@ class Harness:
         builder = StateGraph(dict)
         nodes = (
             "prepare",
+            "explore",
             "interview",
             "worktree",
             "tests",
@@ -111,9 +114,13 @@ class Harness:
             raise ValueError(f"Task deletion is unfinished; run abandon {task_id} again")
         return state
 
-    def start(self, task_id, request, *, base="HEAD", mode="phased", walkthrough=False):
+    def start(
+        self, task_id, request, *, base="HEAD", mode="phased", walkthrough=False, phase="interview"
+    ):
         with self._lock():
-            return self._start(task_id, request, base=base, mode=mode, walkthrough=walkthrough)
+            return self._start(
+                task_id, request, base=base, mode=mode, walkthrough=walkthrough, phase=phase
+            )
 
     def _start(
         self,
@@ -124,12 +131,15 @@ class Harness:
         mode="phased",
         walkthrough=False,
         restarted_from=None,
+        phase="interview",
     ):
         config = self._config(task_id)
         if self.graph.get_state(config).values:
             raise ValueError(f"Task already exists: {task_id}; resume it instead")
         if mode not in {"phased", "full", "interview"} or not request.strip():
             raise ValueError("A request and a phased, full, or interview mode are required")
+        if phase not in {"interview", "explore"}:
+            raise ValueError("A new task must start with interview or explore")
         base_revision = resolve_base(self.repository, base)
         directory = self.state_dir / task_id
         directory.mkdir(mode=0o700)
@@ -137,6 +147,7 @@ class Harness:
             "task_id": task_id,
             "request": request,
             "mode": mode,
+            "initial_phase": phase,
             "walkthrough_enabled": walkthrough,
             "directory": str(directory),
             "report_directory": str(directory / "reports"),
@@ -181,6 +192,7 @@ class Harness:
                 base=original["base"] if base is None else base,
                 walkthrough=original["walkthrough_enabled"],
                 restarted_from=task_id,
+                phase=original.get("initial_phase", "interview"),
             )
 
     def inspect(self, task_id):
@@ -264,6 +276,8 @@ class Harness:
                     "and files, or start a new task for the changed checkout"
                 )
             state["mode"], state["selected_phase"] = "phased", phase
+            if phase == "interview":
+                state.pop("specification", None)
             state["next"] = "worktree" if phase == "tests" else PHASE_NODES[phase]
             state["prompt"], state["attempts"], state["patch_count"] = {}, 0, 0
             self.graph.invoke(state, config)
@@ -335,12 +349,13 @@ class Harness:
             else self._workspace(state).revision
         )
         if state["stage"] == "specification_ready":
-            view["prompt"] = {**view["prompt"], "available_phases": ["tests"]}
+            view["prompt"] = {**view["prompt"], "available_phases": self._available_phases(state)}
         return view
 
     def _available_phases(self, state):
         following = {
-            "specification_ready": ["tests"],
+            "specification_ready": ["explore", "tests"],
+            "exploration_ready": ["explore", "interview"],
             "tests_requested": ["tests"],
             "tests_ready": ["implement"],
             "implementation_ready": ["refactor"],
@@ -370,7 +385,12 @@ class Harness:
             "available_phases": self._available_phases(state),
         }
         reports = Path(state["report_directory"])
-        save_json(reports / "specification.json", state["specification"])
+        if "specification" in state:
+            save_json(reports / "specification.json", state["specification"])
+        if stage == "exploration_ready":
+            state["prompt"].update(
+                exploration=state["exploration"], report=str(reports / "exploration.md")
+            )
         save_json(reports / "patches.json", state["commits"])
         save_json(reports / "dispositions.json", state["dispositions"])
         save_json(reports / "walkthrough.json", state.get("walkthrough_answers", []))
@@ -441,6 +461,8 @@ class Harness:
             )
         if state.get("validation"):
             context["validation"] = state["validation"]
+        if state.get("exploration"):
+            context["exploration"] = state["exploration"]
         return {**context, **extra}
 
     def _ask(self, state, role, **extra):
@@ -519,7 +541,12 @@ class Harness:
         error.diagnostics = str(directory)
 
     def _interview(self, state):
-        result = self._ask(state, "interviewer")
+        extra = (
+            {"intent": "implementation_interview"}
+            if state.get("selected_phase") == "interview" and state.get("exploration")
+            else {}
+        )
+        result = self._ask(state, "interviewer", **extra)
         state["specification"] = result["specification"]
         questions = result["questions"] or result["specification"]["open_questions"]
         if questions:
@@ -531,6 +558,20 @@ class Harness:
                 {"specification": state["specification"]},
                 ["approve", "question", "revise"],
             )
+
+    def _explore(self, state):
+        result = self._ask(state, "explorer", intent="explore")
+        state["exploration"] = {**result, "revision": self._workspace(state).revision}
+        state["messages"].append({"stage": "exploration", "role": "explorer", **result})
+        reports = Path(state["report_directory"])
+        save_json(reports / "exploration.json", state["exploration"])
+        (reports / "exploration.md").write_text(exploration_report(state))
+        self._gate(
+            state,
+            "exploration",
+            {"exploration": state["exploration"], "report": str(reports / "exploration.md")},
+            ["question", "done"],
+        )
 
     def _create_worktree(self, state):
         path = Path(state["directory"]) / "worktree"
@@ -548,7 +589,7 @@ class Harness:
 
     def _prepare(self, state):
         self._create_worktree(state)
-        state["next"] = "interview"
+        state["next"] = state.get("initial_phase", "interview")
 
     def _worktree(self, state):
         if "worktree" not in state:
@@ -872,7 +913,14 @@ class Harness:
     def _reply(self, state):
         response = state.pop("response")
         action, stage = response["action"], state["stage"]
-        if action == "question":
+        if stage == "exploration" and action == "done":
+            self._phase_complete(
+                state, "exploration_ready", "Exploration saved. Start any further phase explicitly."
+            )
+        elif stage == "exploration" and action == "question":
+            state["messages"].append({"stage": stage, "action": action, "text": response["text"]})
+            state["next"] = "explore"
+        elif action == "question":
             role = {
                 "specification_review": "interviewer",
                 "test_review": "test_author",

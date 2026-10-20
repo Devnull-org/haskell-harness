@@ -260,6 +260,8 @@ request so they never wait for a startup prompt.
 **Each phase runs only when you choose it.** `start` runs the interview. The agent
 asks questions until the specification is ready for your approval, then saves it
 and stops. Approving the specification does not start test authoring.
+For an explanation or comparison of options, use the separate `explore` command
+described below; an interview produces requirements for work, not the analysis itself.
 
 The harness resolves the selected base to an exact commit and records it with the
 latest shared project context snapshot. Each task gets a separate branch and
@@ -299,6 +301,8 @@ The same pattern selects the later phases:
 
 | Phase argument | What it does and when it is available |
 | --- | --- |
+| `explore` | Inspect code and deliver an analysis with options, trade-offs, and references. Available after an approved interview or a completed exploration. |
+| `interview` | Turn a completed exploration into a new requirements discussion. Requires fresh specification approval before tests. |
 | `tests` | Write and validate failing tests, discuss them with you, and commit them only after approval. Requires an approved specification or an explicit test revision request. |
 | `implement` | Implement the approved tests with validated patches. Requires test approval. |
 | `refactor` | Simplify the implementation and comments while keeping tests passing. Requires completed implementation, or a selected review finding that only needs refactoring. |
@@ -315,7 +319,57 @@ saved files and revision, or start a new task for the changed checkout.
 
 `resume my-feature` returns to an unfinished phase or its pending question or
 approval. It does not select the next phase. Saved tasks, including older completed
-interview-only tasks, can continue with `run my-feature tests`.
+interview-only tasks, can continue with `run my-feature tests` or `run my-feature explore`.
+
+### Explore code and options without implementing
+
+`start` runs a requirements interview and produces a specification. To receive an
+explanation or compare approaches, use `explore` instead:
+
+```sh
+nix run --refresh github:Devnull-org/langgraph-harness -- \
+  --repo "/path/to/project" explore validation-options \
+  "Explore options for custom validation before applying a transaction."
+```
+
+This works from any directory. From the harness clone, the prefix can be
+`nix run . --`; with the installed command, use `haskell-harness`.
+Choose a base when prompted, or add `--base main` using a branch that exists in
+your project. Omit the request to write it in the multiline terminal editor.
+Scripts and `--json` require both the request and `--base`.
+
+The explorer reads the selected revision in its own worktree and delivers the
+analysis immediately, including code references, alternatives, limitations, and
+open questions. It does not require you to choose an implementation to receive
+the explanation. It does not author tests, run builds, edit source, or create
+commits.
+
+Type follow-up questions in the same terminal. Each answer updates a self-contained
+`reports/exploration.md` and `exploration.json`; the conversation is also saved.
+Type `quit` to leave and `resume validation-options` to continue discussing it.
+Type `done` on its own to finish the exploration. `status validation-options`
+shows its saved analysis and available phases. You can stop there indefinitely,
+or use `abandon validation-options` to delete the idea.
+
+If you already approved an interview whose scope was exploration, use its existing
+task name:
+
+```sh
+nix run --refresh github:Devnull-org/langgraph-harness -- \
+  --repo "/path/to/project" run validation-options explore
+```
+
+This reuses the approved scope, clarifications, base commit, worktree, and saved
+project context. There is no need to restart or paste the original issue again.
+If an interview is still awaiting answers or specification approval, `resume`
+returns to that gate; `run` cannot skip an unfinished phase.
+
+After `done`, `run validation-options explore` reopens the exploration with a fresh
+analysis. To implement a chosen approach later, explicitly start
+`run validation-options interview`. That new interview uses the research as
+background and asks what to build. Approve its specification, then explicitly run
+`tests` and review those tests before implementation. Finishing an exploration
+does not approve or start any code work.
 
 ### Abandon an idea permanently
 
@@ -351,7 +405,7 @@ again to finish. Agents cannot resume a task while its deletion is unfinished.
 
 ### Start over without losing the previous attempt
 
-Use `restart` when you want a fresh interview. If another terminal is at a
+Use `restart` when you want a fresh interview or exploration. If another terminal is at a
 conversation prompt for the old task, type `quit` there first:
 
 ```sh
@@ -360,8 +414,9 @@ haskell-harness --repo "/path/to/project" restart my-feature
 
 This creates `my-feature-restart-1` (or the next unused number), with its own
 branch, worktree, checkpoints, and reports. The original task, including any
-uncommitted work and commits in its worktree, stays available. The new interview
-reuses the original request and exact base commit, even if that branch has moved.
+uncommitted work and commits in its worktree, stays available. The new task repeats
+the original starting phase and reuses the request and exact base commit, even if
+that branch has moved.
 It uses the latest shared project context and keeps the original walkthrough
 preference. Specifications, test approvals, patches, and discussions are not
 carried into the new attempt. Later phases still require explicit commands.
@@ -582,10 +637,11 @@ path for backend failures. Errors in workspace integrity or other workflow
 operations remain `agent_error`.
 
 After updating the harness, quit the old process and run the new version to start
-or resume a task. `restart TASK` starts a fresh interview under a new name; it is
+or resume a task. `restart TASK` repeats the original starting phase (interview or
+exploration) under a new name; it is
 not needed for the automatic response correction described above.
 
-The terminal shows the current specification, questions, test diff, or review
+The terminal shows the current analysis, specification, questions, test diff, or review
 findings, followed by available actions. Answer interview and walkthrough questions
 by typing normal text and pressing Enter. You do not need an `answer` prefix.
 At a specification, test, or findings review, plain text asks the agent a question;
@@ -606,7 +662,7 @@ lines in the terminal editor:
 
 On macOS, Option+Enter works when the terminal sends Option as Alt/Meta; otherwise
 use Ctrl+J or Escape followed by Enter. Shift+Enter is not reliable across terminals.
-These controls also apply to the initial request when you omit it from `start`,
+These controls also apply to the initial request when you omit it from `start` or `explore`,
 and to the `Your response:` prompt. Backend choices, base branches, and finding
 IDs remain single-line inputs.
 
@@ -822,6 +878,7 @@ for that invocation and does not change Git configuration.
 
 The displayed report directory contains:
 
+- `exploration.md` and `exploration.json` when you have run an exploration, with the inspected revision and code references.
 - `specification.json` and `current-review.json` for the accepted behavior and review gate.
 - `validation.json` and full per-command logs, including actual exit codes and JUnit output.
 - `patches.json` describing the commit series and validation for each patch.
@@ -849,7 +906,8 @@ letters, digits, underscores, or hyphens and must begin with a letter or digit.
 | `help` | Walk through setup, base selection, approvals, phases, and resuming with examples. No checkout, backend configuration, or login is needed. |
 | `doctor` | Check tools and backend authentication probes. With `--repo`, also check the target's Nix requirements. Does not build or run tests. |
 | `start TASK [REQUEST]` | Choose a base, create an isolated task worktree, and run the interview. In a terminal, ask for the base and request if omitted. |
-| `restart TASK [REQUEST]` | Start a new task from the original request and pinned base, leaving the original intact. Optional `REQUEST` replaces the original description. Prints the new task name. |
+| `explore TASK [REQUEST]` | Choose a base, create a worktree, and deliver an analysis with follow-up discussion. Ask for the base and question if omitted in a terminal. No requirements interview or coding is started. |
+| `restart TASK [REQUEST]` | Start a new task from the original request, starting phase, and pinned base, leaving the original intact. Optional `REQUEST` replaces the original description. Prints the new task name. |
 | `abandon TASK` | Confirm and permanently delete the saved task, reports, local branch, and worktree. No model backend is needed. |
 | `run TASK PHASE` | Start one available phase of a saved task. It cannot bypass prerequisites or approvals. |
 | `resume TASK` | Select a usable backend and retry a saved backend failure once, continue interrupted work, or return to a pending human gate. A completed phase remains stopped. |
@@ -870,7 +928,7 @@ Global options go **before** the command:
 | `--agent-timeout SECONDS` | Override each agent call's timeout. Otherwise use the backend setting; built-in profiles default to 600 seconds. |
 | `--check-timeout SECONDS` | Maximum time for each validation command. Default: 3600 seconds. |
 | `--unsigned-commits` | Disable signing only for commits made by this invocation. Otherwise respect Git signing settings. |
-| `--json` | Print structured results and leave interactive replies to `respond`. Work requested by `start`, `run`, or `resume` still runs up to a gate or phase boundary. |
+| `--json` | Print structured results and leave interactive replies to `respond`. Work requested by `start`, `explore`, `run`, or `resume` still runs up to a gate or phase boundary. |
 | `--help` | Show command help and exit. Put it after a subcommand for that command's options. |
 
 Options specific to `start`:
@@ -880,6 +938,9 @@ Options specific to `start`:
 | `--base REF` | Base branch, tag, or commit. Asked in a terminal if omitted, with the current branch as the default (`HEAD` if detached). Required with `--json` or noninteractive input. Saved as an exact commit for all later phases. |
 | `--interview-only` | Compatibility option. Starting already stops after the interview, and the same task can continue later. |
 | `--walkthrough` | Require an explicitly started walkthrough before handoff. You can still use `skip` during the questions. |
+
+`explore` accepts `--base` with the same meaning and prompt behavior as `start`.
+It does not take `--interview-only` or `--walkthrough`.
 
 Options specific to `restart`:
 
@@ -901,6 +962,10 @@ Options specific to `respond`:
 | `--text TEXT` | The answer, question, requested revision, dismissal reason, or red-failure explanation. |
 | `--token TOKEN` | Current approval token, required for `approve` and `accept_red`. Read `prompt.approval_token` from `--json status`. |
 | `--finding ID` | Finding to fix or dismiss. Repeat the option for multiple IDs. |
+
+During exploration, `respond TASK question --text TEXT` asks a follow-up.
+`respond TASK done` finishes the discussion without an approval token or coding
+approval. Other actions are shown by `status` for the current phase.
 
 For example, `nix run . -- run --help` lists phase names and
 `nix run . -- start --help` explains the start options.

@@ -329,7 +329,7 @@ def test_cli_persists_a_conversation_across_processes(repository, tmp_path, star
     assert call("resume", "interview")["prompt"] == view["prompt"]
     done = call("respond", "interview", "approve", "--token", view["prompt"]["approval_token"])
     assert done["stage"] == "specification_ready"
-    assert done["prompt"]["available_phases"] == ["tests"]
+    assert done["prompt"]["available_phases"] == ["explore", "tests"]
     assert call("resume", "interview") == done
     restarted = call("restart", "interview", "--as", "fresh", "--base", "main")
     assert restarted["task_id"] == "fresh"

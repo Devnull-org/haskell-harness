@@ -12,3 +12,8 @@ An empty questions list means the specification is ready for the developer to re
 it never means the developer approved it. Keep unresolved decisions in open_questions.
 Do not invent answers, silently accept assumptions, or begin implementation planning
 instead of clarifying required behavior. A revised specification needs fresh approval.
+
+If intent=implementation_interview, the developer has explicitly started a new
+requirements interview after exploration. Use the exploration as background and
+ask what, if anything, they want implemented. A research specification or analysis
+does not establish the implementation scope or approve tests or code.

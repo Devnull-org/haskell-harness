@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 from .config import RoutedAgent, load_settings
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
 from .project_context import ContextStore, state_directory
-from .terminal import spinner
+from .terminal import read_message, spinner
 from .validation import LocalExecutor
 from .workflow import PHASE_NODES, Harness
 from .workflow_help import WORKFLOW_HELP
@@ -61,7 +62,7 @@ def parser():
     start = sub.add_parser("start", help="Start a saved task with the requirements interview")
     start.add_argument("task_id", help="Unique task name: letters, digits, underscores, or hyphens")
     start.add_argument(
-        "request", nargs="?", help="Describe the feature or bug (prompted if omitted)"
+        "request", nargs="?", help="Describe the feature or bug (multiline prompt if omitted)"
     )
     start.add_argument(
         "--base",
@@ -222,15 +223,16 @@ def conversation(harness, view, *, selected_backend=None):
             print(
                 "Type a question here, or use an action above. Approval requires 'approve' alone."
             )
-        line = input("> ").strip()
-        if not line:
+        line = read_message()
+        if not line.strip():
             continue
-        if line in {"quit", "exit"}:
+        single_line = "\n" not in line and "\r" not in line
+        if single_line and line.strip() in {"quit", "exit"}:
             return view
-        action, _, text = line.partition(" ")
-        text = text.strip()
+        command = re.fullmatch(r"(\w+)(?:[ \t]+|\n|$)(.*)", line.lstrip(" \t"), flags=re.DOTALL)
+        action, text = command.groups() if command else ("", "")
         standalone = {"approve", "recheck", "retry", "reject", "skip"}
-        if action not in actions or (action in standalone and text):
+        if action not in actions or (action in standalone and (not single_line or text.strip())):
             if default_action:
                 action, text = default_action, line
             else:
@@ -245,7 +247,7 @@ def conversation(harness, view, *, selected_backend=None):
             fields["finding_ids"] = (text or input("Finding IDs, separated by spaces: ")).split()
             text = ""
         if action in {"answer", "question", "revise", "dismiss", "accept_red"}:
-            fields["text"] = text or input("Your response: ")
+            fields["text"] = text if text.strip() else read_message("Your response: ")
         try:
             view = harness.respond(view["task_id"], action, **fields)
         except (ValueError, RuntimeError, OSError) as error:
@@ -363,7 +365,8 @@ def main(argv=None):
             if not args.request:
                 if not interactive:
                     raise ValueError("Supply a request when starting without prompts")
-                args.request = input("What do you want to build or fix?\n> ")
+                print("What do you want to build or fix?")
+                args.request = read_message()
         settings = load_settings(args.config)
 
         def progress(message):

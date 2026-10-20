@@ -93,6 +93,8 @@ haskell-harness --repo . start my-feature "Describe the feature or bug"
 ```
 
 Replace `my-feature` with a unique task name and the description with your request.
+Omit the quoted description to write it in the terminal editor instead. You can
+type multiple lines with Alt+Enter or paste paragraphs, then press Enter to send.
 The harness asks for the base branch or commit and creates a separate worktree.
 You can supply `--base BRANCH_OR_COMMIT` to skip that prompt. Your original checkout
 may contain uncommitted changes. The interview stops after specification approval;
@@ -557,6 +559,29 @@ by typing normal text and pressing Enter. You do not need an `answer` prefix.
 At a specification, test, or findings review, plain text asks the agent a question;
 use `revise TEXT` to request a change. Everything is read in the same terminal.
 
+Requests, answers, questions, revisions, and written reasons support multiple
+lines in the terminal editor:
+
+| Input | Effect |
+| --- | --- |
+| Enter | Send the whole message. |
+| Alt+Enter | Insert a newline. You can also press Escape, release it, then press Enter. |
+| Ctrl+J | Insert a newline without using Alt/Option. |
+| Paste | Keep paragraphs, blank lines, and indentation together for editing; press Enter when ready to send. |
+| Arrow keys | Move through the message to edit it before sending. |
+| Ctrl+C | Leave the conversation without sending the current draft. Already submitted messages remain saved. |
+| Ctrl+D on an empty prompt | Leave the conversation and resume later. |
+
+On macOS, Option+Enter works when the terminal sends Option as Alt/Meta; otherwise
+use Ctrl+J or Escape followed by Enter. Shift+Enter is not reliable across terminals.
+These controls also apply to the initial request when you omit it from `start`,
+and to the `Your response:` prompt. Backend choices, base branches, and finding
+IDs remain single-line inputs.
+
+To write a longer revision, type `revise` and press Enter. The `Your response:`
+prompt accepts the full multiline instructions. You can also type `revise TEXT`
+and add more lines before sending.
+
 For example, these are lines you can type at the appropriate prompts:
 
 ```text
@@ -569,6 +594,7 @@ quit
 
 Only `approve` on its own accepts a specification or test gate. A sentence such as
 `approve only after we discuss edge cases` is a discussion message, not approval.
+An `approve` line inside a multiline message is text, not a separate command.
 Answers, questions, and blank lines never approve anything. Test approval is tied to the exact validated files;
 a changed worktree requires `recheck` and fresh approval. You can inspect the full
 diff in your editor using the displayed worktree path.

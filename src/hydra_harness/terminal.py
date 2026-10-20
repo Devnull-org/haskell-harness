@@ -1,4 +1,4 @@
-"""Small terminal indicators that never read input or write to stdout."""
+"""Terminal message editing and progress indicators."""
 
 import itertools
 import shutil
@@ -6,6 +6,29 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
+
+from prompt_toolkit import prompt
+from prompt_toolkit.key_binding import KeyBindings
+
+
+def read_message(message="> "):
+    """Keep typed and pasted lines in one editable message until Enter submits it."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return input(message)
+
+    bindings = KeyBindings()
+
+    @bindings.add("enter")
+    def submit(event):
+        event.current_buffer.validate_and_handle()
+
+    @bindings.add("escape", "enter")
+    @bindings.add("c-j")
+    def newline(event):
+        event.current_buffer.insert_text("\n")
+
+    print("Enter sends. Alt+Enter or Ctrl+J adds a newline. Pasted lines stay together.")
+    return prompt(message, multiline=True, prompt_continuation="  ", key_bindings=bindings)
 
 
 @contextmanager

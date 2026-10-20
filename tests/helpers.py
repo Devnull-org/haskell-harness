@@ -19,11 +19,17 @@ def terminal_process(args):
     """Run a real terminal conversation and wait for its visible prompts."""
     import pty
     import select
+    import termios
 
     master, slave = pty.openpty()
+    termios.tcsetwinsize(slave, (24, 100))
     try:
         process = subprocess.Popen(
-            args, stdin=slave, stdout=slave, stderr=slave, env=dict(os.environ, TERM="xterm")
+            args,
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            env=dict(os.environ, TERM="xterm", PROMPT_TOOLKIT_NO_CPR="1"),
         )
     finally:
         os.close(slave)
@@ -45,8 +51,11 @@ def terminal_process(args):
             output += chunk
         output = output.split(text.encode(), 1)[1]
 
+    def send(text, *, enter=True):
+        os.write(master, (text + ("\r" if enter else "")).encode())
+
     try:
-        yield process, expect, lambda line: os.write(master, (line + "\n").encode())
+        yield process, expect, send
     finally:
         if process.poll() is None:
             process.kill()

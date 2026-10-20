@@ -15,7 +15,14 @@ from .conftest import SOURCE, SPECIFICATION, ScriptedAgent, git
 from .helpers import executable, terminal_process
 
 
-@pytest.mark.parametrize("answer", ["Support negative integers too.", "quit should save progress"])
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Support negative integers too.",
+        "quit should save progress",
+        "  addOne x = x + 1\n\nKeep this indentation.\n",
+    ],
+)
 def test_terminal_accepts_plain_answers_and_preserves_them(rig, monkeypatch, answer):
     harness, agent, _ = rig
     agent.responses["interviewer"].append(
@@ -42,6 +49,31 @@ def test_terminal_plain_questions_and_conditional_approval_do_not_approve(rig, m
         "approve only after we discuss edge cases",
     ]
     assert set(view["prompt"]["actions"]) == {"question", "revise", "approve"}
+
+
+@pytest.mark.parametrize("question", ["approve\n", "approve\nWait for my review.", "\napprove"])
+def test_multiline_messages_cannot_approve_a_gate(rig, monkeypatch, question):
+    harness, agent, _ = rig
+    view = harness.start("multiline-approval", "Fix increment", mode="phased")
+    lines = iter([question, "quit"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(lines))
+    view = conversation(harness, view)
+    assert view["stage"] == "specification_review"
+    assert agent.calls[-1][1]["question"] == question
+
+
+@pytest.mark.parametrize("prefix", ["revise ", "revise\n", "revise"])
+def test_multiline_revision_keeps_indentation_and_blank_lines(rig, monkeypatch, prefix):
+    harness, agent, _ = rig
+    view = harness.start("multiline-revision", "Fix increment", mode="phased")
+    instructions = "Keep this example:\n\n  addOne x = x + 1\n"
+    lines = iter(
+        [prefix, instructions, "quit"] if prefix == "revise" else [prefix + instructions, "quit"]
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt: next(lines))
+    view = conversation(harness, view)
+    assert view["stage"] == "specification_review"
+    assert agent.calls[-1][1]["messages"][-1]["text"] == instructions
 
 
 def test_terminal_blank_input_does_not_call_an_agent(rig, monkeypatch):
@@ -153,10 +185,10 @@ def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(
     ):
         expect("interviewer working")
         expect("Which inputs should work?")
-        expect("> ")
+        expect(">")
         send("Negative integers too.")
         expect("terminal: specification review")
-        expect("> ")
+        expect(">")
         send("quit")
         assert process.wait(timeout=10) == 0
     requests = [json.loads(line) for line in capture.read_text().splitlines()]
@@ -165,11 +197,92 @@ def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(
 
     with terminal("resume", "terminal") as (process, expect, send):
         expect("terminal: specification review")
-        expect("> ")
+        expect(">")
         send("approve")
         expect("terminal: specification ready")
         assert process.wait(timeout=10) == 0
     assert len(capture.read_text().splitlines()) == 2 + invalid_first
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Requires a POSIX terminal")
+def test_terminal_multiline_input_reaches_backend_and_survives_resume(repository, tmp_path):
+    capture = tmp_path / "requests.jsonl"
+    backend = executable(
+        tmp_path,
+        "import json, sys\nfrom pathlib import Path\n"
+        "request = json.load(sys.stdin)\n"
+        f"with Path({str(capture)!r}).open('a') as stream:\n"
+        "    stream.write(json.dumps(request) + '\\n')\n"
+        "if request['context'].get('intent') == 'explain':\n"
+        "    print(json.dumps({'answer': 'Waiting for your explicit approval.'}))\n"
+        "else:\n"
+        "    questions = [] if request['context']['messages'] else ['Which inputs should work?']\n"
+        f"    print(json.dumps({{'specification': {SPECIFICATION!r}, 'questions': questions}}))\n",
+    )
+    config = tmp_path / "backend.toml"
+    config.write_text(
+        'default_backend = "test"\n[backends.test]\ninput_format = "json"\n'
+        f"command = [{json.dumps(backend)}]\n"
+    )
+    args = [
+        sys.executable,
+        "-m",
+        "hydra_harness.cli",
+        "--repo",
+        str(repository),
+        "--state-dir",
+        str(tmp_path / "state"),
+        "--config",
+        str(config),
+    ]
+    request = "Fix increment.\n\nKeep the public API."
+    answer = "Negative integers too.\n\n  addOne (-1) == 0\napprove\n"
+    question = "approve\nOnly after discussing this case."
+    revision = "Use this example:\n\n  addOne (-2) == -1\n"
+
+    with terminal_process([*args, "start", "multiline", "--base", "main"]) as (
+        process,
+        expect,
+        send,
+    ):
+        expect("What do you want to build or fix?")
+        expect(">")
+        send(request.replace("\n", "\x1b\r"))
+        expect("Which inputs should work?")
+        expect(">")
+        send("\x1b[200~" + answer + "\x1b[201~")
+        expect("multiline: specification review")
+        expect(">")
+        send("\x1b[200~" + question + "\x1b[201~")
+        expect("Waiting for your explicit approval.")
+        expect(">")
+        send("revise")
+        expect("Your response:")
+        send("\x1b[200~" + revision + "\x1b[201~")
+        expect("multiline: specification review")
+        expect(">")
+        send("quit")
+        assert process.wait(timeout=10) == 0
+
+    requests = [json.loads(line) for line in capture.read_text().splitlines()]
+    assert len(requests) == 4
+    assert all(item["context"]["request"] == request for item in requests)
+    assert requests[1]["context"]["messages"][-1]["text"] == answer
+    assert requests[2]["context"]["question"] == question
+    assert requests[3]["context"]["messages"][-1]["text"] == revision
+
+    with terminal_process([*args, "resume", "multiline"]) as (process, expect, send):
+        expect("multiline: specification review")
+        expect(">")
+        send("Does this cover the example?")
+        expect("Waiting for your explicit approval.")
+        expect(">")
+        send("quit")
+        assert process.wait(timeout=10) == 0
+    context = json.loads(capture.read_text().splitlines()[-1])["context"]
+    assert context["request"] == request
+    assert [message.get("text") for message in context["messages"]] == [answer, None, revision]
+    assert context["messages"][1]["question"] == question
 
 
 @pytest.mark.parametrize("start_options", [[], ["--interview-only"]])

@@ -77,7 +77,7 @@ def test_resume_checks_backends_and_retries_the_saved_failure(repository, tmp_pa
         expect("Selected backend for this session: codex")
         expect("Retrying saved failure from backend 'local' with selected backend 'codex'")
         expect("Which inputs?")
-        expect("> ")
+        expect(">")
         send("quit")
         assert process.wait(timeout=10) == 0
     records = [json.loads(line) for line in calls.read_text().splitlines()]

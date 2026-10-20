@@ -2,6 +2,8 @@
 
 import io
 import json
+import os
+import sys
 import time
 
 import pytest
@@ -9,7 +11,55 @@ import pytest
 from hydra_harness.backends import Backend, CommandAgent
 from hydra_harness.terminal import spinner
 
-from .helpers import executable
+from .helpers import executable, terminal_process
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Requires a POSIX terminal")
+@pytest.mark.parametrize(
+    "keys,expected",
+    [
+        ("First\x1b\r\x1b\r  α = 1\nLast", "First\n\n  α = 1\nLast"),
+        (
+            "\x1b[200~First\r\n\r\n  α = 1\r\napprove\r\n\x1b[201~",
+            "First\n\n  α = 1\napprove\n",
+        ),
+    ],
+    ids=["typed-newlines", "pasted-paragraphs"],
+)
+def test_message_editor_preserves_lines_and_waits_for_enter(tmp_path, keys, expected):
+    capture = tmp_path / "message.json"
+    program = (
+        "import json\nfrom pathlib import Path\n"
+        "from hydra_harness.terminal import read_message\n"
+        "message = read_message()\n"
+        f"Path({str(capture)!r}).write_text(json.dumps(message))\n"
+        "print('Message submitted', flush=True)\n"
+    )
+    with terminal_process([sys.executable, "-c", program]) as (process, expect, send):
+        expect(">")
+        send(keys, enter=False)
+        expect("Last" if keys.startswith("First") else "approve")
+        assert not capture.exists()
+        send("")
+        expect("Message submitted")
+        assert process.wait(timeout=10) == 0
+    assert json.loads(capture.read_text()) == expected
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Requires a POSIX terminal")
+@pytest.mark.parametrize("key,error", [("\x03", "KeyboardInterrupt"), ("\x04", "EOFError")])
+def test_message_editor_interrupt_does_not_submit(tmp_path, key, error):
+    program = (
+        "from hydra_harness.terminal import read_message\n"
+        "try:\n    read_message()\n"
+        f"except {error}:\n    print('Cancelled', flush=True)\n"
+        "else:\n    raise AssertionError('Input was submitted')\n"
+    )
+    with terminal_process([sys.executable, "-c", program]) as (process, expect, send):
+        expect(">")
+        send(key, enter=False)
+        expect("Cancelled")
+        assert process.wait(timeout=10) == 0
 
 
 @pytest.mark.parametrize("failure", [None, "exit", "invalid", "timeout"])

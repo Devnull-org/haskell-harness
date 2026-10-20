@@ -55,12 +55,19 @@ Choose how to launch
   The exact commit is saved. Each task gets its own branch and worktree before
   the interview, excluding staged, unstaged, and untracked local changes.
   The source checkout stays as it is. The harness does not fetch remote branches.
+  Omit the description to write it in the terminal editor instead. Alt+Enter or
+  Ctrl+J adds a newline; Enter sends the whole message. Pasted paragraphs stay
+  together. Escape followed by Enter also adds a newline.
   Scripts and --json require an explicit --base and request.
 
 4. Discuss and approve the specification
   Type answers directly in the same terminal and press Enter; no answer prefix
   is needed. At the specification gate, plain text asks a question. Use revise
   TEXT to request changes, or approve on its own to accept the specification.
+  Answers, questions, and revisions use the same multiline editor. Type revise
+  alone to open a separate instructions prompt. An approve line within a
+  multiline message never approves a gate. Ctrl+C discards the unsent draft;
+  already submitted messages remain saved for resume.
   Approval saves it and stops. Tests do not start automatically.
 
 5. Write failing tests and review them yourself

@@ -9,101 +9,52 @@ The command transport supports agent CLIs and small bridges to hosted model APIs
 Prompts, response schemas, validation, process timeouts, and workflow persistence
 remain in the harness. Adding a command profile does not require changing Python.
 
-## Automatic selection
+## Choose on the website
 
-The default is `default_backend = "auto"`. Task commands try all configured
-profiles: check the executable and any login probe, then send one short JSON
-availability request in a temporary Git directory. No task description, project
-context, or source files are included. Generation checks consume provider usage
-and time out after at most 60 seconds, or the agent timeout when shorter.
-The configured login probe has a separate 30-second timeout.
+The default is `default_backend = "auto"`. When work starts, the website checks
+configured executables and login probes, then sends one short availability request
+in a temporary Git directory. No project context or source is included. Generation
+checks consume provider usage and time out after at most 60 seconds; login probes
+have a separate 30-second timeout.
 
-One usable backend is selected automatically. When several work, the terminal
-asks for a number or name. With none, the failures are reported before task
-execution. Selection lasts for the invocation, including the interactive
-conversation; it is checked again on a later command.
-
-Scripts and `--json` select automatically only with one usable backend. Otherwise
-they exit with code 2. JSON includes `stage: "backend_selection"`,
-`available_backends`, and `backend_checks`; rerun with an explicit `--backend NAME`.
-Read-only `status`, `help`, `backends`, and context commands do not probe models.
-`doctor` checks executables and logins only, and succeeds when at least one backend
-passes in auto mode.
-
-An explicit `--backend NAME` or a named configuration default bypasses discovery.
-`--backend auto` forces discovery even with such a default. The selection applies
-to all roles in that invocation. To retain explicit per-role routing, use a named
-configuration default without a global backend override.
-
-## Select a profile explicitly
-
-```sh
-haskell-harness backends
-haskell-harness --backend claude-code doctor
-haskell-harness --repo "/path/to/project" --backend claude-code --model opus \
-  start a-task "Describe the requested change"
-```
-
-These commands work after either setup in the [quick start](README.md#quick-start).
-From the harness clone, you can also use `uv run --locked --no-dev haskell-harness`
-or `nix run . --` in place of `haskell-harness`.
-
-Replace `/path/to/project` with the checkout you explicitly select; it has no default. Backend
-listing and tool diagnostics do not require a checkout. Adding `--repo` to `doctor`
-also checks Nix and that checkout's dependency flake. A separate environment can be chosen
-with `--nix-flake "/path/to/dependency-flake"`, where you supply that path too.
-
-The built-in profiles are:
+One usable backend is selected automatically. If several work, choose on the page.
+If none work, the page explains the failures. **Project settings & context** lets
+you select an explicit backend. **Check backends and resume** repeats discovery
+for a saved task. Switching providers keeps the conversation and approval gates.
 
 | Profile | Behavior |
 | --- | --- |
-| `local` | Preserves the existing saved-session CLI integration and its read-only mode. |
-| `codex` | Uses Codex with saved CLI authentication, read-only shell access, no interactive approval prompts, and ephemeral sessions. |
-| `claude-code` | Uses Claude Code with read/search tools, plan mode, structured output, and no inherited MCP servers. |
+| `local` | Saved-session CLI integration with read-only inspection. |
+| `codex` | Saved CLI authentication, read-only shell access, ephemeral sessions, and no interactive approval prompts. |
+| `claude-code` | Read/search tools, plan mode, structured output, and no inherited MCP servers. |
 
-When using an existing CLI installation, it is resolved through `PATH`. To let Nix
-supply it, use `nix run .#local`, `nix run .#codex`, or `nix run .#claude-code`. These packages select the
-matching profile explicitly. The default `nix run .` package supplies all three
-CLIs and uses automatic selection. The default development shell also includes
-all three; the corresponding optional development shells are
-`nix develop .#local`, `nix develop .#codex`, and `nix develop .#claude-code`.
+The default Nix launcher and development shell include all three providers.
+Without Nix, install your chosen CLI separately; executables are resolved through
+`PATH`. Sign in through the provider's normal login flow. The harness does not
+perform login automatically or change your credentials.
 
-The Codex profile uses the documented [non-interactive interface](https://learn.chatgpt.com/docs/non-interactive-mode):
-the prompt and role schema go through stdin, progress goes to stderr, and the
-final message goes to stdout for the harness's JSON/schema validation. It does
-not use `--json`, which produces an event stream instead of a single response.
-`--ephemeral` avoids saving a separate Codex session for every harness call.
-`--sandbox read-only` limits shell writes, and `--ask-for-approval never` prevents
-an unattended call from waiting for a separate approval prompt.
-
-`--ignore-user-config` and `--ignore-rules` skip personal Codex settings and
-execpolicy rules for these calls; authentication still uses the existing home
-directory and `CODEX_HOME`. Codex chooses its default model unless you select one
-with the harness's `--model` option or backend/role configuration. API-key and
-access-token environment overrides are omitted from the child process so it uses
-the saved CLI login. No global settings or credentials are changed. Personal
-gateway or other configuration requirements need a custom profile.
-
-`doctor` runs `codex login status`; it checks authentication, not available quota.
-Each provider has its own account and allowance. A working Codex / ChatGPT login
-does not provide usage to the `local` backend. To continue an existing task with
-Codex, quit the old process and run:
+The initial backend and model can also be set at server startup:
 
 ```sh
-nix run --refresh github:Devnull-org/haskell-harness#codex -- \
-  --repo "/path/to/project" resume my-feature
+nix run . -- --repo "/path/to/project" --backend claude-code --model opus
 ```
 
-Use your existing task name, checkout, and any `--state-dir` override. `resume`
-retries a saved `backend_blocked` step once with the selected backend and prints
-which backend produced the saved failure. Older `agent_error` states still need
-`retry`. Pending human questions and approvals are never answered automatically.
-Switching backends does not discard answers or create a new worktree.
+There are no per-provider harness packages or terminal workflow commands.
+An explicit backend or named configuration default bypasses discovery.
+Automatic selection applies one chosen profile to every role for the server session.
+Use a named configuration default without a global backend override to retain
+per-role routing.
 
-The Claude Code profile uses its documented [headless interface and structured
-output](https://code.claude.com/docs/en/headless). Each invocation is independent;
-LangGraph owns the workflow's durable state. No provider session is needed to
-resume a task with a different backend.
+The Codex adapter sends the prompt and role schema through stdin and validates the
+final stdout response. It uses `--ephemeral`, `--sandbox read-only`, and
+`--ask-for-approval never`. `--ignore-user-config` and `--ignore-rules` skip personal
+settings and execpolicy rules while keeping the existing home directory and
+`CODEX_HOME` for authentication. API-key and access-token overrides are omitted
+from the child environment. Personal gateway requirements need a custom profile.
+The adapter's status probe checks login; it does not establish remaining quota.
+
+The Claude Code adapter uses headless structured output. LangGraph owns durable
+workflow state, so switching backend does not require migrating provider sessions.
 
 ## User configuration
 
@@ -115,7 +66,7 @@ error. Configuration is never automatically read from the target repository.
 
 The same file accepts a `[validation]` table for the project's lint, build, Nix,
 and test commands and its JUnit report pattern. See
-[validation and commits](README.md#validation-and-commits) for defaults and examples.
+[validation and commits](docs/VALIDATION.md) for defaults and examples.
 New tasks save these settings so resuming them does not silently change their checks.
 
 For example, use a different model for security reviews:
@@ -172,7 +123,7 @@ Profile fields:
 | `model` | Optional default model ID for this profile. |
 | `timeout` | Positive process timeout in seconds; default 600. |
 | `unset_env` | Environment variable names to omit, for example to prevent API credentials from overriding a saved CLI login. No credential values belong here. |
-| `probe` | Optional non-generating authentication/status command for `doctor`. `{executable}` uses the resolved backend executable. |
+| `probe` | Optional non-generating authentication/status command for discovery. `{executable}` uses the resolved backend executable. |
 | `probe_reject_patterns` | Case-insensitive output strings that make a probe fail even if its exit code is zero. |
 
 `command` and `model_args` also support the whole-argument tokens `{schema}` and
@@ -246,19 +197,14 @@ response. Before any correction, the workflow verifies that the checkout is
 unchanged. A valid response continues to the original human gate; invalid output
 never becomes a proposal.
 
-Interactive terminals show a
-spinner with the agent role and elapsed time. With `--json`, redirected stderr, or
-`TERM=dumb`, progress is printed every 15 seconds instead. These indicators show
-waiting time, not how much work the model has completed, and never use stdout.
-Unresolved failures pause at `backend_blocked`. The prompt includes
-`backend_failure` with `backend` and `kind`, a `guidance` message, and a `diagnostics`
-path. Kinds are `quota`, `authentication`, `rate_limit`, `timeout`, `unavailable`,
-`invalid_response`, and `provider` for errors without a recognized category.
-Classification uses explicit error text; it does not claim to know the account's
-remaining balance. Scripts still return nonzero for blocked work. Interactive
-users can retry after addressing the cause or quit normally. There are no automatic
-provider fallbacks. Process groups are terminated on timeout; changing the backend
-does not weaken test protection or validation.
+The website shows progress while agents run. **Stop model** cancels a running
+request. Unresolved failures pause at `backend_blocked` with the provider name,
+reason, and diagnostic path. Categories include quota, authentication, rate limit,
+timeout, unavailable executable, invalid response, and other provider errors.
+Classification uses explicit error text; it does not estimate account balances.
+After addressing the cause, retry on the page or select another backend. There
+are no automatic provider fallbacks. Process groups are terminated on timeout;
+changing backends does not weaken test protection or validation.
 
 Configure required credentials through the selected CLI/service's normal mechanism.
 All profiles remove inherited `ORCA_AGENT_*`, `ORCA_PANE_KEY`, `ORCA_TAB_ID`,
@@ -267,7 +213,7 @@ This prevents desktop hooks from attributing a background agent to its parent's
 session. It does not change the parent environment, saved login, or global hooks.
 Backend session history may still be visible in desktop apps that scan it.
 Other environment variables are inherited except for the profile's `unset_env`
-list. `doctor` verifies executable availability and runs the optional status probe;
+list. Discovery verifies executable availability and runs the optional status probe;
 without a probe it does not claim to have verified authentication or model access.
 
 ## Python integrations
@@ -282,6 +228,6 @@ def agent(role, context, cwd):
 
 `CommandAgent` implements that protocol for one profile. `RoutedAgent` selects
 profiles and models by role. For an auto configuration, call
-`discovery.select_backend(agent, cwd, interactive=...)` before invoking it.
+`discovery.select_backend(agent, cwd)` before invoking it.
 `Harness` independently validates the returned object,
 checks the worktree, and enforces approval gates regardless of transport.

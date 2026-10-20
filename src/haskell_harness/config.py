@@ -39,10 +39,10 @@ class Settings(Record):
 
 def load_settings(path=None):
     """Read built-in profiles and one user file; never auto-load target-repo configuration."""
-    data = tomllib.loads(files("hydra_harness").joinpath("backends.toml").read_text())
+    data = tomllib.loads(files("haskell_harness").joinpath("backends.toml").read_text())
     if path is None:
         root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
-        path = root / "hydra-harness" / "config.toml"
+        path = root / "haskell-harness" / "config.toml"
         if not path.exists():
             return Settings.model_validate(data)
     path = Path(path).expanduser().resolve()

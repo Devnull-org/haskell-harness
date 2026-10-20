@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from hydra_harness.contracts import Harness
-from hydra_harness.workspace import Workspace
+from haskell_harness.contracts import Harness
+from haskell_harness.workspace import Workspace
 
 from .conftest import (
     IMPLEMENTED,

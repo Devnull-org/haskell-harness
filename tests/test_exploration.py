@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from hydra_harness.cli import conversation
-from hydra_harness.failures import BackendError
-from hydra_harness.workflow import Harness
+from haskell_harness.cli import conversation
+from haskell_harness.failures import BackendError
+from haskell_harness.workflow import Harness
 
 from .conftest import SOURCE, SPECIFICATION, git
 from .helpers import executable, terminal_process
@@ -237,7 +237,7 @@ def test_terminal_delivers_analysis_then_resumes_follow_up_in_another_process(
     args = [
         sys.executable,
         "-m",
-        "hydra_harness.cli",
+        "haskell_harness.cli",
         "--repo",
         str(repository),
         "--state-dir",

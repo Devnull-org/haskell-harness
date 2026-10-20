@@ -109,7 +109,7 @@ def test_abandon_refuses_saved_paths_outside_task_directory(rig, repository):
 
 @pytest.mark.parametrize("failure", ["branch", "database", "interrupt"])
 def test_interrupted_abandon_can_be_finished_without_resuming_agents(rig, monkeypatch, failure):
-    from hydra_harness import cleanup
+    from haskell_harness import cleanup
 
     harness, agent, _ = rig
     harness.start("discard", "An idea")
@@ -182,7 +182,7 @@ def test_terminal_abandon_can_cancel_then_delete_without_a_backend(rig, tmp_path
     args = [
         sys.executable,
         "-m",
-        "hydra_harness.cli",
+        "haskell_harness.cli",
         "--repo",
         str(harness.repository),
         "--state-dir",
@@ -211,7 +211,7 @@ def test_terminal_abandon_can_cancel_then_delete_without_a_backend(rig, tmp_path
 
 @pytest.mark.parametrize("yes", [False, True])
 def test_noninteractive_abandon_requires_explicit_confirmation(rig, tmp_path, capsys, yes):
-    from hydra_harness.cli import main
+    from haskell_harness.cli import main
 
     harness, _, _ = rig
     view = harness.start("discard", "An idea")
@@ -237,7 +237,7 @@ def test_noninteractive_abandon_requires_explicit_confirmation(rig, tmp_path, ca
 
 
 def test_conversation_can_abandon_and_multiline_text_cannot(rig, monkeypatch):
-    from hydra_harness.cli import conversation
+    from haskell_harness.cli import conversation
 
     harness, agent, _ = rig
     view = harness.start("discard", "An idea")

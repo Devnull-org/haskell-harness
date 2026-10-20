@@ -1,6 +1,6 @@
 """Long-running backends report elapsed time without losing their response."""
 
-from hydra_harness.process import run_process
+from haskell_harness.process import run_process
 
 from .helpers import executable
 

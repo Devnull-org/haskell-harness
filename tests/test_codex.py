@@ -5,9 +5,9 @@ import os
 
 import pytest
 
-from hydra_harness.backends import CommandAgent
-from hydra_harness.config import load_settings
-from hydra_harness.contracts import Harness
+from haskell_harness.backends import CommandAgent
+from haskell_harness.config import load_settings
+from haskell_harness.contracts import Harness
 
 from .conftest import SPECIFICATION, ScriptedAgent
 from .helpers import executable

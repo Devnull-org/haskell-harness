@@ -2,8 +2,8 @@
 
 import pytest
 
-from hydra_harness.contracts import classify_validation
-from hydra_harness.validation import LocalExecutor
+from haskell_harness.contracts import classify_validation
+from haskell_harness.validation import LocalExecutor
 
 from .conftest import FAILURE_ID, command_result, junit
 
@@ -18,7 +18,7 @@ def test_nix_checks_use_task_worktree_unless_overridden(tmp_path, monkeypatch, o
         calls.append((argv, cwd))
         return 0, "", ""
 
-    monkeypatch.setattr("hydra_harness.validation.run_process", run)
+    monkeypatch.setattr("haskell_harness.validation.run_process", run)
     executor = LocalExecutor(nix_flake=dependency if override else None)
     executor(["just", "check"], worktree)
     assert calls == [

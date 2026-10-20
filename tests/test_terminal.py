@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from hydra_harness.backends import Backend, CommandAgent
-from hydra_harness.terminal import spinner
+from haskell_harness.backends import Backend, CommandAgent
+from haskell_harness.terminal import spinner
 
 from .helpers import executable, terminal_process
 
@@ -30,7 +30,7 @@ def test_message_editor_preserves_lines_and_waits_for_enter(tmp_path, keys, expe
     capture = tmp_path / "message.json"
     program = (
         "import json\nfrom pathlib import Path\n"
-        "from hydra_harness.terminal import read_message\n"
+        "from haskell_harness.terminal import read_message\n"
         "message = read_message()\n"
         f"Path({str(capture)!r}).write_text(json.dumps(message))\n"
         "print('Message submitted', flush=True)\n"
@@ -50,7 +50,7 @@ def test_message_editor_preserves_lines_and_waits_for_enter(tmp_path, keys, expe
 @pytest.mark.parametrize("key,error", [("\x03", "KeyboardInterrupt"), ("\x04", "EOFError")])
 def test_message_editor_interrupt_does_not_submit(tmp_path, key, error):
     program = (
-        "from hydra_harness.terminal import read_message\n"
+        "from haskell_harness.terminal import read_message\n"
         "try:\n    read_message()\n"
         f"except {error}:\n    print('Cancelled', flush=True)\n"
         "else:\n    raise AssertionError('Input was submitted')\n"

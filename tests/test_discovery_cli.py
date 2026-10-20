@@ -40,7 +40,7 @@ def configured_cli(repository, tmp_path, *, multiple=False):
     args = [
         sys.executable,
         "-m",
-        "hydra_harness.cli",
+        "haskell_harness.cli",
         "--repo",
         str(repository),
         "--state-dir",

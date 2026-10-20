@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from hydra_harness.backends import Backend
-from hydra_harness.cli import doctor, parser
-from hydra_harness.config import RoutedAgent, Settings
-from hydra_harness.discovery import SelectionRequired, discover, select_backend
+from haskell_harness.backends import Backend
+from haskell_harness.cli import doctor, parser
+from haskell_harness.config import RoutedAgent, Settings
+from haskell_harness.discovery import SelectionRequired, discover, select_backend
 
 from .helpers import executable
 

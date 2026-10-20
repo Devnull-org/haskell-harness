@@ -108,8 +108,8 @@ resume a task with a different backend.
 ## User configuration
 
 Pass a file with `--config FILE`, or create
-`$XDG_CONFIG_HOME/hydra-harness/config.toml` (falling back to the current user's
-`~/.config/hydra-harness/config.toml`). The file is optional; its parent directory
+`$XDG_CONFIG_HOME/haskell-harness/config.toml` (falling back to the current user's
+`~/.config/haskell-harness/config.toml`). The file is optional; its parent directory
 does not need to exist. A missing file explicitly selected with `--config` is an
 error. Configuration is never automatically read from the target repository.
 
@@ -124,7 +124,7 @@ model = "opus"
 ```
 
 Choose a different backend for a role by adding `backend = "profile-name"` to that
-role's table. Names are the prompt names under `src/hydra_harness/prompts`, excluding
+role's table. Names are the prompt names under `src/haskell_harness/prompts`, excluding
 `common`. Model IDs are passed to the selected backend without a hard-coded model
 catalogue or a silent fallback.
 

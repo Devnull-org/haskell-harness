@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "hydra-harness"
+name = "haskell-harness"
 version = "0.1.0"
 description = "Haskell Harness: local, human-guided TDD workflows"
 readme = "README.md"
@@ -16,8 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-haskell-harness = "hydra_harness.cli:main"
-hydra-harness = "hydra_harness.cli:main"
+haskell-harness = "haskell_harness.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1"]

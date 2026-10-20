@@ -259,7 +259,7 @@ def create_server(app, port=8765):
                     self.send(200, app.abandon_plan(task_id))
                 elif path.path in {"/", "/app.js", "/style.css"}:
                     name = "index.html" if path.path == "/" else path.path[1:]
-                    content = files("hydra_harness").joinpath("web", name).read_text()
+                    content = files("haskell_harness").joinpath("web", name).read_text()
                     if name == "index.html":
                         content = content.replace("HARNESS_SESSION_TOKEN", app.token)
                     types = {

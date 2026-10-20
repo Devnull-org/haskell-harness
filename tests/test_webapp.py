@@ -8,9 +8,9 @@ import time
 
 import pytest
 
-from hydra_harness.cli import parser
-from hydra_harness.discovery import SelectionRequired
-from hydra_harness.webapp import LocalApp, create_server
+from haskell_harness.cli import parser
+from haskell_harness.discovery import SelectionRequired
+from haskell_harness.webapp import LocalApp, create_server
 
 from .conftest import SPECIFICATION
 from .helpers import executable
@@ -178,7 +178,7 @@ def test_browser_asks_for_backend_without_losing_the_pending_request(browser_app
             )
         return agent.backend
 
-    monkeypatch.setattr("hydra_harness.webapp.select_backend", choose)
+    monkeypatch.setattr("haskell_harness.webapp.select_backend", choose)
     request = {"command": "start", "task_id": "choice", "request": "Keep my idea", "base": "main"}
     call("/api/command", request)
     wait_for(lambda: not call("/api/state")[1]["job"]["running"])

@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from hydra_harness.cli import conversation, doctor, main, parser
+from haskell_harness.cli import conversation, doctor, main, parser
 
 from .conftest import SOURCE, SPECIFICATION, ScriptedAgent, git
 from .helpers import executable, terminal_process
@@ -166,7 +166,7 @@ def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(
     args = [
         sys.executable,
         "-m",
-        "hydra_harness.cli",
+        "haskell_harness.cli",
         "--repo",
         str(repository),
         "--state-dir",
@@ -227,7 +227,7 @@ def test_terminal_multiline_input_reaches_backend_and_survives_resume(repository
     args = [
         sys.executable,
         "-m",
-        "hydra_harness.cli",
+        "haskell_harness.cli",
         "--repo",
         str(repository),
         "--state-dir",
@@ -302,7 +302,7 @@ def test_cli_persists_a_conversation_across_processes(repository, tmp_path, star
     args = [
         sys.executable,
         "-m",
-        "hydra_harness.cli",
+        "haskell_harness.cli",
         "--repo",
         str(repository),
         "--state-dir",
@@ -346,8 +346,8 @@ def test_interactive_start_prompts_for_base(repository, tmp_path, monkeypatch, c
         git(repository, "checkout", "--detach")
     (repository / SOURCE).write_text("-- Pending developer work\n")
     agent = ScriptedAgent()
-    monkeypatch.setattr("hydra_harness.cli.RoutedAgent", lambda *args, **kwargs: agent)
-    monkeypatch.setattr("hydra_harness.cli.select_backend", lambda *args, **kwargs: "scripted")
+    monkeypatch.setattr("haskell_harness.cli.RoutedAgent", lambda *args, **kwargs: agent)
+    monkeypatch.setattr("haskell_harness.cli.select_backend", lambda *args, **kwargs: "scripted")
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     prompts = []
     answers = iter(["", "quit"])
@@ -379,7 +379,7 @@ def test_interactive_start_prompts_for_base(repository, tmp_path, monkeypatch, c
 
 @pytest.mark.parametrize("options", [[], ["--json"]])
 def test_scripted_start_requires_explicit_base(repository, tmp_path, monkeypatch, capsys, options):
-    monkeypatch.setattr("hydra_harness.cli.RoutedAgent", lambda *args, **kwargs: ScriptedAgent())
+    monkeypatch.setattr("haskell_harness.cli.RoutedAgent", lambda *args, **kwargs: ScriptedAgent())
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     monkeypatch.setattr("builtins.input", lambda *args: pytest.fail("Unexpected prompt"))
     assert (
@@ -451,7 +451,7 @@ def test_doctor_without_checkout_only_checks_tools_and_backends(tmp_path, monkey
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
-        "hydra_harness.cli.shutil.which", lambda name: "/tool/git" if name == "git" else None
+        "haskell_harness.cli.shutil.which", lambda name: "/tool/git" if name == "git" else None
     )
     assert doctor(parser().parse_args(["doctor"]), Agent()) == 0
     assert "No target checkout selected" in capsys.readouterr().out
@@ -466,7 +466,7 @@ def test_doctor_requires_nix_for_target_validation(target_flag, tmp_path, monkey
 
     (tmp_path / "flake.nix").write_text("{}")
     monkeypatch.setattr(
-        "hydra_harness.cli.shutil.which", lambda name: "/tool/git" if name == "git" else None
+        "haskell_harness.cli.shutil.which", lambda name: "/tool/git" if name == "git" else None
     )
     args = parser().parse_args([target_flag, str(tmp_path), "doctor"])
     assert doctor(args, Agent()) == 1
@@ -482,7 +482,7 @@ def test_context_commands_need_no_backend_configuration(repository, tmp_path, mo
     def forbidden(*args):
         pytest.fail("Context commands must not load model configuration")
 
-    monkeypatch.setattr("hydra_harness.cli.load_settings", forbidden)
+    monkeypatch.setattr("haskell_harness.cli.load_settings", forbidden)
     args = ["--repo", str(repository), "--state-dir", str(tmp_path / "saved"), "--json", "context"]
     assert main([*args, "refresh", "--source", SOURCE]) == 0
     snapshot = json.loads(capsys.readouterr().out)

@@ -2,8 +2,8 @@
 
 import pytest
 
-from hydra_harness.project_context import ContextStore
-from hydra_harness.workspace import Workspace
+from haskell_harness.project_context import ContextStore
+from haskell_harness.workspace import Workspace
 
 from .conftest import SOURCE, git
 

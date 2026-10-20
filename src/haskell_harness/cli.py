@@ -31,7 +31,7 @@ def parser():
         "--state-dir",
         type=Path,
         default=Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
-        / "hydra-harness",
+        / "haskell-harness",
         help="Directory for saved tasks and worktrees (default: user state directory)",
     )
     result.add_argument(
@@ -577,7 +577,7 @@ def _main(argv, cancellation):
             print(f"haskell-harness: {error}", file=sys.stderr)
         return 2
     except (ValueError, RuntimeError, OSError) as error:
-        print(f"hydra-harness: {error}", file=sys.stderr)
+        print(f"haskell-harness: {error}", file=sys.stderr)
         return 1
     except (KeyboardInterrupt, EOFError):
         print(

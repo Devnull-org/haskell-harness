@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from hydra_harness.backends import Backend, CommandAgent
-from hydra_harness.config import load_settings
+from haskell_harness.backends import Backend, CommandAgent
+from haskell_harness.config import load_settings
 
 from .conftest import SPECIFICATION
 from .helpers import executable

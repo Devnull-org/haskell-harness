@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from hydra_harness.contracts import Harness
+from haskell_harness.contracts import Harness
 
 SOURCE = "hydra-node/src/Hydra/Example.hs"
 TEST = "hydra-node/test/Hydra/ExampleSpec.hs"

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from hydra_harness.contracts import Harness
+from haskell_harness.contracts import Harness
 
 from .conftest import (
     BROKEN,

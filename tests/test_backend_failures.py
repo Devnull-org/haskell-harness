@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from hydra_harness.backends import Backend, BackendResponseError, CommandAgent
-from hydra_harness.cli import main
-from hydra_harness.failures import BackendError
+from haskell_harness.backends import Backend, BackendResponseError, CommandAgent
+from haskell_harness.cli import main
+from haskell_harness.failures import BackendError
 
 from .conftest import SOURCE, SPECIFICATION, reach_test_review
 from .helpers import executable

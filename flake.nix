@@ -63,10 +63,10 @@
         )
       );
       runtimes = forAllSystems (
-        system: pythonSets.${system}.mkVirtualEnv "hydra-harness-runtime" workspace.deps.default
+        system: pythonSets.${system}.mkVirtualEnv "haskell-harness-runtime" workspace.deps.default
       );
       development = forAllSystems (
-        system: pythonSets.${system}.mkVirtualEnv "hydra-harness-development" workspace.deps.all
+        system: pythonSets.${system}.mkVirtualEnv "haskell-harness-development" workspace.deps.all
       );
     in
     {
@@ -93,7 +93,6 @@
             pkgs.symlinkJoin {
               name = "haskell-harness";
               paths = [ launcher ];
-              postBuild = ''ln -s haskell-harness "$out/bin/hydra-harness"'';
               meta.mainProgram = "haskell-harness";
             };
         in
@@ -160,9 +159,7 @@
           commands = pkgs.runCommand "haskell-harness-commands-check" { } ''
             ${self.packages.${system}.default}/bin/haskell-harness help > help.txt
             ${self.packages.${system}.default}/bin/haskell-harness serve --help > serve-help.txt
-            ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; assert "Stop model" in files("hydra_harness").joinpath("web", "index.html").read_text()'
-            ${self.packages.${system}.default}/bin/hydra-harness help > legacy-help.txt
-            cmp help.txt legacy-help.txt
+            ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; assert "Stop model" in files("haskell_harness").joinpath("web", "index.html").read_text()'
             ${self.packages.${system}.default}/bin/haskell-harness --json backends > auto-backends.json
             ${runtimes.${system}}/bin/python -c 'import json; assert json.load(open("auto-backends.json"))["default"] == "auto"'
             ${self.packages.${system}.codex}/bin/haskell-harness --json backends > codex-backends.json
@@ -171,7 +168,7 @@
             touch "$out"
           '';
           harness =
-            pkgs.runCommand "hydra-harness-check"
+            pkgs.runCommand "haskell-harness-check"
               {
                 nativeBuildInputs = [
                   development.${system}
@@ -191,8 +188,8 @@
                 ruff check .
                 ruff format --check .
                 nixfmt --check flake.nix
-                prettier --check src/hydra_harness/web
-                node --check src/hydra_harness/web/app.js
+                prettier --check src/haskell_harness/web
+                node --check src/haskell_harness/web/app.js
                 pytest -q
                 touch "$out"
               '';

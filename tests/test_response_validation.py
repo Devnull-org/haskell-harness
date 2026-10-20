@@ -6,8 +6,8 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from hydra_harness.backends import Backend, BackendResponseError, CommandAgent, decode_response
-from hydra_harness.schemas import validate_response
+from haskell_harness.backends import Backend, BackendResponseError, CommandAgent, decode_response
+from haskell_harness.schemas import validate_response
 
 from .conftest import SPECIFICATION
 from .helpers import executable

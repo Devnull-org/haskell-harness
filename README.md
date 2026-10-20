@@ -517,7 +517,7 @@ uses automatic backend selection. If your Nix version does not recognize
 To install from your harness clone instead, use `nix profile add .` there.
 Use `#local`, `#codex`, or `#claude-code` only to install and force a particular
 backend. Install one variant at a time;
-they expose the same command names. `hydra-harness` remains a compatibility alias.
+they expose the same command name, `haskell-harness`.
 
 If the command is not found after installation, open a new terminal so Nix's
 profile is on your `PATH`. `nix run` remains available without a profile install.
@@ -769,8 +769,8 @@ haskell-harness --repo "/path/to/project" status my-feature
 `resume` continues only unfinished work in the selected phase. `status` displays
 progress without running work. Both use the task name supplied to `start`.
 
-State defaults to `$XDG_STATE_HOME/hydra-harness` or
-`~/.local/state/hydra-harness`, separate from the source checkout. Always use the
+State defaults to `$XDG_STATE_HOME/haskell-harness` or
+`~/.local/state/haskell-harness`, separate from the source checkout. Always use the
 same `--repo` and `--state-dir` when resuming. Tasks use separate LangGraph threads
 in SQLite, with local worktrees, proposals, logs, and reports alongside them.
 Avoid deleting the state directory while its Git worktrees are registered.
@@ -857,7 +857,7 @@ Interview and repository investigation
 The arrows show prerequisites, not automatic transitions. Use `run TASK PHASE`
 to choose each phase; the two review phases can run in either order.
 
-Each role has its own prompt under `src/hydra_harness/prompts`. The Haskell agents
+Each role has its own prompt under `src/haskell_harness/prompts`. The Haskell agents
 are instructed to follow repository conventions, use appropriate Haskell concepts,
 avoid speculative abstractions, consider strictness and allocation, and keep
 comments short and clear. Reviewers inspect the same final revision separately.
@@ -973,7 +973,7 @@ Global options go **before** the command:
 | Option | Meaning and default |
 | --- | --- |
 | `--repo PATH` | Root of the target Git checkout. Required for task and context commands; there is no default path. |
-| `--state-dir PATH` | Base directory for SQLite data, worktrees, logs, and reports. Defaults to `$XDG_STATE_HOME/hydra-harness` or `~/.local/state/hydra-harness`. Must be outside the target checkout. Use the same value on later invocations. |
+| `--state-dir PATH` | Base directory for SQLite data, worktrees, logs, and reports. Defaults to `$XDG_STATE_HOME/haskell-harness` or `~/.local/state/haskell-harness`. Must be outside the target checkout. Use the same value on later invocations. |
 | `--nix-flake PATH` | Target dependency flake used for validation. Defaults to the task worktree (`--repo` for `doctor`, which has no task). Use the same override when resuming or running later code phases. |
 | `--backend NAME` | Force a backend for every agent. `auto` checks all profiles and asks if several work; automatic selection is the default. Named user defaults and per-role routing remain available. |
 | `--model ID` | Override the model for every agent. Otherwise use the selected backend and role configuration. |
@@ -1113,8 +1113,11 @@ Haskell or security findings. The separate Hydra checks above are always Cabal/N
 
 For dependency changes, run `uv lock`, review the lockfile changes, and rerun
 the Python suite and `nix flake check`. Both installation paths use `uv.lock`.
-The older `hydra-harness` command remains an alias; existing state and configuration
-directories keep their names so saved tasks continue to work.
+The command and Python package are named `haskell-harness` and `haskell_harness`.
+Older releases used different default state and configuration directories. Existing
+data is not moved or deleted. To keep using it, pass `--state-dir /path/to/existing/state-root`
+and, if needed, `--config /path/to/existing/config.toml`. Keep the same target checkout
+path because saved tasks are indexed by it. Do not move registered task worktrees.
 
 The built-in backend profiles request read-only inspection. The harness validates
 proposed edits and checks for unexpected checkout changes. This is not an OS

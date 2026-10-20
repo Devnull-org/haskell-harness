@@ -75,7 +75,7 @@ def test_missing_explicit_config_is_not_ignored(tmp_path):
 
 def test_default_configuration_does_not_require_existing_directories(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "not-created"))
-    assert load_settings().default_backend == "local"
+    assert load_settings().default_backend == "auto"
     assert not (tmp_path / "not-created").exists()
 
 
@@ -83,7 +83,7 @@ def test_repository_config_is_never_automatically_executed(tmp_path, monkeypatch
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "user-config"))
     (tmp_path / "config.toml").write_text('default_backend = "malicious"')
-    assert load_settings().default_backend == "local"
+    assert load_settings().default_backend == "auto"
 
 
 def test_model_arguments_must_forward_the_selected_model():

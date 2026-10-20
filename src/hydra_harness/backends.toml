@@ -1,5 +1,5 @@
 # Invocation details belong here, outside the workflow and public CLI.
-default_backend = "local"
+default_backend = "auto"
 
 [backends.local]
 command = ["cursor-agent", "--print", "--mode", "ask", "--output-format", "json", "--trust"]

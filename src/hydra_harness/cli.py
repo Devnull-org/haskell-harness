@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import RoutedAgent, load_settings
+from .discovery import SelectionCancelled, SelectionRequired, select_backend
 from .project_context import ContextStore, state_directory
 from .terminal import spinner
 from .validation import LocalExecutor
@@ -37,7 +38,9 @@ def parser():
         help="Dependency flake (default: task worktree; --repo for doctor)",
     )
     result.add_argument("--config", type=Path, help="User-owned backend configuration (TOML)")
-    result.add_argument("--backend", help="Backend profile for all agents")
+    result.add_argument(
+        "--backend", help="Backend profile for all agents, or auto to check and choose (default)"
+    )
     result.add_argument("--model", help="Model override for all agents")
     result.add_argument("--agent-timeout", type=float, help="Override backend timeout in seconds")
     result.add_argument(
@@ -140,6 +143,8 @@ def parser():
 
 def render(view):
     print(f"\n{view['task_id']}: {view['stage'].replace('_', ' ')}")
+    if view.get("selected_backend"):
+        print(f"Selected backend for this session: {view['selected_backend']}")
     if view.get("restarted_from"):
         print(f"Fresh attempt from: {view['restarted_from']} (previous task preserved)")
     if view.get("base"):
@@ -199,8 +204,10 @@ def render(view):
             )
 
 
-def conversation(harness, view):
+def conversation(harness, view, *, selected_backend=None):
     while True:
+        if selected_backend:
+            view = {**view, "selected_backend": selected_backend}
         render(view)
         actions = view.get("prompt", {}).get("actions", [])
         if not actions:
@@ -270,9 +277,13 @@ def doctor(args, agent):
         if not (flake / "flake.nix").is_file():
             print("Missing flake.nix; select the target's dependency environment with --nix-flake")
             okay = False
-    for passed, message in agent.doctor(repository):
+    results = agent.doctor(repository)
+    for _passed, message in results:
         print(message)
-        okay = okay and passed
+    usable = any if getattr(agent, "automatic", False) else all
+    okay = okay and usable(passed for passed, _ in results)
+    if getattr(agent, "automatic", False):
+        print("Task commands also check generation, then select a backend or ask you to choose.")
     return 0 if okay else 1
 
 
@@ -393,6 +404,12 @@ def main(argv=None):
             unsigned_commits=args.unsigned_commits,
             progress=progress,
         )
+        selected_backend = None
+        if args.command != "status":
+            selected_backend = select_backend(
+                agent, args.repo, interactive=sys.stdin.isatty() and not args.json
+            )
+            progress(f"Selected backend for this session: {selected_backend}")
         if args.command == "start":
             view = harness.start(
                 args.task_id,
@@ -416,17 +433,35 @@ def main(argv=None):
                 finding_ids=args.finding,
             )
         elif args.command == "resume":
-            view = harness.resume(args.task_id)
+            previous = harness.inspect(args.task_id)
+            if previous["stage"] == "backend_blocked":
+                failed_backend = previous["prompt"]["backend_failure"]["backend"]
+                progress(
+                    f"Retrying saved failure from backend {failed_backend!r} "
+                    f"with selected backend {selected_backend!r}"
+                )
+            view = harness.resume(args.task_id, retry_backend=True)
         else:
             view = harness.inspect(args.task_id)
+        if selected_backend:
+            view = {**view, "selected_backend": selected_backend}
         if args.json:
             print(json.dumps(view, indent=2, ensure_ascii=False))
         elif args.command in {"status", "respond"} or not sys.stdin.isatty():
             render(view)
         else:
-            view = conversation(harness, view)
+            view = conversation(harness, view, selected_backend=selected_backend)
             return 0
         return 1 if view["stage"] in {"agent_error", "backend_blocked", "validation_blocked"} else 0
+    except SelectionCancelled:
+        print("\nBackend selection cancelled. No project request was sent.", file=sys.stderr)
+        return 130
+    except SelectionRequired as error:
+        if args.json:
+            print(json.dumps(error.view(), indent=2))
+        else:
+            print(f"haskell-harness: {error}", file=sys.stderr)
+        return 2
     except (ValueError, RuntimeError, OSError) as error:
         print(f"hydra-harness: {error}", file=sys.stderr)
         return 1

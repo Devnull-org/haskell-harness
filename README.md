@@ -21,21 +21,33 @@ With Nix and Git already installed, run this **once per developer machine** from
 any directory. Skip the installation if you have already installed the harness:
 
 ```sh
-nix profile add --refresh github:Devnull-org/langgraph-harness#local
+nix profile add --refresh github:Devnull-org/langgraph-harness
 haskell-harness help
 haskell-harness doctor
 ```
 
-The first command installs the harness and its default agent backend. `help` shows
-the workflow. `doctor` checks tools and the saved backend login. If it reports
-**Not logged in**, sign in through the selected agent CLI, then rerun `doctor`.
-An existing working login needs no further setup. Older Nix versions may call
+The first command installs the harness and the three built-in agent CLIs. `help`
+shows the workflow. `doctor` checks tools and saved logins for the configured
+backends. If none are signed in, sign in through an agent CLI using your existing
+account, then rerun `doctor`. Older Nix versions may call
 `profile add` `profile install`; see [installation details](#install-the-command-with-nix).
 
-To use your saved **Codex / ChatGPT login**, replace `#local` with `#codex`
-in the installation and run commands. `#local` is a separate backend with its
-own login and usage allowance; being signed in to a desktop chat does not select
-its provider for the harness. See [using Codex](#use-your-codex--chatgpt-login).
+**You do not need to specify a backend.** Task commands check every configured
+backend's executable and login, then make one small generation request in a
+temporary Git directory. The check sends no task description or project files.
+A backend that is signed in but reports a usage limit is excluded.
+
+If one backend works, the harness selects it. If several work, it asks you to
+choose by number or name in the terminal; it never guesses. If none work, it
+reports each failure before starting task execution. Checks use the existing
+accounts and consume a small amount of provider usage. Each generation check
+has a timeout of at most 60 seconds, bounded by the configured agent timeout.
+The selected backend is used for that invocation; later invocations check again.
+
+Codex uses the saved ChatGPT login. Each provider has its own account and usage
+allowance. An explicit `--backend NAME`, named Nix package such as `#codex`, or
+named `default_backend` in your configuration skips automatic selection.
+Use `--backend auto` to override such a choice. See [backend selection](BACKENDS.md).
 
 For **each project**, use an existing local Git checkout. Replace the placeholder
 below with its actual path; these commands do not require a harness clone:
@@ -107,17 +119,17 @@ cd langgraph-harness
 For a guided explanation of the workflow and its commands:
 
 ```sh
-nix run .#local -- help
+nix run . -- help
 ```
 
 `help` explains setup, base selection, the interview, test approval, each code and
 review phase, and how to resume. It needs no target checkout or model login and
 does not start work. Use `--help` for a concise command and option reference.
 
-Check that the default agent backend is available and signed in:
+Check installed backend tools and saved logins:
 
 ```sh
-nix run .#local -- doctor
+nix run . -- doctor
 ```
 
 Here is what each part means:
@@ -126,7 +138,7 @@ Here is what each part means:
 | --- | --- |
 | `nix run` | Build or fetch the selected application and run it with its dependencies. |
 | `.` | Use the flake in the current directory, so run these examples from the harness clone. |
-| `#local` | Select the package that supplies the default agent CLI and chooses the `local` backend. |
+| No `#` selector | Use the default package, which supplies all built-in CLIs and checks backends when starting work. |
 | `--` | End Nix's arguments; everything after this goes to the harness. |
 | `doctor` | Check required tools and the selected backends' authentication probes. It does not start a task or ask a model to generate code. |
 
@@ -139,7 +151,7 @@ target's Nix executable and dependency flake, run this from the harness clone:
 
 ```sh
 cd "/path/to/langgraph-harness"
-nix run .#local -- --repo "/path/to/project" doctor
+nix run . -- --repo "/path/to/project" doctor
 ```
 
 `/path/to/langgraph-harness` is a placeholder for your harness clone, which contains
@@ -154,10 +166,10 @@ containing spaces. `doctor` does not compile or run the project's test suite.
 To run from any directory, give Nix the path to the harness clone explicitly:
 
 ```sh
-nix run "/path/to/langgraph-harness#local" -- --repo "/path/to/project" doctor
+nix run "/path/to/langgraph-harness" -- --repo "/path/to/project" doctor
 ```
 
-If `nix run .#local` reports that the current directory does not contain a
+If `nix run .` reports that the current directory does not contain a
 `flake.nix` and ends with `could not find a flake.nix file`, the harness has not
 started yet. Change into the harness clone or use its explicit path as above.
 Changing `--repo` will not fix this Nix startup error.
@@ -169,18 +181,19 @@ Supported flake systems: Apple Silicon macOS and x86_64/aarch64 Linux.
 You can use the harness without cloning it. These commands work from any directory:
 
 ```sh
-nix run github:Devnull-org/langgraph-harness#local -- help
-nix run github:Devnull-org/langgraph-harness#local -- --repo "/path/to/project" doctor
+nix run github:Devnull-org/langgraph-harness -- help
+nix run github:Devnull-org/langgraph-harness -- --repo "/path/to/project" doctor
 ```
 
 Replace `.` in any `nix run` example with `github:Devnull-org/langgraph-harness`.
-Keep the package selector (`#local`, `#codex`, or `#claude-code`) and the arguments after `--`.
+Keep the arguments after `--`. An optional package selector such as `#codex`
+forces that backend; omit it for automatic selection.
 The target project is still a local Git checkout selected with `--repo`.
 
 The same GitHub reference works for a development shell and the harness checks:
 
 ```sh
-nix develop github:Devnull-org/langgraph-harness#local
+nix develop github:Devnull-org/langgraph-harness
 nix flake check github:Devnull-org/langgraph-harness
 ```
 
@@ -191,8 +204,8 @@ such as `nix flake update` or `nix fmt`, should be run in your harness clone.
 
 The GitHub reference uses the repository's default branch. Nix may cache it; add
 `--refresh` to fetch its latest state, for example
-`nix run --refresh github:Devnull-org/langgraph-harness#local -- help`.
-To pin the harness version, use `github:Devnull-org/langgraph-harness/COMMIT#local`,
+`nix run --refresh github:Devnull-org/langgraph-harness -- help`.
+To pin the harness version, use `github:Devnull-org/langgraph-harness/COMMIT`,
 replacing `COMMIT` with a full commit hash. This selects the harness version;
 `start --base` below selects the target project's base.
 
@@ -202,7 +215,7 @@ Save protocol documentation and state-machine source from your target's committe
 HEAD before starting tasks:
 
 ```sh
-nix run .#local -- --repo "/path/to/project" context refresh --profile hydra
+nix run . -- --repo "/path/to/project" context refresh --profile hydra
 ```
 
 `context refresh` creates a shared, versioned reference snapshot. `--profile hydra`
@@ -217,7 +230,7 @@ Choose a target checkout and start a task with your own description. It can cont
 staged changes, unstaged changes, and untracked files:
 
 ```sh
-nix run .#local -- --repo "/path/to/project" start my-feature \
+nix run . -- --repo "/path/to/project" start my-feature \
   "Describe the feature or bug here"
 ```
 
@@ -233,7 +246,7 @@ accept the displayed current branch (`HEAD` for a detached checkout), or enter a
 different branch, tag, or commit. To select the base directly:
 
 ```sh
-nix run .#local -- --repo "/path/to/project" start my-feature \
+nix run . -- --repo "/path/to/project" start my-feature \
   "Describe the feature or bug here" --base master
 ```
 
@@ -260,7 +273,7 @@ worktree; you do not provide `--base` again.
 You can leave after the interview and return another day. Check saved progress:
 
 ```sh
-nix run .#local -- --repo "/path/to/project" status my-feature
+nix run . -- --repo "/path/to/project" status my-feature
 ```
 
 `status` shows the current phase, reports, context snapshot, and available next
@@ -268,7 +281,7 @@ phases. It does not invoke an agent. Once the specification is approved, start
 test authoring explicitly:
 
 ```sh
-nix run .#local -- --repo "/path/to/project" run my-feature tests
+nix run . -- --repo "/path/to/project" run my-feature tests
 ```
 
 `run TASK PHASE` starts exactly the named phase. The tests phase writes failing
@@ -276,7 +289,7 @@ tests, validates them, and waits for your questions and approval. Approving the
 tests commits that patch and stops. Start implementation separately:
 
 ```sh
-nix run .#local -- --repo "/path/to/project" run my-feature implement
+nix run . -- --repo "/path/to/project" run my-feature implement
 ```
 
 This command requires approved tests and stops after implementation and validation.
@@ -347,7 +360,7 @@ phase. Without the flag, you can choose either walkthrough or handoff after revi
 Both flags belong after `start` and its task name. For example:
 
 ```sh
-nix run .#local -- --repo "/path/to/project" start my-feature \
+nix run . -- --repo "/path/to/project" start my-feature \
   "Describe the feature or bug here" --walkthrough
 ```
 
@@ -355,27 +368,27 @@ nix run .#local -- --repo "/path/to/project" start my-feature \
 
 The examples below use `haskell-harness` directly. That command is available in a
 Nix profile installation, a Nix development shell, or an activated uv environment.
-You can use the same arguments after `nix run .#local --` without entering a shell.
+You can use the same arguments after `nix run . --` without entering a shell.
 
 ### Install the command with Nix
 
 Install once from any directory, without cloning the harness:
 
 ```sh
-nix profile add --refresh github:Devnull-org/langgraph-harness#local
+nix profile add --refresh github:Devnull-org/langgraph-harness
 haskell-harness help
 ```
 
 `nix profile add` installs the package in your user profile, making
 `haskell-harness` available in your terminals. `--refresh` asks Nix to fetch the
-latest GitHub version. `#local` supplies the default agent CLI and selects its
-backend, which uses your existing login. If your Nix version does not recognize
+latest GitHub version. The default package supplies all three built-in CLIs and
+uses automatic backend selection. If your Nix version does not recognize
 `profile add`, use `profile install` instead. Both command names are supported by
 [current Nix](https://nix.dev/manual/nix/2.32/command-ref/new-cli/nix3-profile-add).
 
-To install from your harness clone instead, use `nix profile add .#local` there.
-Use `#codex` or `#claude-code` in place of `#local` to install that backend, or omit the
-selector for the provider-independent package. Install one variant at a time;
+To install from your harness clone instead, use `nix profile add .` there.
+Use `#local`, `#codex`, or `#claude-code` only to install and force a particular
+backend. Install one variant at a time;
 they expose the same command names. `hydra-harness` remains a compatibility alias.
 
 If the command is not found after installation, open a new terminal so Nix's
@@ -385,12 +398,12 @@ profile is on your `PATH`. `nix run` remains available without a profile install
 
 | Command | Purpose |
 | --- | --- |
-| `nix run .#local -- backends` | List configured backend names and the default selection. It does not check login or start agents. |
+| `nix run . -- backends` | List configured backend names and the default selection. It does not check login or start agents. |
 | `nix run .#codex -- doctor` | Supply the Codex CLI through Nix, select its profile, and check its saved login. |
 | `nix run .#claude-code -- doctor` | Supply the Claude Code CLI through Nix, select its profile, and check its login. |
-| `nix run . -- backends` | Run the provider-independent package. Agent CLIs must already be installed if you use this package to start tasks. |
-| `nix develop` | Enter a shell with the harness and its development tools. Type `exit` to leave it. |
-| `nix develop .#local` | Enter that shell with the default agent CLI also available. |
+| `nix run .#local -- doctor` | Force the legacy `local` backend and check its saved login. |
+| `nix develop` | Enter a shell with the harness, development tools, and all built-in agent CLIs. Type `exit` to leave it. |
+| `nix develop .#local` | Enter that shell with the legacy `local` CLI. |
 | `nix develop .#codex` | Enter that shell with the Codex CLI also available. Select it with `--backend codex`. |
 | `nix develop .#claude-code` | Enter that shell with the Claude Code CLI also available. |
 
@@ -406,6 +419,12 @@ haskell-harness --repo "/path/to/project" --backend claude-code --model opus \
 `--backend claude-code` chooses the agent runtime; `--model opus` selects its
 model. Both are global options and go before `start`. Pass `--backend` on each
 invocation, or set `default_backend` in your user configuration to keep that choice.
+
+Without a terminal, automatic selection succeeds only when exactly one backend
+works. Otherwise the command exits with code 2; `--json` includes
+`available_backends` and `backend_checks`. A script can rerun with an explicit
+`--backend NAME`. `status`, `help`, `backends`, and context commands never perform
+availability requests. `doctor` checks tools and logins without generating replies.
 
 Backend profiles, model overrides, per-role routing, authentication probes, and the
 protocol for custom model/API bridges are described in [BACKENDS.md](BACKENDS.md).
@@ -425,8 +444,10 @@ nix run --refresh github:Devnull-org/langgraph-harness#codex -- \
 CLI login without generating a model response or checking the remaining usage
 allowance. `resume my-feature` opens the existing task with that backend. Replace
 the project path and task name with yours, and preserve any `--state-dir` override.
-Quit any older harness process first. At `backend_blocked` (or an older `agent_error`), type
-`retry` to repeat the failed step using Codex. Your answers, approvals, base, and
+Quit any older harness process first. At a saved `backend_blocked` state, `resume`
+retries the failed step once with the selected backend and names the previous
+backend in the progress message. Older `agent_error` states still require `retry`.
+Your answers, approvals, base, and
 worktree remain saved; switching backends does not require `restart`.
 
 If Codex reports that it is not logged in, sign in once with its bundled CLI:
@@ -495,8 +516,10 @@ No response is applied without successful validation.
 If correction fails, the task pauses at `backend_blocked` and keeps the terminal
 open. Provider usage limits, authentication failures, rate limits, timeouts, and
 other provider errors also pause here, with a specific reason and next step.
-These provider failures are never retried automatically, and the harness never
-silently switches providers. A login check does not establish available quota.
+A failed task call does not silently switch providers or loop over retries.
+Launching `resume` checks and selects a backend again, then retries a saved
+`backend_blocked` step once. Human questions and approvals still wait for you.
+A login check alone does not establish available quota.
 
 Failed calls are saved under the task's `backend-responses` directory, outside the
 checkout. `stdout.txt` and `stderr.txt` preserve the original diagnostics;
@@ -758,7 +781,7 @@ Every example uses the same argument order:
 haskell-harness [global options] COMMAND [command arguments]
 ```
 
-With Nix, replace `haskell-harness` with `nix run .#local --`. Task names use 1–64
+With Nix, replace `haskell-harness` with `nix run . --`. Task names use 1–64
 letters, digits, underscores, or hyphens and must begin with a letter or digit.
 
 | Command | Purpose |
@@ -769,7 +792,7 @@ letters, digits, underscores, or hyphens and must begin with a letter or digit.
 | `start TASK [REQUEST]` | Choose a base, create an isolated task worktree, and run the interview. In a terminal, ask for the base and request if omitted. |
 | `restart TASK [REQUEST]` | Start a new task from the original request and pinned base, leaving the original intact. Optional `REQUEST` replaces the original description. Prints the new task name. |
 | `run TASK PHASE` | Start one available phase of a saved task. It cannot bypass prerequisites or approvals. |
-| `resume TASK` | Continue interrupted work or return to a pending gate in the current phase. A completed phase remains stopped. |
+| `resume TASK` | Select a usable backend and retry a saved backend failure once, continue interrupted work, or return to a pending human gate. A completed phase remains stopped. |
 | `status TASK` | Display saved progress and the available next phases without invoking agents. |
 | `respond TASK ACTION` | Send one explicit response to the current gate, then return. |
 | `context refresh/show/history/use` | Manage the shared project knowledge described above. |
@@ -781,7 +804,7 @@ Global options go **before** the command:
 | `--repo PATH` | Root of the target Git checkout. Required for task and context commands; there is no default path. |
 | `--state-dir PATH` | Base directory for SQLite data, worktrees, logs, and reports. Defaults to `$XDG_STATE_HOME/hydra-harness` or `~/.local/state/hydra-harness`. Must be outside the target checkout. Use the same value on later invocations. |
 | `--nix-flake PATH` | Target dependency flake used for validation. Defaults to the task worktree (`--repo` for `doctor`, which has no task). Use the same override when resuming or running later code phases. |
-| `--backend NAME` | Select a backend for every agent. Otherwise use user configuration and per-role routing. |
+| `--backend NAME` | Force a backend for every agent. `auto` checks all profiles and asks if several work; automatic selection is the default. Named user defaults and per-role routing remain available. |
 | `--model ID` | Override the model for every agent. Otherwise use the selected backend and role configuration. |
 | `--config FILE` | Load a user-owned backend TOML file. Without it, use the optional standard user configuration described in [BACKENDS.md](BACKENDS.md). |
 | `--agent-timeout SECONDS` | Override each agent call's timeout. Otherwise use the backend setting; built-in profiles default to 600 seconds. |
@@ -813,8 +836,8 @@ Options specific to `respond`:
 | `--token TOKEN` | Current approval token, required for `approve` and `accept_red`. Read `prompt.approval_token` from `--json status`. |
 | `--finding ID` | Finding to fix or dismiss. Repeat the option for multiple IDs. |
 
-For example, `nix run .#local -- run --help` lists phase names and
-`nix run .#local -- start --help` explains the start options.
+For example, `nix run . -- run --help` lists phase names and
+`nix run . -- start --help` explains the start options.
 
 ## Scripted responses
 

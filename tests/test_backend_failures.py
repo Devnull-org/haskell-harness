@@ -182,7 +182,8 @@ def test_correction_is_skipped_when_combined_context_would_be_too_large(rig):
     assert calls == ["interviewer"]
 
 
-def test_backend_failure_during_test_review_cannot_skip_the_question_by_rechecking(rig):
+@pytest.mark.parametrize("resume", [False, True])
+def test_backend_failure_during_test_review_cannot_skip_the_question_by_rechecking(rig, resume):
     harness, agent, _ = rig
     reach_test_review(harness)
 
@@ -196,7 +197,11 @@ def test_backend_failure_during_test_review_cannot_skip_the_question_by_rechecki
     with pytest.raises(ValueError, match="not available"):
         harness.respond("increment", "recheck")
     harness.agent = agent
-    view = harness.respond("increment", "retry")
+    view = (
+        harness.resume("increment", retry_backend=True)
+        if resume
+        else harness.respond("increment", "retry")
+    )
     assert view["stage"] == "test_review"
     assert view["prompt"]["answer"]
     assert agent.calls[-1][1]["question"] == "Which criterion does this test cover?"

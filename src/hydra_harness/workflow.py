@@ -184,12 +184,20 @@ class Harness:
         with self._lock():
             return self._view(self._state(task_id))
 
-    def resume(self, task_id):
+    def resume(self, task_id, *, retry_backend=False):
         """Continue interrupted execution without answering a human gate."""
         with self._lock():
             state = self._state(task_id)
             snapshot = self.graph.get_state(self._config(task_id))
-            if snapshot.next and not any(task.interrupts for task in snapshot.tasks):
+            if (
+                retry_backend
+                and state["stage"] == "backend_blocked"
+                and "retry" in state["prompt"]["actions"]
+                and any(task.interrupts for task in snapshot.tasks)
+            ):
+                self.graph.invoke(Command(resume={"action": "retry"}), self._config(task_id))
+                state = self._state(task_id)
+            elif snapshot.next and not any(task.interrupts for task in snapshot.tasks):
                 self.graph.invoke(None, self._config(task_id))
                 state = self._state(task_id)
             return self._view(state)

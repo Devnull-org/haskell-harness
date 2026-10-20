@@ -6,15 +6,13 @@ import os
 import shutil
 import subprocess
 import sys
-import time
-from contextlib import contextmanager
 
 import pytest
 
 from hydra_harness.cli import conversation, doctor, main, parser
 
 from .conftest import SOURCE, SPECIFICATION, ScriptedAgent, git
-from .helpers import executable
+from .helpers import executable, terminal_process
 
 
 @pytest.mark.parametrize("answer", ["Support negative integers too.", "quit should save progress"])
@@ -115,9 +113,6 @@ def test_cli_spinner_uses_only_interactive_stderr(
 def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(
     repository, tmp_path, invalid_first
 ):
-    import pty
-    import select
-
     capture = tmp_path / "requests.jsonl"
     backend = executable(
         tmp_path,
@@ -148,44 +143,8 @@ def test_terminal_interview_reads_an_answer_and_resumes_in_a_new_process(
         str(config),
     ]
 
-    @contextmanager
     def terminal(*command):
-        master, slave = pty.openpty()
-        try:
-            process = subprocess.Popen(
-                [*args, *command],
-                stdin=slave,
-                stdout=slave,
-                stderr=slave,
-                env=dict(os.environ, TERM="xterm"),
-            )
-        finally:
-            os.close(slave)
-        output = b""
-
-        def expect(text):
-            nonlocal output
-            deadline = time.monotonic() + 30
-            while text.encode() not in output:
-                remaining = deadline - time.monotonic()
-                assert remaining > 0, output.decode(errors="replace")
-                ready, _, _ = select.select([master], [], [], remaining)
-                assert ready, output.decode(errors="replace")
-                try:
-                    chunk = os.read(master, 65536)
-                except OSError:
-                    chunk = b""
-                assert chunk, output.decode(errors="replace")
-                output += chunk
-            output = output.split(text.encode(), 1)[1]
-
-        try:
-            yield process, expect, lambda line: os.write(master, (line + "\n").encode())
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=5)
-            os.close(master)
+        return terminal_process([*args, *command])
 
     with terminal("start", "terminal", "Fix increment", "--base", "main") as (
         process,
@@ -263,7 +222,9 @@ def test_cli_persists_a_conversation_across_processes(repository, tmp_path, star
     assert restarted["task_id"] == "fresh"
     assert restarted["restarted_from"] == "interview"
     assert restarted["stage"] == "specification_review"
-    assert call("status", "interview") == done
+    assert call("status", "interview") == {
+        key: value for key, value in done.items() if key != "selected_backend"
+    }
 
 
 @pytest.mark.parametrize("detached", [False, True])
@@ -273,6 +234,7 @@ def test_interactive_start_prompts_for_base(repository, tmp_path, monkeypatch, c
     (repository / SOURCE).write_text("-- Pending developer work\n")
     agent = ScriptedAgent()
     monkeypatch.setattr("hydra_harness.cli.RoutedAgent", lambda *args, **kwargs: agent)
+    monkeypatch.setattr("hydra_harness.cli.select_backend", lambda *args, **kwargs: "scripted")
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     prompts = []
     answers = iter(["", "quit"])

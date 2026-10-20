@@ -9,7 +9,33 @@ The command transport supports agent CLIs and small bridges to hosted model APIs
 Prompts, response schemas, validation, process timeouts, and workflow persistence
 remain in the harness. Adding a command profile does not require changing Python.
 
-## Select a profile
+## Automatic selection
+
+The default is `default_backend = "auto"`. Task commands try all configured
+profiles: check the executable and any login probe, then send one short JSON
+availability request in a temporary Git directory. No task description, project
+context, or source files are included. Generation checks consume provider usage
+and time out after at most 60 seconds, or the agent timeout when shorter.
+The configured login probe has a separate 30-second timeout.
+
+One usable backend is selected automatically. When several work, the terminal
+asks for a number or name. With none, the failures are reported before task
+execution. Selection lasts for the invocation, including the interactive
+conversation; it is checked again on a later command.
+
+Scripts and `--json` select automatically only with one usable backend. Otherwise
+they exit with code 2. JSON includes `stage: "backend_selection"`,
+`available_backends`, and `backend_checks`; rerun with an explicit `--backend NAME`.
+Read-only `status`, `help`, `backends`, and context commands do not probe models.
+`doctor` checks executables and logins only, and succeeds when at least one backend
+passes in auto mode.
+
+An explicit `--backend NAME` or a named configuration default bypasses discovery.
+`--backend auto` forces discovery even with such a default. The selection applies
+to all roles in that invocation. To retain explicit per-role routing, use a named
+configuration default without a global backend override.
+
+## Select a profile explicitly
 
 ```sh
 haskell-harness backends
@@ -37,8 +63,9 @@ The built-in profiles are:
 
 When using an existing CLI installation, it is resolved through `PATH`. To let Nix
 supply it, use `nix run .#local`, `nix run .#codex`, or `nix run .#claude-code`. These packages select the
-matching profile automatically. The default `nix run .` package supplies only the
-harness and common tools. The corresponding optional development shells are
+matching profile explicitly. The default `nix run .` package supplies all three
+CLIs and uses automatic selection. The default development shell also includes
+all three; the corresponding optional development shells are
 `nix develop .#local`, `nix develop .#codex`, and `nix develop .#claude-code`.
 
 The Codex profile uses the documented [non-interactive interface](https://learn.chatgpt.com/docs/non-interactive-mode):
@@ -67,8 +94,10 @@ nix run --refresh github:Devnull-org/langgraph-harness#codex -- \
   --repo "/path/to/project" resume my-feature
 ```
 
-Use your existing task name, checkout, and any `--state-dir` override. At a saved
-`backend_blocked` (or an older `agent_error`), type `retry`; the next call uses Codex.
+Use your existing task name, checkout, and any `--state-dir` override. `resume`
+retries a saved `backend_blocked` step once with the selected backend and prints
+which backend produced the saved failure. Older `agent_error` states still need
+`retry`. Pending human questions and approvals are never answered automatically.
 Switching backends does not discard answers or create a new worktree.
 
 The Claude Code profile uses its documented [headless interface and structured
@@ -241,5 +270,7 @@ def agent(role, context, cwd):
 ```
 
 `CommandAgent` implements that protocol for one profile. `RoutedAgent` selects
-profiles and models by role. `Harness` independently validates the returned object,
+profiles and models by role. For an auto configuration, call
+`discovery.select_backend(agent, cwd, interactive=...)` before invoking it.
+`Harness` independently validates the returned object,
 checks the worktree, and enforces approval gates regardless of transport.

@@ -98,7 +98,11 @@
             };
         in
         {
-          default = mkHarness [ ] null;
+          default = mkHarness [
+            pkgs.cursor-cli
+            pkgs.codex
+            pkgs.claude-code
+          ] null;
           local = mkHarness [ pkgs.cursor-cli ] "local";
           codex = mkHarness [ pkgs.codex ] "codex";
           claude-code = mkHarness [ pkgs.claude-code ] "claude-code";
@@ -135,7 +139,11 @@
             };
         in
         {
-          default = mkDevelopment [ ];
+          default = mkDevelopment [
+            pkgs.cursor-cli
+            pkgs.codex
+            pkgs.claude-code
+          ];
           local = mkDevelopment [ pkgs.cursor-cli ];
           codex = mkDevelopment [ pkgs.codex ];
           claude-code = mkDevelopment [ pkgs.claude-code ];
@@ -151,6 +159,8 @@
             ${self.packages.${system}.default}/bin/haskell-harness help > help.txt
             ${self.packages.${system}.default}/bin/hydra-harness help > legacy-help.txt
             cmp help.txt legacy-help.txt
+            ${self.packages.${system}.default}/bin/haskell-harness --json backends > auto-backends.json
+            ${runtimes.${system}}/bin/python -c 'import json; assert json.load(open("auto-backends.json"))["default"] == "auto"'
             ${self.packages.${system}.codex}/bin/haskell-harness --json backends > codex-backends.json
             ${runtimes.${system}}/bin/python -c 'import json; assert json.load(open("codex-backends.json"))["default"] == "codex"'
             ${pkgs.codex}/bin/codex --ask-for-approval never exec --sandbox read-only --color never --ephemeral --ignore-user-config --ignore-rules - --help > codex-help.txt

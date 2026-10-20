@@ -19,13 +19,15 @@ class Route(Record):
 
 class Settings(Record):
     version: Literal[1] = 1
-    default_backend: str = "local"
+    default_backend: str = "auto"
     backends: dict[str, Backend]
     roles: dict[str, Route] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def valid_routes(self):
-        if self.default_backend not in self.backends:
+        if "auto" in self.backends:
+            raise ValueError("Backend name 'auto' is reserved for automatic selection")
+        if self.default_backend != "auto" and self.default_backend not in self.backends:
             raise ValueError(f"Unknown default backend: {self.default_backend}")
         for role, route in self.roles.items():
             if role not in SCHEMAS:
@@ -56,7 +58,7 @@ class RoutedAgent:
     def __init__(
         self, settings, *, backend=None, model=None, timeout=None, progress=None, activity=None
     ):
-        if backend is not None and backend not in settings.backends:
+        if backend not in {None, "auto"} and backend not in settings.backends:
             raise ValueError(
                 f"Unknown backend {backend!r}; use the backends command to list profiles"
             )
@@ -67,9 +69,15 @@ class RoutedAgent:
         self.progress = progress
         self.activity = activity
 
+    @property
+    def automatic(self):
+        return (self.backend or self.settings.default_backend) == "auto"
+
     def resolve(self, role):
         route = self.settings.roles.get(role, Route())
         name = self.backend or route.backend or self.settings.default_backend
+        if name == "auto":
+            raise ValueError("Select a usable backend before running an agent")
         # A global backend override also drops role-specific models for another backend.
         model = self.model
         if model is None and self.backend is None:
@@ -87,6 +95,14 @@ class RoutedAgent:
         return self.resolve(role)(role, context, cwd)
 
     def doctor(self, cwd):
+        if self.automatic:
+            results = []
+            for name, backend in sorted(self.settings.backends.items()):
+                try:
+                    results.append(CommandAgent(backend, name=name).doctor(cwd))
+                except RuntimeError as error:
+                    results.append((False, f"Backend {name!r}: {error}"))
+            return results
         checked = set()
         results = []
         for role in SCHEMAS:

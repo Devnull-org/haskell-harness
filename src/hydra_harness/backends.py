@@ -143,6 +143,19 @@ class CommandAgent:
 
     def __call__(self, role, context, cwd):
         prompt, schema = prompt_for(role, context)
+        return self._request(role, context, cwd, prompt, schema)
+
+    def check(self, cwd):
+        """Verify generation with a short request that contains no project data."""
+        context = {"intent": "explain", "backend_check": True}
+        schema = schema_for("interviewer", context).model_json_schema()
+        prompt = (
+            'This is a backend availability check. Reply only with {"answer":"ready"}. '
+            "Do not use tools or inspect files. JSON schema: " + json.dumps(schema)
+        )
+        return self._request("interviewer", context, cwd, prompt, schema)
+
+    def _request(self, role, context, cwd, prompt, schema):
         replacements = {"{schema}": json.dumps(schema), "{model}": self.model, "{role}": role}
         arguments = list(self.backend.command)
         if self.model is not None:
@@ -174,10 +187,11 @@ class CommandAgent:
                 },
                 ensure_ascii=False,
             )
+        label = "availability check" if context.get("backend_check") else role.replace("_", " ")
         if self.progress:
-            self.progress(f"Backend {self.name!r}: waiting for {role} (timeout {self.timeout:g}s)")
+            self.progress(f"Backend {self.name!r}: waiting for {label} (timeout {self.timeout:g}s)")
         indicator = (
-            self.activity(f"Backend {self.name!r}: {role.replace('_', ' ')} working")
+            self.activity(f"Backend {self.name!r}: {label} working")
             if self.activity
             else nullcontext()
         )
@@ -191,7 +205,7 @@ class CommandAgent:
                     env=self.environment(),
                     progress=(
                         lambda elapsed: self.progress(
-                            f"Backend {self.name!r}: {role} still running ({elapsed:.0f}s elapsed)"
+                            f"Backend {self.name!r}: {label} still running ({elapsed:.0f}s elapsed)"
                         )
                     )
                     if self.progress and not self.activity
@@ -202,7 +216,7 @@ class CommandAgent:
                 str(error), error.stdout, error.stderr, backend=self.name, kind=error.kind
             ) from error
         if self.progress:
-            self.progress(f"Backend {self.name!r}: {role} returned; checking the response")
+            self.progress(f"Backend {self.name!r}: {label} returned; checking the response")
         if code:
             raise BackendError(
                 f"Backend {self.name!r} failed ({code}): {stderr[-4000:] or stdout[-4000:]}",
@@ -248,11 +262,14 @@ class CommandAgent:
                 backend=self.name,
             ) from error
 
-    def doctor(self, cwd):
+    def executable(self, cwd):
         program = self.backend.command[0]
         if os.path.dirname(program) and not os.path.isabs(program):
             program = str(Path(cwd) / program)
-        executable = shutil.which(program)
+        return shutil.which(program)
+
+    def doctor(self, cwd):
+        executable = self.executable(cwd)
         if not executable:
             return False, f"Backend {self.name!r}: executable not found: {self.backend.command[0]}"
         if not self.backend.probe:

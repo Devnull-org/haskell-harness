@@ -4,19 +4,25 @@ WORKFLOW_HELP = """Haskell Harness workflow
 
 Choose how to launch
   From the harness clone (the directory containing its flake.nix):
-    nix run .#local -- help
+    nix run . -- help
   From any directory, without cloning the harness:
-    nix run github:Devnull-org/langgraph-harness#local -- help
+    nix run github:Devnull-org/langgraph-harness -- help
   Install the command with Nix (once, from any directory):
-    nix profile add --refresh github:Devnull-org/langgraph-harness#local
+    nix profile add --refresh github:Devnull-org/langgraph-harness
   Then use it directly in your terminals:
     haskell-harness help
 
-  The profile installation includes the local backend CLI and selects it by
-  default. It uses your existing login. No harness clone is needed.
-  For your saved Codex / ChatGPT login, replace #local with #codex:
-    nix run github:Devnull-org/langgraph-harness#codex -- doctor
-  #local and #codex use separate provider accounts and usage allowances.
+  The default package includes all built-in backend CLIs. No backend flag is needed.
+  Task commands check installed backends and saved logins, then make a small
+  generation request without project data. One usable backend is selected;
+  several usable backends produce a numbered choice in this terminal.
+  A usage-limited backend is excluded even when it is signed in.
+  Checks use provider allowance and take at most 60 seconds per generation call.
+  Codex uses your saved ChatGPT login. Each provider has its own usage allowance.
+  --backend NAME or a named package such as #codex forces that backend instead.
+  --backend auto restores automatic selection if a user default forces a backend.
+  Scripts and --json return exit code 2 with available choices when selection
+  needs your input. status, help, backends, and context do not contact models.
   If Nix is older and does not recognize profile add, use profile install instead.
   Without Nix, from the harness clone with uv and Git installed:
     uv sync --locked --no-dev
@@ -93,14 +99,16 @@ Pause and continue whenever needed
     haskell-harness --repo /path/to/project status my-feature
     haskell-harness --repo /path/to/project resume my-feature
   status shows the base commit, worktree, reports, and available next phases.
-  resume returns to the current question or finishes interrupted work. Use run
+  resume retries a saved backend failure once with the newly selected backend.
+  It returns to pending human questions and approvals without answering them.
+  Use run
   to start a different phase; completed phases never advance automatically.
   Use the same --state-dir if you supplied one. No new --base is needed on resume.
 
 Switch backends on a saved task
   Quit the old process, then select the backend when resuming:
     haskell-harness --backend codex --repo /path/to/project resume my-feature
-  At backend_blocked (or an older agent_error), retry sends the failed step to Codex.
+  resume retries backend_blocked with Codex; older agent_error states need retry.
   Your answers, approvals, base commit, and worktree are preserved.
   Or use the GitHub Nix prefix above with #codex to supply its CLI too.
 
@@ -123,8 +131,9 @@ While waiting for an agent
   gates still apply.
   Unresolved responses and provider failures pause at backend_blocked with a
   reason and diagnostics path. Quota, login, rate-limit, and timeout failures
-  are not automatically retried. Resolve the cause, then retry here, or quit
-  normally. --json and scripts return nonzero for blocked tasks.
+  do not trigger a retry loop or a silent provider switch. retry repeats the call
+  with this session's backend. Quit and resume to check and choose backends again.
+  --json and scripts return nonzero for blocked tasks.
   Failed calls are saved under backend-responses, with a separate attempt-2
   directory for a failed correction. restart is not needed to correct a reply.
 

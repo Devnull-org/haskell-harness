@@ -1,5 +1,7 @@
 """Classify backend failures without treating them as model replies."""
 
+import re
+
 DESCRIPTIONS = {
     "quota": "reported a usage limit",
     "authentication": "requires authentication",
@@ -34,6 +36,8 @@ GUIDANCE = {
 def failure_kind(text):
     """Recognize explicit provider errors; leave unknown failures unclassified."""
     text = text.casefold()
+    if re.search(r'"(?:loggedin|logged_in)"\s*:\s*false\b', text):
+        return "authentication"
     patterns = {
         "quota": (
             "usage limit",

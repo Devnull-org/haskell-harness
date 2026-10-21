@@ -5,6 +5,7 @@ import json
 import re
 import secrets
 import shutil
+import signal
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -23,6 +24,7 @@ from .cancellation import ModelCancellation
 from .config import RoutedAgent, load_settings
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
 from .handoff import MAX_HANDOFF_BYTES, export_handoff, import_handoff, preview_handoff
+from .phone import PhoneAccess, request_origin
 from .project_context import ContextStore, state_directory
 from .project_settings import ProjectSettings, project_identity
 from .projects import ProjectRegistry, validate_repository
@@ -589,7 +591,7 @@ class ProjectHub:
             app.close()
 
 
-def create_server(app, port=8765):
+def create_server(app, port=8765, *, phone=None):
     hub = app if isinstance(app, ProjectHub) else ProjectHub(app.args, initial=app)
 
     class Handler(BaseHTTPRequestHandler):
@@ -613,15 +615,13 @@ def create_server(app, port=8765):
 
         def authorized(self, api=False):
             host = f"127.0.0.1:{self.server.server_port}"
-            if self.headers.get("Host") != host:
-                self.send(403, {"error": "Use the printed loopback URL"})
-                return False
-            origin = self.headers.get("Origin")
-            if origin is not None and origin != f"http://{host}":
-                self.send(403, {"error": "Foreign origins are not allowed"})
+            try:
+                request_origin(self.headers, host, phone)
+            except ValueError as error:
+                self.send(403, {"error": str(error)})
                 return False
             if api and not secrets.compare_digest(
-                self.headers.get("X-Harness-Token", ""), hub.token
+                self.headers.get("X-Harness-Token", "").encode(), hub.token.encode()
             ):
                 self.send(403, {"error": "Reload the harness page to connect"})
                 return False
@@ -661,7 +661,9 @@ def create_server(app, port=8765):
                             "backend": "auto",
                         }
                     )
-                    self.send(200, {**state, **hub.projects()})
+                    self.send(
+                        200, {**state, **hub.projects(), "phone": phone.info() if phone else None}
+                    )
                     return
                 if app is None:
                     raise ValueError("Add or open a project first")
@@ -785,14 +787,27 @@ def create_server(app, port=8765):
 
 
 def serve(args):
+    phone = PhoneAccess.discover(args.tailscale_port) if args.tailscale else None
     app = ProjectHub(args)
-    server = create_server(app, args.port)
+    server = create_server(app, args.port, phone=phone)
     print(f"Lambda Harness: http://127.0.0.1:{server.server_port}", flush=True)
     if args.repo:
         print(f"Initial project: {args.repo}", flush=True)
     print("Keep this process running while using the page.", flush=True)
+
+    def stop_server(*_):
+        raise KeyboardInterrupt
+
+    previous_term = signal.signal(signal.SIGTERM, stop_server)
     try:
+        if phone:
+            print("Connecting private phone access through Tailscale…", flush=True)
+            phone.start(server.server_port)
+            print(f"Phone: {phone.origin} (Tailscale account: {phone.login})", flush=True)
         server.serve_forever(poll_interval=0.2)
     finally:
+        signal.signal(signal.SIGTERM, previous_term)
+        if phone:
+            phone.close()
         app.close()
         server.server_close()

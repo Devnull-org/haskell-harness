@@ -1,6 +1,11 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="harness-token"]').content;
+function collapseMobileNavigation() {
+  if (globalThis.matchMedia?.("(max-width: 650px)").matches)
+    $("project-navigation").open = false;
+}
+collapseMobileNavigation();
 let selected = null,
   state = null,
   timer = null,
@@ -331,6 +336,13 @@ async function refresh() {
   }
 }
 function render() {
+  $("phone-access").hidden = !state.phone;
+  if (state.phone) {
+    $("phone-url").href = $("phone-url").textContent = state.phone.url;
+    $("phone-status").textContent = state.phone.ready
+      ? "Open this address with Tailscale signed into the same account."
+      : "Phone access stopped. Restart the harness with --tailscale to reconnect.";
+  }
   $("repository").textContent = state.repository;
   $("backend").textContent =
     state.backend === "auto" ? "Automatic backend" : state.backend;
@@ -1694,6 +1706,7 @@ function renderPage() {
     globalThis.history?.replaceState({}, "", projectPagePath(page));
 }
 function showPage(next) {
+  collapseMobileNavigation();
   page = next;
   const url = projectPagePath(next);
   if (globalThis.location?.pathname !== url)

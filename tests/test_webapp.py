@@ -20,7 +20,7 @@ from .test_exploration import ANALYSIS
 
 
 @pytest.fixture
-def browser_app(repository, tmp_path):
+def browser_app(repository, tmp_path, request):
     calls, ready = tmp_path / "calls.jsonl", tmp_path / "ready"
     script = executable(
         tmp_path,
@@ -52,7 +52,12 @@ def browser_app(repository, tmp_path):
         ]
     )
     app = LocalApp(args)
-    server = create_server(app, 0)
+    phone = None
+    if getattr(request, "param", None) == "phone":
+        from lambda_harness.phone import PhoneAccess
+
+        phone = PhoneAccess("tailscale", "laptop.example.ts.net", "owner@example.com", 443)
+    server = create_server(app, 0, phone=phone)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
@@ -403,6 +408,52 @@ def test_browser_rejects_foreign_sites_and_unauthenticated_api_access(browser_ap
     assert call("/app.js")[0] == 200
     assert call("/../../README.md")[0] == 404
     assert call("/api/state?task=not-created-yet")[1]["task"] is None
+
+
+@pytest.mark.parametrize("browser_app", ["phone"], indirect=True)
+def test_phone_requests_require_owner_identity_origin_and_session_token(browser_app):
+    app, call, _, _ = browser_app
+    headers = {
+        "Host": "laptop.example.ts.net",
+        "X-Forwarded-Host": "laptop.example.ts.net",
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-For": "100.64.0.2",
+        "Tailscale-User-Login": "owner@example.com",
+    }
+    assert app.token in call("/", headers=headers, authenticated=False)[1]
+    assert call("/api/state", headers=headers)[0] == 200
+    assert call("/api/state", headers=headers, authenticated=False)[0] == 403
+    same_origin = {**headers, "Origin": "https://laptop.example.ts.net"}
+    assert call("/api/stop", {}, headers=same_origin)[0] == 200
+    for changed in (
+        {"Tailscale-User-Login": "someone-else@example.com"},
+        {"Tailscale-User-Login": ""},
+        {"Tailscale-Funnel-Request": "?1"},
+        {"Origin": "https://attacker.example"},
+        {"Origin": "null"},
+        {"Host": "attacker.example"},
+        {"X-Forwarded-Host": "attacker.example"},
+        {"X-Forwarded-Proto": "http"},
+    ):
+        for path, body in (("/", None), ("/api/state", None), ("/api/stop", {})):
+            status, content = call(path, body, headers={**headers, **changed})
+            assert status == 403, changed
+            assert app.token not in str(content)
+    assert call("/")[0] == 200
+
+
+@pytest.mark.parametrize("browser_app", [None, "phone"], indirect=True)
+def test_forwarded_requests_cannot_bypass_auth_using_loopback_host(browser_app):
+    _, call, _, _ = browser_app
+    for headers in (
+        {"X-Forwarded-For": "100.64.0.2"},
+        {"Forwarded": "for=100.64.0.2"},
+        {"Tailscale-User-Login": "someone-else@example.com"},
+        {"Tailscale-Funnel-Request": "?1"},
+        {"X-Forwarded-Proto": "https", "Tailscale-User-Login": "owner@example.com"},
+    ):
+        assert call("/", headers=headers)[0] == 403
+        assert call("/api/stop", {}, headers=headers)[0] == 403
 
 
 def test_closing_server_stops_generation_and_persists_pause(browser_app):

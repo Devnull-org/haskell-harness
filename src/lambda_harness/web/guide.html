@@ -32,6 +32,7 @@
         <a href="#agents">Agents</a>
         <a href="#context">Project memory</a>
         <a href="#sharing">Share work</a>
+        <a href="#phone">Use your phone</a>
         <a href="#models">Models</a>
         <a href="#validation">Validation</a>
         <a href="#server">The local server</a>
@@ -228,6 +229,34 @@
           Export a handoff first if you want a copy. Your source checkout,
           project memory, other tasks, and published GitHub comments are kept.
           Stop running work before deleting a task.
+        </p>
+      </section>
+      <section id="phone" class="panel">
+        <h2>Pick up from your phone</h2>
+        <p>
+          Connect Tailscale on both devices using the same account, then launch
+          the harness with <code>--tailscale</code>:
+        </p>
+        <pre><code>nix run --refresh github:Devnull-org/lambda-harness -- --tailscale</code></pre>
+        <p>
+          Open the printed Phone HTTPS address in your phone's browser. It is
+          also under <strong>Open on your phone</strong> in the sidebar. Add it
+          to your home screen for quick access. Expand the project name to
+          navigate.
+        </p>
+        <p>
+          Both screens share the same tasks and approvals. The agents run on
+          your computer, so keep it awake with the harness and Tailscale
+          running. Closing your phone's browser leaves work running. Stopping
+          the harness removes its phone connection. Launch without the flag for
+          local-only use.
+        </p>
+        <p>
+          If Tailscale asks to enable HTTPS, follow its setup link and launch
+          again. If the default HTTPS port is in use, add
+          <code>--tailscale-port 8443</code>. Keep your usual repository and
+          state directory options. Access is restricted to your Tailscale user
+          account.
         </p>
       </section>
       <section id="agents" class="panel">

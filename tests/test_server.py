@@ -1,7 +1,9 @@
 """The only entry point starts the local website."""
 
+import signal
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -46,6 +48,53 @@ def test_server_receives_resolved_options(repository, tmp_path, monkeypatch):
     assert main(["--repo", str(repository), "--port", "0", "--state-dir", str(tmp_path)]) == 0
     assert calls[0].repo == repository.resolve()
     assert calls[0].port == 0
+
+
+def test_phone_access_is_opt_in_and_supports_another_https_port(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr("lambda_harness.__main__.serve", calls.append)
+    assert parser().parse_args([]).tailscale is False
+    assert main(["--state-dir", str(tmp_path), "--tailscale", "--tailscale-port", "8443"]) == 0
+    assert calls[0].tailscale is True and calls[0].tailscale_port == 8443
+    assert main(["--state-dir", str(tmp_path), "--tailscale-port", "8443"]) == 1
+    assert main(["--state-dir", str(tmp_path), "--tailscale", "--tailscale-port", "0"]) == 1
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("startup_failure", [False, True])
+def test_server_closes_phone_access_on_termination_or_startup_failure(monkeypatch, startup_failure):
+    from lambda_harness.webapp import serve
+
+    events = []
+
+    def start(port):
+        events.append(("phone start", port))
+        if startup_failure:
+            raise RuntimeError("HTTPS setup required")
+
+    def run(**kwargs):
+        signal.raise_signal(signal.SIGTERM)
+
+    phone = SimpleNamespace(
+        start=start,
+        close=lambda: events.append("phone closed"),
+        origin="https://laptop.example.ts.net",
+        login="owner@example.com",
+    )
+    server = SimpleNamespace(
+        server_port=8765, serve_forever=run, server_close=lambda: events.append("server closed")
+    )
+    monkeypatch.setattr("lambda_harness.webapp.PhoneAccess.discover", lambda port: phone)
+    monkeypatch.setattr(
+        "lambda_harness.webapp.ProjectHub",
+        lambda args: SimpleNamespace(close=lambda: events.append("hub closed")),
+    )
+    monkeypatch.setattr("lambda_harness.webapp.create_server", lambda *a, **kw: server)
+    previous = signal.getsignal(signal.SIGTERM)
+    with pytest.raises(RuntimeError if startup_failure else KeyboardInterrupt):
+        serve(parser().parse_args(["--tailscale"]))
+    assert events == [("phone start", 8765), "phone closed", "hub closed", "server closed"]
+    assert signal.getsignal(signal.SIGTERM) == previous
 
 
 def test_module_is_runnable_without_a_console_script():

@@ -186,6 +186,16 @@ nav small {
   color: var(--muted);
   padding-top: 20px;
 }
+.phone-access {
+  flex-shrink: 0;
+  margin-top: 12px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.phone-access p {
+  margin: 8px 0;
+  color: var(--muted);
+}
 main {
   flex: 1;
   min-width: 0;
@@ -529,6 +539,21 @@ dialog::backdrop {
   border-radius: 8px;
 }
 @media (max-width: 650px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+  button,
+  .workspace-link,
+  .project-navigation > summary {
+    min-height: 44px;
+  }
+  .saved-task .task-delete {
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+  }
   body {
     display: block;
   }

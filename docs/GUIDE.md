@@ -98,6 +98,8 @@ All options go after `--` with `nix run`. There are no workflow subcommands.
 | `--repo PATH` | Optional initial Git checkout. Registers it and opens it by default. Omit to start on Projects. |
 | `--agents-repo PATH` | Git checkout containing `agents/*.json`; overrides the saved catalog selection. Source launches detect the harness checkout. Installed packages otherwise show the bundled catalog. |
 | `--port PORT` | Loopback port, default 8765; 0 chooses a free port. |
+| `--tailscale` | Start private HTTPS access for the Tailscale account signed in on this computer. Requires Tailscale installed and connected. |
+| `--tailscale-port PORT` | Tailscale HTTPS port, default 443. Choose another, such as 8443, if already used; requires `--tailscale`. |
 | `--state-dir PATH` | Project list, saved tasks, logs, and worktrees; outside all registered checkouts. Default: `$XDG_STATE_HOME/lambda-harness` or `~/.local/state/lambda-harness`. |
 | `--config FILE` | User-owned backend and validation configuration. |
 | `--nix-flake PATH` | Dependency flake override for the initial `--repo` only; other projects use their own task worktrees. Requires `--repo`. |
@@ -119,6 +121,37 @@ Keep the same target checkout path; do not move registered worktrees. Restart th
 server to load an updated version. Keep the same state root for your registered
 project list. Explicitly launching with `--repo` registers that checkout again even
 if you previously removed it; omit `--repo` to keep it out of the list.
+
+## Work from your phone
+
+Install and connect Tailscale on the computer and phone using the same account.
+Then start the harness with:
+
+```sh
+nix run --refresh github:Devnull-org/lambda-harness -- --tailscale
+```
+
+Keep your usual `--repo`, `--state-dir`, and backend options when updating an
+existing launch. Open the printed **Phone** HTTPS address in your phone's browser,
+or find it under **Open on your phone** in the website's sidebar. You can add it to
+your phone's home screen. Expand the project name to navigate on a small screen.
+Both screens use the same tasks, messages, approvals, and project memory; code and
+agents run on the computer. Keep it awake with the harness and Tailscale running.
+Closing the phone's browser does not stop an active task.
+
+The launcher discovers the existing Tailscale CLI, including the macOS app's bundled
+CLI. If Tailscale asks you to enable HTTPS, follow the printed Tailscale setup link
+and launch again. If port 443 is occupied, add `--tailscale-port 8443`; existing
+Serve services are not replaced. Stopping the harness removes its temporary Serve
+session. To return to local-only access, launch without `--tailscale`.
+
+Access requires the same Tailscale user account as the computer. The harness checks
+Serve's identity headers before serving its page or API, and still validates browser
+origins and session tokens. Other tailnet users, tagged devices without a user identity,
+and public Funnel requests are rejected. The app listens on loopback and uses
+[Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) as its HTTPS proxy.
+This connects your devices to this computer's workspace; use handoff export/import
+when transferring work to another developer.
 
 ## Your agent catalog
 

@@ -77,6 +77,31 @@ function snapshot(current = task()) {
 const response = (body) => ({ ok: true, json: async () => body });
 const settle = () => new Promise(setImmediate);
 
+test("phone access shows the private address and mobile navigation closes after choosing work", async () => {
+  const current = {
+    ...snapshot(),
+    phone: { url: "https://laptop.example.ts.net", ready: true },
+  };
+  const ui = await app({
+    mobile: true,
+    fetcher: async () => response(current),
+  });
+  assert.equal(ui.elements.get("project-navigation").open, false);
+  assert.equal(ui.elements.get("phone-access").hidden, false);
+  assert.equal(ui.elements.get("phone-url").href, current.phone.url);
+  ui.elements.get("project-navigation").open = true;
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("project-navigation").open, true);
+  await ui.elements.get("tasks").children[0].children[0].onclick();
+  assert.equal(ui.elements.get("project-navigation").open, false);
+  current.phone.ready = false;
+  await ui.run("refresh()");
+  assert.match(ui.elements.get("phone-status").textContent, /stopped/);
+  current.phone = null;
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("phone-access").hidden, true);
+});
+
 const deleteSubmission = () => ({
   submitter: { value: "delete" },
   preventDefault() {},
@@ -397,7 +422,11 @@ test("a transfer prevents duplicate clicks and shows progress until the server f
   assert.equal(ui.elements.get("close-handoff").disabled, false);
 });
 
-async function app({ pathname = "/", fetcher: initialFetch } = {}) {
+async function app({
+  pathname = "/",
+  fetcher: initialFetch,
+  mobile = false,
+} = {}) {
   const elements = new Map();
   const html = readFileSync("src/lambda_harness/web/index.html", "utf8");
   for (const [, id] of html.matchAll(/id="([^"]+)"/g))
@@ -414,6 +443,7 @@ async function app({ pathname = "/", fetcher: initialFetch } = {}) {
   let timerId = 0;
   const timers = new Map();
   const context = vm.createContext({
+    matchMedia: () => ({ matches: mobile }),
     location,
     history: {
       replaceState: (_, __, path) => {

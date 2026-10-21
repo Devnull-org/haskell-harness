@@ -29,6 +29,8 @@ class ContextStore:
             "created TEXT NOT NULL, data TEXT NOT NULL);"
             "CREATE TABLE IF NOT EXISTS current_snapshot "
             "(singleton INTEGER PRIMARY KEY CHECK(singleton = 1), id TEXT NOT NULL);"
+            "CREATE TABLE IF NOT EXISTS chat_memory_writes "
+            "(operation TEXT PRIMARY KEY, note TEXT NOT NULL, snapshot TEXT NOT NULL);"
         )
 
     def __enter__(self):
@@ -103,19 +105,69 @@ class ContextStore:
             "documents": saved,
             "missing_sources": [],
         }
-        snapshot_id = digest(payload)
-        snapshot = {**payload, "id": snapshot_id, "created": datetime.now(UTC).isoformat()}
         with self.connection:
             self.connection.execute("BEGIN IMMEDIATE")
             self._check_current(expected_current)
-            self.connection.execute(
-                "INSERT OR IGNORE INTO snapshots VALUES (?, ?, ?, ?)",
-                (snapshot_id, revision, snapshot["created"], json.dumps(snapshot)),
-            )
-            self.connection.execute(
-                "INSERT OR REPLACE INTO current_snapshot VALUES (1, ?)", (snapshot_id,)
-            )
+            return self._store_snapshot(payload)
+
+    def _store_snapshot(self, payload):
+        """Write a version and current pointer inside the caller's transaction."""
+        snapshot_id = digest(payload)
+        snapshot = {**payload, "id": snapshot_id, "created": datetime.now(UTC).isoformat()}
+        self.connection.execute(
+            "INSERT OR IGNORE INTO snapshots VALUES (?, ?, ?, ?)",
+            (snapshot_id, payload["revision"], snapshot["created"], json.dumps(snapshot)),
+        )
+        self.connection.execute(
+            "INSERT OR REPLACE INTO current_snapshot VALUES (1, ?)", (snapshot_id,)
+        )
         return self.get(snapshot_id)
+
+    def append_note(self, repository, *, note, operation):
+        """Append to current memory once, even if a chat turn is replayed after a crash."""
+        if not isinstance(note, str) or not note.strip() or "\x00" in note:
+            raise ValueError("The memory note must be nonempty text")
+        if not isinstance(operation, str) or not operation:
+            raise ValueError("A memory save needs an operation ID")
+        with self.connection:
+            self.connection.execute("BEGIN IMMEDIATE")
+            prior = self.connection.execute(
+                "SELECT note, snapshot FROM chat_memory_writes WHERE operation = ?", (operation,)
+            ).fetchone()
+            if prior:
+                if prior[0] != note:
+                    raise ValueError("This memory request was already saved with a different note")
+                return self.get(prior[1])
+            current = (
+                self.get()
+                if self.latest_id()
+                else {
+                    "revision": git(repository, "rev-parse", "HEAD"),
+                    "documents": [],
+                    "missing_sources": [],
+                }
+            )
+            notes = current.get("notes", "")
+            notes = notes + "\n\n" + note if notes else note
+            if len(notes.encode()) > 32_000:
+                raise ValueError(
+                    "Project notes would exceed 32,000 UTF-8 bytes. "
+                    "Shorten them in Project memory, then ask to save again."
+                )
+            saved = self._store_snapshot(
+                {
+                    "version": 3,
+                    "revision": current["revision"],
+                    "documents": current["documents"],
+                    "missing_sources": current["missing_sources"],
+                    "notes": notes,
+                }
+            )
+            self.connection.execute(
+                "INSERT INTO chat_memory_writes VALUES (?, ?, ?)",
+                (operation, note, saved["id"]),
+            )
+            return saved
 
     def restore(self, snapshot_id, *, expected_current):
         snapshot = self.get(snapshot_id)

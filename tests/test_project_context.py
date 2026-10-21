@@ -272,3 +272,38 @@ def test_legacy_snapshots_remain_readable_without_rewriting_them(repository, tmp
         )
         assert updated["notes"] == "New notes"
         assert store.get(saved["id"]) == legacy
+
+
+def test_chat_memory_append_is_atomic_and_replay_does_not_undo_later_edits(repository, tmp_path):
+    with ContextStore(tmp_path / "context") as store:
+        first = store.append_note(repository, note="First rule", operation="chat-turn-1")
+        assert first["notes"] == "First rule"
+        changed = store.save(
+            repository, notes="Developer edit", sources=[], expected_current=first["id"]
+        )
+        assert store.append_note(repository, note="First rule", operation="chat-turn-1") == first
+        assert store.get() == changed
+        with pytest.raises(ValueError, match="different note"):
+            store.append_note(repository, note="Changed request", operation="chat-turn-1")
+        assert len(store.history()) == 2
+    with ContextStore(tmp_path / "context") as store:
+        assert store.append_note(repository, note="First rule", operation="chat-turn-1") == first
+        assert store.get() == changed
+
+
+def test_chat_append_rolls_back_the_snapshot_if_its_receipt_cannot_be_written(repository, tmp_path):
+    import sqlite3
+
+    with ContextStore(tmp_path / "context") as store:
+        original = store.save(repository, notes="Original", sources=[], expected_current=None)
+        store.connection.execute(
+            "CREATE TRIGGER fail_receipt BEFORE INSERT ON chat_memory_writes "
+            "BEGIN SELECT RAISE(ABORT, 'Cannot write receipt'); END"
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="Cannot write receipt"):
+            store.append_note(repository, note="Uncommitted note", operation="turn")
+        assert store.get() == original
+        assert len(store.history()) == 1
+        store.connection.execute("DROP TRIGGER fail_receipt")
+        saved = store.append_note(repository, note="Uncommitted note", operation="turn")
+        assert saved["notes"] == "Original\n\nUncommitted note"

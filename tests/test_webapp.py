@@ -596,3 +596,46 @@ def test_task_memory_preview_and_explicit_update_use_the_tasks_pinned_checkout(
     wait_for(lambda: not call("/api/state")[1]["job"]["running"])
     assert agent.calls[-1][1]["project_context"] == preview["context"]
     assert len(agent.calls) == 2
+
+
+def test_chat_memory_save_is_visible_in_history_and_project_editor_after_reopening(
+    browser_app, monkeypatch
+):
+    app, call, _, _ = browser_app
+    agent = ScriptedAgent()
+    monkeypatch.setattr("lambda_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", lambda *a: "test")
+    note = "Network effects stay outside the pure core."
+    agent.responses["chat"].append(
+        {"answer": "Here is the note to remember.", "references": [], "memory_note": note}
+    )
+    assert (
+        call(
+            "/api/command",
+            {
+                "command": "chat",
+                "task_id": "remember",
+                "base": "main",
+                "request": "Save this to project memory: " + note,
+            },
+        )[0]
+        == 202
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    task = call("/api/state?task=remember")[1]["task"]
+    saved = call("/api/context")[1]
+    assert saved["notes"] == note
+    assert task["project_context_id"] == saved["id"]
+    assert task["messages"][-1]["memory_save"] == {
+        "status": "saved",
+        "note": note,
+        "snapshot": saved["id"],
+    }
+    assert task["prompt"]["actions"] == ["answer"]
+    assert agent.calls[0][1]["latest_user_message"] == "Save this to project memory: " + note
+    reopened = LocalApp(app.args)
+    try:
+        assert reopened.state("remember")["task"] == task
+        assert reopened.context_snapshot()["notes"] == note
+    finally:
+        reopened.close()

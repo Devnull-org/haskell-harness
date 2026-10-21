@@ -7,6 +7,7 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import uuid4
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -699,8 +700,45 @@ class Harness:
             )
 
     def _chat(self, state):
-        result = self._ask(state, "chat")
-        state["messages"].append({"stage": "chat", "role": "chat", **result})
+        # Keep the response and write ID stable until this user message is checkpointed.
+        user_index = next(
+            (
+                i
+                for i in range(len(state["messages"]) - 1, -1, -1)
+                if state["messages"][i].get("text")
+            ),
+            -1,
+        )
+        turn_path = Path(state["directory"]) / "chat-turns" / f"{user_index}.json"
+        if turn_path.exists():
+            turn = json.loads(turn_path.read_text())
+        else:
+            latest = state["messages"][user_index]["text"] if user_index >= 0 else state["request"]
+            turn = {
+                "id": uuid4().hex,
+                "reply": self._ask(state, "chat", latest_user_message=latest),
+            }
+            save_json(turn_path, turn)
+        result = copy.deepcopy(turn["reply"])
+        note = result.pop("memory_note", None)
+        if note is not None:
+            try:
+                saved = self.context.append_note(self.repository, note=note, operation=turn["id"])
+            except (ValueError, RuntimeError, OSError, sqlite3.Error) as error:
+                result["answer"] = (
+                    "The note was not saved to project memory. See the save result below."
+                )
+                result["memory_save"] = {"status": "error", "note": note, "error": str(error)}
+            else:
+                state["project_context_id"] = saved["id"]
+                result["memory_save"] = {"status": "saved", "note": note, "snapshot": saved["id"]}
+        message = {"stage": "chat", "role": "chat", "chat_turn": turn["id"], **result}
+        for index, previous in enumerate(state["messages"]):
+            if previous.get("chat_turn") == turn["id"]:
+                state["messages"][index] = message
+                break
+        else:
+            state["messages"].append(message)
         reports = Path(state["report_directory"])
         save_json(
             reports / "chat.json", {"request": state["request"], "messages": state["messages"]}

@@ -18,6 +18,16 @@ def chat_report(state):
         elif item.get("role") == "chat":
             lines += ["", "## Assistant", "", item["answer"]]
             references.extend(item["references"])
+            if saved := item.get("memory_save"):
+                title = (
+                    "Saved to project memory" if saved["status"] == "saved" else "Memory not saved"
+                )
+                lines += ["", f"### {title}", "", saved["note"], ""]
+                lines.append(
+                    f"Memory version: `{saved['snapshot']}`"
+                    if saved["status"] == "saved"
+                    else saved["error"]
+                )
     if references:
         lines += ["", "## References", "", *[f"- {ref}" for ref in dict.fromkeys(references)]]
     return "\n".join(lines) + "\n"

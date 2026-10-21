@@ -110,7 +110,7 @@ def test_chat_direct_edits_are_rejected(rig, repository):
 
     def edits(role, context, cwd):
         (cwd / SOURCE).write_text("-- Unrequested edit\n")
-        return REPLY
+        return {**REPLY, "memory_note": "This must not be saved"}
 
     harness.agent = edits
     view = harness.start("conversation", "Explain this code.", phase="chat")
@@ -118,4 +118,119 @@ def test_chat_direct_edits_are_rejected(rig, repository):
     assert "changed the checkout" in view["prompt"]["error"]
     assert (repository / SOURCE).read_text() == original
     assert not (Path(view["report_directory"]) / "chat.md").exists()
+    assert harness.context.latest_id() is None
     assert not executor.calls
+
+
+def test_chat_saves_requested_note_to_current_memory_and_keeps_other_tasks_pinned(rig):
+    harness, agent, executor = rig
+    first = harness.context.save(
+        harness.repository, notes="Original rule", sources=["CLAUDE.md"], expected_current=None
+    )
+    start_chat(harness, agent)
+    agent.responses["chat"].append(REPLY)
+    other = harness.start("other", "Discuss the project", phase="chat")
+    current = harness.context.save(
+        harness.repository, notes="Newer rule", sources=["CLAUDE.md"], expected_current=first["id"]
+    )
+    note = "Every job must be safe to retry."
+    agent.responses["chat"].append({**REPLY, "memory_note": note})
+    view = harness.respond("conversation", "answer", text="Save this to project memory: " + note)
+    saved = harness.context.get()
+    assert saved["notes"] == "Newer rule\n\n" + note
+    assert saved["documents"] == current["documents"]
+    assert view["project_context_id"] == saved["id"]
+    assert harness.inspect("other")["project_context_id"] == other["project_context_id"]
+    receipt = harness._state("conversation")["messages"][-1]["memory_save"]
+    assert receipt == {"status": "saved", "note": note, "snapshot": saved["id"]}
+    transcript = (Path(view["report_directory"]) / "chat.md").read_text()
+    assert (
+        "Saved to project memory" in transcript and note in transcript and saved["id"] in transcript
+    )
+    agent.responses["chat"].append(REPLY)
+    harness.respond("conversation", "answer", text="What do you remember?")
+    assert agent.calls[-1][1]["project_context"]["notes"] == saved["notes"]
+    assert not executor.calls
+
+
+def test_first_chat_message_can_save_memory_and_normal_messages_do_not(rig):
+    harness, agent, _ = rig
+    agent.responses["chat"].append({**REPLY, "memory_note": "Keep the core pure."})
+    view = harness.start(
+        "remember", "Save this to project memory: keep the core pure.", phase="chat"
+    )
+    assert view["stage"] == "chat"
+    saved = harness.context.get()
+    assert saved["notes"] == "Keep the core pure."
+    agent.responses["chat"].append({**REPLY, "memory_note": None})
+    harness.respond("remember", "answer", text="Can we discuss that choice?")
+    assert harness.context.get() == saved
+    assert len(harness.context.history()) == 1
+
+
+def test_chat_memory_limit_reports_failure_without_claiming_success_or_crashing(rig):
+    harness, agent, _ = rig
+    current = harness.context.save(
+        harness.repository, notes="x" * 32000, sources=[], expected_current=None
+    )
+    agent.responses["chat"].append(
+        {"answer": "Saved!", "references": [], "memory_note": "New rule"}
+    )
+    view = harness.start("full", "Save this to project memory: New rule", phase="chat")
+    assert view["stage"] == "chat" and view["prompt"]["actions"] == ["answer"]
+    assert harness.context.get() == current
+    message = harness._state("full")["messages"][-1]
+    assert message["memory_save"]["status"] == "error"
+    assert message["memory_save"]["note"] == "New rule"
+    assert "32,000" in message["memory_save"]["error"]
+    assert "Saved!" not in message["answer"]
+    assert "not saved" in message["answer"]
+
+
+def test_chat_memory_save_is_not_repeated_when_recovering_after_a_crash(rig, monkeypatch):
+    harness, agent, _ = rig
+    original = harness.context.append_note
+
+    def saved_then_crashed(*args, **kwargs):
+        original(*args, **kwargs)
+        raise SystemExit("Simulated process crash before checkpoint")
+
+    monkeypatch.setattr(harness.context, "append_note", saved_then_crashed)
+    agent.responses["chat"].append({**REPLY, "memory_note": "Retry safely."})
+    with pytest.raises(SystemExit):
+        harness.start("crash", "Save this to project memory: retry safely.", phase="chat")
+    saved = harness.context.get()
+    monkeypatch.setattr(harness.context, "append_note", original)
+    view = harness.resume("crash")
+    assert view["stage"] == "chat"
+    assert harness.context.get() == saved
+    assert len(harness.context.history()) == 1
+    assert len(agent.calls) == 1
+    assert len(harness._state("crash")["messages"]) == 1
+
+
+def test_retry_after_report_failure_reuses_the_saved_note_and_chat_reply(rig, monkeypatch):
+    harness, agent, _ = rig
+    gate = harness._gate
+    failed = False
+
+    def fail_first_chat_report(state, stage, prompt, actions):
+        nonlocal failed
+        if stage == "chat" and not failed:
+            failed = True
+            raise OSError("Report write interrupted")
+        return gate(state, stage, prompt, actions)
+
+    monkeypatch.setattr(harness, "_gate", fail_first_chat_report)
+    agent.responses["chat"].append({**REPLY, "memory_note": "Keep retrying safely."})
+    view = harness.start(
+        "retry", "Save this to project memory: keep retrying safely.", phase="chat"
+    )
+    assert view["stage"] == "agent_error"
+    saved = harness.context.get()
+    view = harness.respond("retry", "retry")
+    assert view["stage"] == "chat"
+    assert len(harness._state("retry")["messages"]) == 1
+    assert harness.context.get() == saved
+    assert len(harness.context.history()) == 1
+    assert len(agent.calls) == 1

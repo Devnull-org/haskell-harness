@@ -107,6 +107,14 @@ class Explanation(Record):
 
 
 class ChatReply(Explanation):
+    memory_note: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=32_000,
+        description="A standalone note to append to project memory, only when the latest user "
+        "message explicitly requests saving or remembering it. Otherwise null. "
+        "The harness performs the save and reports its result; do not claim it has saved yet.",
+    )
     references: list[str] = Field(
         description="Repository references when relevant, otherwise empty."
     )

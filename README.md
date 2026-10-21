@@ -26,8 +26,8 @@ agents—all from a local website.
   Strict builds, lint, and Nix checks accompany code changes.
 - **Build your team.** Browse agents with their own avatars, shape new specialists
   through chat, and share their definitions in Git.
-- **Get a second opinion.** Dedicated Haskell and security reviewers examine the
-  implementation, or review an existing PR. An optional walkthrough helps you retain context.
+- **Get a second opinion.** Review code, security, or documentation with dedicated
+  specialists. An optional walkthrough helps you retain context.
 - **Keep project knowledge close.** Save notes straight from chat, edit shared memory,
   preview what agents receive, and revisit earlier versions.
 - **Own every patch.** Work stays in isolated local worktrees, with saved conversations

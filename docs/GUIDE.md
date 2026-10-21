@@ -197,9 +197,19 @@ already exist in your checkout; GitHub PR URLs are fetched as described below.
 ### Review an existing change
 
 Choose **Review a PR or branch**. Enter a branch, commit, or GitHub PR URL and
-choose **Code**, **Security**, or both reviewers. The code reviewer uses the
+choose **Code**, **Security**, **Documentation**, **Code + security**, or all three.
+The code reviewer uses the
 agent selected for this project, with a Haskell reviewer provided by default. Add a focus if you want to
 direct their attention. No requirements interview or code-writing phase is needed.
+
+The documentation reviewer checks README files, guides, API docs, examples, and
+comments against the implementation. It looks for inaccurate claims, missing setup
+steps, stale commands, broken local references, and confusing explanations. It can
+also identify missing documentation for changed behavior. It reads examples without
+running them and reports concrete reader impact rather than cosmetic preferences.
+Choose or create a specialist for the **Documentation reviewer** role on **Agents**.
+These review choices apply to standalone reviews; the feature workflow retains its
+code and security review steps.
 
 For a local branch or commit, select its comparison base (usually the target
 branch). The review uses the diff from their merge base to the selected head,

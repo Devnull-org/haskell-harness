@@ -21,6 +21,7 @@ ROLES = {
     "refactorer": "Refactorer",
     "reviewer": "Code reviewer",
     "security_reviewer": "Security reviewer",
+    "documentation_reviewer": "Documentation reviewer",
     "walkthrough": "Code walkthrough",
 }
 AVATARS = ("lambda", "robot", "fox", "owl", "crab", "shield")

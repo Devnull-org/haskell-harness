@@ -188,8 +188,18 @@ def test_invalid_handoff_returns_a_useful_error_and_releases_busy_state(browser_
     assert job["error"] == result["error"]
 
 
-@pytest.mark.parametrize("kind", ["tests", "review"])
-def test_browser_standalone_tasks_start_directly_and_finish_locally(browser_app, monkeypatch, kind):
+@pytest.mark.parametrize(
+    "kind,reviewers,roles",
+    [
+        ("tests", None, ["test_author"]),
+        ("review", "haskell", ["haskell_reviewer"]),
+        ("review", "documentation", ["documentation_reviewer"]),
+        ("review", "all", ["haskell_reviewer", "security_reviewer", "documentation_reviewer"]),
+    ],
+)
+def test_browser_standalone_tasks_start_directly_and_finish_locally(
+    browser_app, monkeypatch, kind, reviewers, roles
+):
     app, call, _, _ = browser_app
     agent, executor = ScriptedAgent(), ScriptedExecutor()
     monkeypatch.setattr("lambda_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
@@ -200,7 +210,7 @@ def test_browser_standalone_tasks_start_directly_and_finish_locally(browser_app,
         git(app.args.repo, "checkout", "-b", "feature")
         (app.args.repo / SOURCE).write_text(IMPLEMENTED)
         git(app.args.repo, "commit", "-am", "Change")
-        command.update(head="feature", reviewers="haskell")
+        command.update(head="feature", reviewers=reviewers)
     else:
         command.update(packages=["example-app"], criteria=["Increment by one"], expectation="red")
     assert call("/api/command", command)[0] == 202
@@ -210,9 +220,7 @@ def test_browser_standalone_tasks_start_directly_and_finish_locally(browser_app,
     task = state["task"]
     assert task["task_kind"] == kind
     assert task["stage"] == ("standalone_review" if kind == "review" else "test_review")
-    assert [role for role, _, _ in agent.calls] == [
-        "haskell_reviewer" if kind == "review" else "test_author"
-    ]
+    assert [role for role, _, _ in agent.calls] == roles
     call(
         "/api/command",
         {

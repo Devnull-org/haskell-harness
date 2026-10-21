@@ -368,6 +368,48 @@ test("review bases stay editable and preserve branch and PR choices across polli
   assert.doesNotMatch(ui.elements.get("base-label").textContent, /PR/);
 });
 
+for (const reviewers of ["documentation", "all"])
+  test(`${reviewers} review submits its selection and custom PR base`, async () => {
+    const ui = await app();
+    const submitted = [];
+    ui.fetch(async (path, options) => {
+      if (path === "/api/command") {
+        submitted.push(JSON.parse(options.body));
+        return response({ accepted: true });
+      }
+      return response(snapshot());
+    });
+    ui.kind.value = "review";
+    ui.elements.get("review-head").value =
+      "https://github.com/example/project/pull/12";
+    ui.elements.get("review-head").oninput();
+    ui.elements.get("base").value = "release";
+    ui.elements.get("reviewers").value = reviewers;
+    ui.elements.get("task-name").value = "review-docs";
+    ui.elements.get("new-form").onsubmit({ preventDefault() {} });
+    await settle();
+    assert.equal(submitted[0].reviewers, reviewers);
+    assert.equal(submitted[0].base, "release");
+    const reviews = {
+      documentation_reviewer: { summary: "Setup is accurate.", findings: [] },
+    };
+    ui.fetch(async () =>
+      response(
+        snapshot({
+          ...task(),
+          task_kind: "review",
+          stage: "standalone_review",
+          prompt: { reviews, actions: ["question", "done"] },
+        }),
+      ),
+    );
+    await ui.run("refresh()");
+    assert.match(ui.elements.get("packet").textContent, /Documentation review/);
+    assert.doesNotMatch(ui.elements.get("packet").textContent, /Code review/);
+    const html = readFileSync("src/lambda_harness/web/index.html", "utf8");
+    assert.match(html, new RegExp(`<option value="${reviewers}">`));
+  });
+
 test("standalone forms submit their own scope without feature-only options", async () => {
   const ui = await app();
   const submitted = [];

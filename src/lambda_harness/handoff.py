@@ -15,7 +15,7 @@ from pydantic import Field, JsonValue
 
 from .agent_library import assignment_problem
 from .process import run_process
-from .schemas import AgentDefinition, Exploration, Record, Specification
+from .schemas import REVIEWERS, AgentDefinition, Exploration, Record, Specification
 from .workspace import Workspace, digest, git
 
 MAX_HANDOFF_BYTES = 32 * 1024 * 1024
@@ -325,7 +325,7 @@ def _validate_state(state):
     if state.get("task_kind") == "review":
         for name in ("head", "merge_base", "base"):
             _oid(state["review_source"][name])
-        if state.get("reviewers") not in {"both", "haskell", "security"}:
+        if state.get("reviewers") not in REVIEWERS:
             raise ValueError("Invalid standalone reviewers")
     for profile in state.get("agent_profiles", {}).values():
         definition = AgentDefinition.model_validate(profile["definition"]).model_dump()

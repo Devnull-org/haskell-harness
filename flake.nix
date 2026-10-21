@@ -133,6 +133,7 @@
             ${self.packages.${system}.default}/bin/lambda-harness-web --help > help.txt
             ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; root = files("lambda_harness").joinpath("web"); assert "Stop model" in root.joinpath("index.html").read_text(); assert "Project memory" in root.joinpath("guide.html").read_text(); assert "agent-grid" in root.joinpath("index.html").read_text(); assert files("lambda_harness").joinpath("agents", "rust-reviewer.json").is_file()'
             ${runtimes.${system}}/bin/python -c 'from importlib.metadata import distribution; assert not distribution("lambda-harness").entry_points'
+            ${runtimes.${system}}/bin/python -c 'from lambda_harness.backends import prompt_for; from lambda_harness.agent_library import AgentLibrary; from pathlib import Path; import tempfile; prompt_for("documentation_reviewer", {}); library = AgentLibrary(Path(tempfile.mkdtemp())); assert library.get("default-documentation-reviewer")["definition"]["role"] == "documentation_reviewer"; library.close()'
             ${pkgs.codex}/bin/codex --ask-for-approval never exec --sandbox read-only --color never --ephemeral --ignore-user-config --ignore-rules - --help > codex-help.txt
             touch "$out"
           '';

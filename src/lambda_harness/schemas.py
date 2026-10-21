@@ -129,6 +129,7 @@ AgentRole = Literal[
     "refactorer",
     "reviewer",
     "security_reviewer",
+    "documentation_reviewer",
     "walkthrough",
 ]
 
@@ -158,8 +159,17 @@ SCHEMAS = {
     "refactorer": Patch,
     "haskell_reviewer": Review,
     "security_reviewer": Review,
+    "documentation_reviewer": Review,
     "walkthrough": Walkthrough,
     "walkthrough_feedback": Feedback,
+}
+
+REVIEWERS = {
+    "haskell": ("haskell_reviewer",),
+    "security": ("security_reviewer",),
+    "documentation": ("documentation_reviewer",),
+    "both": ("haskell_reviewer", "security_reviewer"),
+    "all": ("haskell_reviewer", "security_reviewer", "documentation_reviewer"),
 }
 
 

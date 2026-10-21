@@ -88,6 +88,10 @@ class ScriptedAgent:
             },
             "haskell_reviewer": {"findings": [], "summary": "Reviewed the implementation"},
             "security_reviewer": {"findings": [], "summary": "Reviewed safety and liveness"},
+            "documentation_reviewer": {
+                "findings": [],
+                "summary": "Reviewed documentation accuracy",
+            },
             "walkthrough": {
                 "questions": [
                     {"question": "What behavior changed?", "reference": SOURCE},

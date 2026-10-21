@@ -44,6 +44,28 @@ def accept(harness, task):
     )
 
 
+@pytest.mark.parametrize("reviewers", ["documentation", "all"])
+def test_documentation_reviews_can_be_handed_off_and_resumed(rig, recipient, reviewers):
+    source, _, _ = rig
+    target, agent, executor = recipient
+    git(source.repository, "checkout", "-b", "docs")
+    (source.repository / "README.md").write_text("# Setup\nRead the guide.\n")
+    git(source.repository, "add", ".")
+    git(source.repository, "commit", "-m", "Write docs")
+    original = source.start_review(
+        "docs-review", "Check examples", base="main", head="docs", reviewers=reviewers
+    )
+    transfer(source, target, ["docs-review"])
+    view = accept(target, "docs-review")
+    assert view["stage"] == "standalone_review"
+    assert view["agent_profiles"] == original["agent_profiles"]
+    assert not agent.calls and not executor.calls
+    view = target.respond("docs-review", "question", text="What assumptions do the examples make?")
+    assert view["stage"] == "standalone_review"
+    assert agent.calls[-1][0] == "documentation_reviewer"
+    assert not executor.calls
+
+
 def test_roundtrip_specification_memory_and_pinned_agents(rig, recipient):
     source, _, _ = rig
     target, agent, executor = recipient

@@ -128,6 +128,44 @@ def test_review_rejects_empty_diff_without_creating_task(rig):
     assert not agent.calls
 
 
+@pytest.mark.parametrize("reviewers", ["documentation", "all"])
+def test_documentation_review_is_read_only_and_keeps_its_specialist_on_followup(
+    rig, repository, reviewers
+):
+    harness, agent, executor = rig
+    git(repository, "checkout", "-b", "docs")
+    (repository / "README.md").write_text("# Getting started\nRun the example.\n")
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "Document setup")
+    head = git(repository, "rev-parse", "HEAD")
+    view = harness.start_review(
+        "docs-review", "Check setup instructions", base="main", head="docs", reviewers=reviewers
+    )
+    expected_roles = (
+        ["haskell_reviewer", "security_reviewer", "documentation_reviewer"]
+        if reviewers == "all"
+        else ["documentation_reviewer"]
+    )
+    assert view["stage"] == "standalone_review", view
+    assert [role for role, _, _ in agent.calls] == expected_roles
+    assert list(view["prompt"]["reviews"]) == expected_roles
+    profile = view["agent_profiles"]["documentation_reviewer"]
+    assert profile["definition"]["role"] == "documentation_reviewer"
+    for role, context, _ in agent.calls:
+        assert "+# Getting started" in context["diff"]
+        if role == "documentation_reviewer":
+            assert context["agent_profile"] == profile
+    view = harness.respond("docs-review", "question", text="Are all prerequisites documented?")
+    assert [role for role, _, _ in agent.calls[len(expected_roles) :]] == expected_roles
+    view = harness.respond("docs-review", "revise", text="Focus on the README examples.")
+    assert list(view["prompt"]["reviews"]) == expected_roles
+    view = harness.respond("docs-review", "done")
+    assert view["stage"] == "review_complete"
+    assert "Documentation reviewer" in (Path(view["report_directory"]) / "review.md").read_text()
+    assert view["revision"] == head and not executor.calls
+    assert git(Path(view["worktree"]), "status", "--porcelain") == ""
+
+
 def test_review_questions_cannot_silently_change_the_reviewed_revision(rig, repository):
     harness, agent, _ = rig
     git(repository, "checkout", "-b", "feature")

@@ -62,7 +62,7 @@ def standalone_review_report(state):
         f"Head: `{source['head_ref']}` (`{source['head']}`)",
         f"Diff starts at merge base: `{source['merge_base']}`",
         "",
-        "Read-only code inspection. No builds or tests were run, and no comments were published.",
+        "Read-only inspection. No builds or tests were run, and no comments were published.",
     ]
     for role, review in state["standalone_reviews"].items():
         lines += ["", f"## {role.replace('_', ' ').capitalize()}", "", review["summary"]]

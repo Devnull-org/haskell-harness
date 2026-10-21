@@ -202,7 +202,11 @@ function renderReviews(parent, reviews) {
     parent.append(
       el(
         "h3",
-        role === "security_reviewer" ? "Security review" : "Code review",
+        {
+          haskell_reviewer: "Code review",
+          security_reviewer: "Security review",
+          documentation_reviewer: "Documentation review",
+        }[role] || role.replaceAll("_", " "),
       ),
       prose(review.summary),
     );

@@ -20,7 +20,7 @@ from .failures import AgentInterrupted, BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
 from .reports import chat_report, exploration_report, pr_description, standalone_review_report
 from .review_source import resolve_review
-from .schemas import validate_response
+from .schemas import REVIEWERS, validate_response
 from .validation import ValidationConfig, classify_validation, test_evidence
 from .workspace import Workspace, digest, git, is_test_path, resolve_base, save_json
 
@@ -198,8 +198,10 @@ class Harness:
 
     def start_review(self, task_id, request, *, base, head, reviewers="both", source=None):
         """Inspect a pinned change without running validation, editing code, or publishing."""
-        if reviewers not in {"both", "haskell", "security"}:
-            raise ValueError("Choose Haskell, security, or both reviewers")
+        if reviewers not in REVIEWERS:
+            raise ValueError(
+                "Choose code, security, documentation, code + security, or all reviewers"
+            )
         with self._lock():
             source = source or resolve_review(self.repository, base, head)
             return self._start(
@@ -845,11 +847,7 @@ class Harness:
 
     def _standalone_review(self, state):
         self._assert_review_revision(state)
-        roles = {
-            "haskell": ["haskell_reviewer"],
-            "security": ["security_reviewer"],
-            "both": ["haskell_reviewer", "security_reviewer"],
-        }[state["reviewers"]]
+        roles = REVIEWERS[state["reviewers"]]
         reviews = {role: self._ask(state, role) for role in roles}
         state["standalone_reviews"] = reviews
         state["messages"].append({"stage": "standalone_review", "reviews": reviews})

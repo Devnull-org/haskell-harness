@@ -13,6 +13,16 @@ def test_new_projects_use_the_new_state_directory(repository, tmp_path, monkeypa
     assert not root.exists()
 
 
+def test_website_can_start_without_a_project(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    calls = []
+    monkeypatch.setattr("lambda_harness.__main__.serve", calls.append)
+    assert main([]) == 0
+    assert calls[0].repo is None
+    assert calls[0].state_dir == tmp_path / "lambda-harness"
+    assert main(["--nix-flake", str(tmp_path)]) == 1
+
+
 def test_existing_project_state_is_reused_without_moving_worktrees(
     repository, tmp_path, monkeypatch
 ):

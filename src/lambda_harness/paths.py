@@ -10,8 +10,10 @@ APP_DIRECTORY = "lambda-harness"
 LEGACY_DIRECTORY = "haskell-harness"
 
 
-def default_state_root(repository):
+def default_state_root(repository=None):
     root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
+    if repository is None:
+        return root / APP_DIRECTORY
     project = digest(str(Path(repository).expanduser().resolve()))[:16]
     for name in (APP_DIRECTORY, LEGACY_DIRECTORY):
         directory = root / name / project

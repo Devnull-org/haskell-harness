@@ -6,8 +6,8 @@ from pathlib import Path
 
 from .paths import default_state_root
 from .project_context import state_directory
+from .projects import validate_repository
 from .webapp import serve
-from .workspace import git
 
 
 def parser():
@@ -15,7 +15,11 @@ def parser():
         description="Start the Lambda Harness local website.",
         epilog="Open the printed URL to explore, plan, review, and manage saved work.",
     )
-    result.add_argument("--repo", type=Path, required=True, help="Target Git checkout")
+    result.add_argument(
+        "--repo",
+        type=Path,
+        help="Open this checkout initially; projects can also be added in the website",
+    )
     result.add_argument(
         "--state-dir",
         type=Path,
@@ -43,14 +47,15 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
-        args.repo = args.repo.expanduser().resolve()
-        if not args.repo.is_dir():
-            raise ValueError(f"Target checkout does not exist: {args.repo}")
-        if Path(git(args.repo, "rev-parse", "--show-toplevel")).resolve() != args.repo:
-            raise ValueError("Repository must be the root of a Git checkout")
+        if args.repo:
+            args.repo = validate_repository(args.repo)
+        elif args.nix_flake:
+            raise ValueError("Use --repo with --nix-flake to identify the project it applies to")
         if args.state_dir is None:
             args.state_dir = default_state_root(args.repo)
-        state_directory(args.repo, args.state_dir)
+        args.state_dir = args.state_dir.expanduser().resolve()
+        if args.repo:
+            state_directory(args.repo, args.state_dir)
         if not 0 <= args.port <= 65535:
             raise ValueError("Port must be between 0 and 65535")
         if args.check_timeout <= 0 or (args.agent_timeout is not None and args.agent_timeout <= 0):

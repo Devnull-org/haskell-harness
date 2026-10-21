@@ -8,10 +8,9 @@ import pytest
 from lambda_harness.__main__ import main, parser
 
 
-def test_server_requires_an_explicit_project():
-    with pytest.raises(SystemExit) as error:
-        parser().parse_args([])
-    assert error.value.code == 2
+def test_server_can_open_projects_or_an_explicit_checkout(repository):
+    assert parser().parse_args([]).repo is None
+    assert parser().parse_args(["--repo", str(repository)]).repo == repository
 
 
 @pytest.mark.parametrize("command", ["start", "resume", "doctor", "backends", "serve", "context"])

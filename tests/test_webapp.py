@@ -77,7 +77,7 @@ def browser_app(repository, tmp_path):
             connection.close()
 
     yield app, call, calls, ready
-    app.close()
+    server.hub.close()
     server.shutdown()
     server.server_close()
     thread.join(timeout=5)
@@ -830,3 +830,101 @@ def test_unavailable_saved_backend_allows_the_project_to_open_and_be_reconfigure
         assert reopened.project()["unavailable_backend"] is None
     finally:
         reopened.close()
+
+
+def test_projects_keep_requests_and_saved_work_isolated_across_tabs(
+    browser_app, tmp_path, monkeypatch
+):
+    app, call, _, _ = browser_app
+    agent, executor = ScriptedAgent(), ScriptedExecutor()
+    agent.responses["explorer"].extend([ANALYSIS, ANALYSIS])
+    monkeypatch.setattr("lambda_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", lambda *a: "test")
+    monkeypatch.setattr("lambda_harness.webapp.LocalExecutor", lambda **kw: executor)
+    first = call("/api/project")[1]["project"]
+    second_path = tmp_path / "second"
+    git(tmp_path, "clone", str(app.args.repo), str(second_path))
+    code, second = call("/api/projects", {"repository": str(second_path)})
+    assert code == 200
+    assert call("/api/projects", {"repository": str(second_path)})[1] == second
+    assert len(call("/api/projects")[1]["projects"]) == 2
+    for project in [first, second]:
+        header = {"X-Harness-Project": project["id"]}
+        assert call(f"/projects/{project['id']}")[0] == 200
+        assert call(f"/projects/{project['id']}/agents")[0] == 200
+        assert call("/api/state", headers=header)[1]["project"] == project
+        assert (
+            call(
+                "/api/command",
+                {
+                    "command": "explore",
+                    "task_id": "same-name",
+                    "request": project["name"],
+                    "base": "main",
+                },
+                headers=header,
+            )[0]
+            == 202
+        )
+        wait_for(lambda header=header: not call("/api/state", headers=header)[1]["job"]["running"])
+        assert (
+            call(
+                "/api/context/save",
+                {
+                    "notes": project["name"],
+                    "sources": [],
+                    "expected_current": None,
+                },
+                headers=header,
+            )[0]
+            == 200
+        )
+    for project in [first, second]:
+        header = {"X-Harness-Project": project["id"]}
+        assert (
+            call("/api/state?task=same-name", headers=header)[1]["task"]["request"]
+            == project["name"]
+        )
+        assert call("/api/context", headers=header)[1]["notes"] == project["name"]
+    assert call("/api/state")[1]["project"] == first
+    assert (
+        call("/api/backend", {"backend": "codex"}, headers={"X-Harness-Project": second["id"]})[0]
+        == 200
+    )
+    assert call("/api/project")[1]["backend"] == "test"
+    assert (
+        call("/api/projects/remove", {"project_id": first["id"], "confirmation": first["id"]})[0]
+        == 200
+    )
+    assert call("/api/state")[1]["project"] is None
+    assert call("/api/state", headers={"X-Harness-Project": first["id"]})[0] == 400
+    assert (
+        call("/api/backend", {"backend": "auto"}, headers={"X-Harness-Project": first["id"]})[0]
+        == 400
+    )
+    assert call(f"/projects/{first['id']}/memory")[0] == 404
+    assert (app.args.repo / ".git").exists()
+    assert call("/api/projects", {"repository": str(app.args.repo)})[1] == first
+    header = {"X-Harness-Project": first["id"]}
+    assert call("/api/context", headers=header)[1]["notes"] == first["name"]
+    assert call("/api/state?task=same-name", headers=header)[1]["task"]["request"] == first["name"]
+
+
+def test_empty_project_list_can_add_again_and_requires_authentication(browser_app):
+    app, call, calls, _ = browser_app
+    project_id = app.identity["id"]
+    assert call("/api/projects", authenticated=False)[0] == 403
+    assert call("/api/projects", {"repository": str(app.args.repo)}, authenticated=False)[0] == 403
+    assert (
+        call("/api/projects/remove", {"project_id": project_id, "confirmation": project_id})[0]
+        == 200
+    )
+    assert call("/api/projects")[1]["projects"] == []
+    assert call("/projects")[0] == 200
+    assert call("/api/state")[1]["tasks"] == []
+    assert (
+        call("/api/command", {"command": "chat", "task_id": "no-project", "request": "hello"})[0]
+        == 400
+    )
+    assert call("/api/projects", {"repository": str(app.args.repo)})[0] == 200
+    assert not calls.exists()

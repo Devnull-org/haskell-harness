@@ -1,11 +1,14 @@
 """The local website for persistent development workflows."""
 
+import copy
 import json
+import re
 import secrets
 import shutil
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from .agent_library import (
@@ -21,6 +24,7 @@ from .config import RoutedAgent, load_settings
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
 from .project_context import ContextStore, state_directory
 from .project_settings import ProjectSettings, project_identity
+from .projects import ProjectRegistry, validate_repository
 from .review_source import resolve_review
 from .validation import LocalExecutor
 from .workflow import Harness
@@ -451,7 +455,85 @@ class LocalApp:
             self.worker.join()
 
 
+class ProjectHub:
+    """Each project owns its app and worker; requests select a project explicitly."""
+
+    def __init__(self, args, initial=None):
+        self.args = copy.copy(args)
+        self.registry = ProjectRegistry(args.state_dir)
+        self.lock = threading.RLock()
+        self.token = initial.token if initial else secrets.token_urlsafe(32)
+        self.apps = {}
+        self.default_project = None
+        if args.repo:
+            project = self.registry.add(args.repo)
+            self.default_project = project["id"]
+            if initial:
+                self.apps[project["id"]] = initial
+
+    def projects(self):
+        return {
+            "projects": [
+                {
+                    **project,
+                    "available": Path(project["repository"]).is_dir(),
+                    "running": bool(
+                        (self.apps[project["id"]].job or {}).get("running")
+                        if project["id"] in self.apps
+                        else False
+                    ),
+                }
+                for project in self.registry.list()
+            ],
+            "default_project": self.default_project,
+        }
+
+    def project(self, project_id=None):
+        project_id = self.default_project if project_id is None else project_id
+        if project_id is None:
+            return None
+        entry = self.registry.get(project_id)
+        if project_id not in self.apps:
+            args = copy.copy(self.args)
+            args.repo = validate_repository(entry["repository"])
+            if not self.args.repo or args.repo != Path(self.args.repo).expanduser().resolve():
+                args.nix_flake = None
+            self.apps[project_id] = LocalApp(args)
+        return self.apps[project_id]
+
+    def add(self, body):
+        with self.lock:
+            return self.registry.add(body.get("repository"))
+
+    def remove(self, body):
+        with self.lock:
+            project_id = body.get("project_id")
+            self.registry.get(project_id)
+            if body.get("confirmation") != project_id:
+                raise ValueError("Please confirm removal of this project")
+            app = self.apps.get(project_id)
+            if app:
+                with app.lock:
+                    if app.job and app.job["running"]:
+                        raise ValueError(
+                            "This project has running work. "
+                            "Stop it or wait before removing the project."
+                        )
+                app.close()
+                del self.apps[project_id]
+            self.registry.remove(project_id)
+            if self.default_project == project_id:
+                self.default_project = None
+            return self.projects()
+
+    def close(self):
+        for app in self.apps.values():
+            app.close()
+
+
 def create_server(app, port=8765):
+    hub = app if isinstance(app, ProjectHub) else ProjectHub(app.args, initial=app)
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -481,7 +563,7 @@ def create_server(app, port=8765):
                 self.send(403, {"error": "Foreign origins are not allowed"})
                 return False
             if api and not secrets.compare_digest(
-                self.headers.get("X-Harness-Token", ""), app.token
+                self.headers.get("X-Harness-Token", ""), hub.token
             ):
                 self.send(403, {"error": "Reload the harness page to connect"})
                 return False
@@ -492,11 +574,40 @@ def create_server(app, port=8765):
             if not self.authorized(api=path.path.startswith("/api/")):
                 return
             try:
-                query = parse_qs(path.query)
-                task_id = query.get("task", [None])[0]
+                with hub.lock:
+                    self.get(path)
+            except (ValueError, RuntimeError, OSError) as error:
+                self.send(400, {"error": str(error)})
+
+        def get(self, path):
+            if path.path == "/api/projects":
+                self.send(200, hub.projects())
+                return
+            query = parse_qs(path.query)
+            task_id = query.get("task", [None])[0]
+            if path.path.startswith("/api/"):
+                app = hub.project(self.headers.get("X-Harness-Project"))
                 if path.path == "/api/state":
-                    self.send(200, app.state(task_id))
-                elif path.path == "/api/abandon-plan":
+                    state = (
+                        app.state(task_id)
+                        if app
+                        else {
+                            "project": None,
+                            "repository": "",
+                            "base": "",
+                            "tasks": [],
+                            "task": None,
+                            "job": None,
+                            "can_stop": False,
+                            "stopping": False,
+                            "backend": "auto",
+                        }
+                    )
+                    self.send(200, {**state, **hub.projects()})
+                    return
+                if app is None:
+                    raise ValueError("Add or open a project first")
+                if path.path == "/api/abandon-plan":
                     self.send(200, app.abandon_plan(task_id))
                 elif path.path == "/api/agents":
                     self.send(200, app.agents())
@@ -506,42 +617,42 @@ def create_server(app, port=8765):
                     self.send(200, app.context_preview(query.get("snapshot", [None])[0], task_id))
                 elif path.path == "/api/context":
                     self.send(200, app.context_snapshot(query.get("snapshot", [None])[0]))
-                elif path.path in {
-                    "/",
-                    "/agents",
-                    "/project-memory",
-                    "/project-settings",
-                    f"/projects/{app.identity['id']}/memory",
-                    f"/projects/{app.identity['id']}/settings",
-                    "/guide",
-                    "/app.js",
-                    "/theme.js",
-                    "/style.css",
-                }:
-                    name = {
-                        "/": "index.html",
-                        "/agents": "index.html",
-                        "/project-memory": "index.html",
-                        "/project-settings": "index.html",
-                        f"/projects/{app.identity['id']}/memory": "index.html",
-                        f"/projects/{app.identity['id']}/settings": "index.html",
-                        "/guide": "guide.html",
-                    }.get(path.path, path.path[1:])
-                    content = files("lambda_harness").joinpath("web", name).read_text()
-                    if name == "index.html":
-                        content = content.replace("HARNESS_SESSION_TOKEN", app.token)
-                    types = {
-                        "index.html": "text/html; charset=utf-8",
-                        "guide.html": "text/html; charset=utf-8",
-                        "app.js": "text/javascript; charset=utf-8",
-                        "theme.js": "text/javascript; charset=utf-8",
-                        "style.css": "text/css; charset=utf-8",
-                    }
-                    self.send(200, content.encode(), types[name])
                 else:
                     self.send(404, {"error": "Not found"})
-            except (ValueError, RuntimeError, OSError) as error:
-                self.send(400, {"error": str(error)})
+                return
+            routes = {
+                "/": "index.html",
+                "/projects": "index.html",
+                "/agents": "index.html",
+                "/project-memory": "index.html",
+                "/project-settings": "index.html",
+                "/guide": "guide.html",
+                "/app.js": "app.js",
+                "/theme.js": "theme.js",
+                "/style.css": "style.css",
+            }
+            match = re.fullmatch(
+                r"/projects/([a-f0-9]{16})(?:/(memory|settings|agents))?", path.path
+            )
+            if match and any(item["id"] == match[1] for item in hub.registry.list()):
+                routes[path.path] = "index.html"
+            name = routes.get(path.path)
+            if name is None:
+                self.send(
+                    404, {"error": "Project or page not found. Open /projects to choose a project."}
+                )
+                return
+            content = files("lambda_harness").joinpath("web", name).read_text()
+            if name == "index.html":
+                content = content.replace("HARNESS_SESSION_TOKEN", hub.token)
+            types = {
+                "index.html": "text/html; charset=utf-8",
+                "guide.html": "text/html; charset=utf-8",
+                "app.js": "text/javascript; charset=utf-8",
+                "theme.js": "text/javascript; charset=utf-8",
+                "style.css": "text/css; charset=utf-8",
+            }
+            self.send(200, content.encode(), types[name])
 
         def do_POST(self):
             if not self.authorized(api=True):
@@ -553,42 +664,59 @@ def create_server(app, port=8765):
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
                     raise ValueError("Expected a JSON object")
-                if self.path == "/api/command":
-                    self.send(202, app.start(body))
-                elif self.path == "/api/agents/source":
-                    self.send(200, app.select_agent_repository(body))
-                elif self.path == "/api/agents/assign":
-                    self.send(200, app.assign_agent(body))
-                elif self.path == "/api/stop":
-                    self.send(200, {"stopping": app.cancellation.stop()})
-                elif self.path in {
-                    "/api/context",
-                    "/api/context/use",
-                    "/api/context/save",
-                    "/api/context/restore",
-                    "/api/backend",
-                }:
-                    operation = {
-                        "/api/context": "refresh",
-                        "/api/context/use": "use",
-                        "/api/context/save": "save",
-                        "/api/context/restore": "restore",
-                        "/api/backend": "backend",
-                    }[self.path]
-                    self.send(200, app.project_change(operation, body))
-                else:
-                    self.send(404, {"error": "Not found"})
+                with hub.lock:
+                    self.post(body)
             except (ValueError, RuntimeError, OSError) as error:
                 self.send(400, {"error": str(error)})
 
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        def post(self, body):
+            if self.path == "/api/projects":
+                self.send(200, hub.add(body))
+                return
+            if self.path == "/api/projects/remove":
+                self.send(200, hub.remove(body))
+                return
+            app = hub.project(self.headers.get("X-Harness-Project"))
+            if app is None:
+                raise ValueError("Add or open a project first")
+            if self.path == "/api/command":
+                self.send(202, app.start(body))
+            elif self.path == "/api/agents/source":
+                self.send(200, app.select_agent_repository(body))
+            elif self.path == "/api/agents/assign":
+                self.send(200, app.assign_agent(body))
+            elif self.path == "/api/stop":
+                self.send(200, {"stopping": app.cancellation.stop()})
+            elif self.path in {
+                "/api/context",
+                "/api/context/use",
+                "/api/context/save",
+                "/api/context/restore",
+                "/api/backend",
+            }:
+                operation = {
+                    "/api/context": "refresh",
+                    "/api/context/use": "use",
+                    "/api/context/save": "save",
+                    "/api/context/restore": "restore",
+                    "/api/backend": "backend",
+                }[self.path]
+                self.send(200, app.project_change(operation, body))
+            else:
+                self.send(404, {"error": "Not found"})
+
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server.hub = hub
+    return server
 
 
 def serve(args):
-    app = LocalApp(args)
+    app = ProjectHub(args)
     server = create_server(app, args.port)
     print(f"Lambda Harness: http://127.0.0.1:{server.server_port}", flush=True)
-    print(f"Project: {args.repo}\nKeep this process running while using the page.", flush=True)
+    if args.repo:
+        print(f"Initial project: {args.repo}", flush=True)
+    print("Keep this process running while using the page.", flush=True)
     try:
         server.serve_forever(poll_interval=0.2)
     finally:

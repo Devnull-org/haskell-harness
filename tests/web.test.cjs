@@ -368,6 +368,75 @@ test("review bases stay editable and preserve branch and PR choices across polli
   assert.doesNotMatch(ui.elements.get("base-label").textContent, /PR/);
 });
 
+test("review tools post only the selected finding and preserve the draft", async () => {
+  const finding = {
+    id: "DOC-002",
+    title: "Expiry",
+    severity: "medium",
+    location: "docs.md:2",
+    impact: "Blocked",
+    sequence: [],
+    confidence: "confirmed",
+  };
+  const reviews = {
+    documentation_reviewer: { summary: "Reviewed", findings: [finding] },
+  };
+  const current = snapshot({
+    ...task(),
+    stage: "standalone_review",
+    task_kind: "review",
+    messages: [{ reviews }],
+    prompt: { reviews, actions: ["question", "done"] },
+    review_actions: { token: "pinned-review", github: true, posts: [] },
+  });
+  const requests = [];
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path === "/api/command") {
+        requests.push(JSON.parse(options.body));
+        return response({ accepted: true });
+      }
+      return response(current);
+    },
+  });
+  ui.elements.get("message").value = "An unsent follow-up";
+  await ui.run(
+    "reviewAction('post_review_comment', {role:'documentation_reviewer', finding_id:'DOC-002'})",
+  );
+  assert.deepEqual(requests[0], {
+    command: "review_action",
+    task_id: "example",
+    action: "post_review_comment",
+    token: "pinned-review",
+    role: "documentation_reviewer",
+    finding_id: "DOC-002",
+  });
+  assert.equal(ui.elements.get("message").value, "An unsent follow-up");
+  await ui.run("reviewAction('check_links')");
+  assert.equal(requests[1].action, "check_links");
+  assert.match(
+    ui.elements.get("actions").textContent,
+    /Check documentation links/,
+  );
+  current.task.review_actions.posts = [
+    {
+      role: "documentation_reviewer",
+      finding_id: "DOC-002",
+      url: "https://github.com/example/project/pull/12#discussion_r123",
+    },
+  ];
+  await ui.run("refresh()");
+  assert.match(ui.elements.get("history").textContent, /View GitHub comment/);
+  assert.doesNotMatch(
+    ui.elements.get("history").textContent,
+    /Post comment on GitHub/,
+  );
+  assert.equal(
+    ui.run("githubCommentLink('javascript:alert(1)').href"),
+    undefined,
+  );
+});
+
 for (const reviewers of ["documentation", "all"])
   test(`${reviewers} review submits its selection and custom PR base`, async () => {
     const ui = await app();

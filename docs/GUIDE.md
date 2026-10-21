@@ -233,6 +233,22 @@ the remaining patches as needed. Large diagrams are not silently dropped. The
 review summary must state any files or visual details the reviewer could not inspect.
 **Finish review** saves the result; it does not fix code, run builds, post comments,
 or approve the PR on GitHub. Reports include `review.md` and `review.json`.
+To publish a finding, choose **Post comment on GitHub** on its card. This explicit
+request posts that finding as an inline comment using your existing `gh` login.
+The harness checks that the PR still has the reviewed head and that the line is
+in its diff. It records the returned link and checks for an existing comment on
+retry. It does not submit an approval or a request-changes review.
+
+**Check documentation links** checks links and anchors in changed Markdown, MDX,
+and HTML files at the pinned revision. It uses lychee, included in the Nix launcher
+(install it separately without Nix). Results appear in task history and
+`documentation-links.json`. Missing files and HTTP 404/410 responses are distinguished
+from access restrictions, timeouts, and site routes that need a rendered-site check.
+This does not build the site, execute repository scripts, or use repository lychee
+configuration. Private addresses, credentials in URLs, and paths outside the worktree
+are excluded. It checks source links, so it cannot establish that generated routes
+and JavaScript-driven pages work.
+
 **Start a fresh attempt** reviews the same pinned revision. To review newer commits,
 create a new task with the updated branch or PR URL.
 

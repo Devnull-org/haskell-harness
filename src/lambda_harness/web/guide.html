@@ -121,14 +121,30 @@
           Ask follow-up questions or revise the focus, then choose
           <strong>Finish review</strong>. Findings stay in the conversation and
           in <code>review.md</code> in the report directory. No code is changed,
-          no builds run, and no comments are published. Revisions are pinned;
-          start a new task to review newer commits.
+          no builds run, and finishing does not publish comments. Revisions are
+          pinned; start a new task to review newer commits.
         </p>
         <p>
           Large reviews use a compact preview plus a complete index of local
           patch files in the task's reports. Reviewers read those patches as
           needed and must state any files or visual details they could not
           inspect. Large diagrams are not silently dropped from the review.
+        </p>
+        <p>
+          Choose <strong>Post comment on GitHub</strong> on a finding to publish
+          just that finding through your existing <code>gh</code> login. The
+          harness checks the PR revision and diff location, avoids duplicate
+          comments on retry, and records the returned link. It does not approve
+          the PR or request changes.
+        </p>
+        <p>
+          Choose <strong>Check documentation links</strong> to check links in
+          changed Markdown and HTML files using lychee, included with Nix.
+          Without Nix, install lychee separately. Results appear in the task and
+          <code>documentation-links.json</code>. Broken links are separated from
+          access restrictions, network failures, and site routes needing a
+          rendered-site check. The checker does not run repository scripts or
+          build the documentation.
         </p>
         <h3>Write tests</h3>
         <p>

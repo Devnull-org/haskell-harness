@@ -197,6 +197,19 @@ function message(who, text, human = false) {
   node.append(el("div", who, "eyebrow"), prose(text));
   return node;
 }
+function githubCommentLink(url) {
+  const link = el("a", "View GitHub comment");
+  if (
+    /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[0-9]+#discussion_r[0-9]+$/.test(
+      url,
+    )
+  ) {
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+  return link;
+}
 function renderReviews(parent, reviews) {
   for (const [role, review] of Object.entries(reviews)) {
     parent.append(
@@ -225,9 +238,40 @@ function renderReviews(parent, reviews) {
       section(details, "Recommendation", finding.recommendation);
       details.append(el("small", `${finding.id} · ${finding.confidence}`));
       card.append(details);
+      const tools = state?.task?.review_actions;
+      const current = state?.task?.prompt?.reviews?.[role]?.findings || [];
+      if (
+        tools?.github &&
+        current.some((f) => JSON.stringify(f) === JSON.stringify(finding))
+      ) {
+        const posted = tools.posts.find(
+          (p) => p.role === role && p.finding_id === finding.id,
+        );
+        if (posted) {
+          card.append(githubCommentLink(posted.url));
+        } else {
+          const control = button("Post comment on GitHub", () =>
+            reviewAction("post_review_comment", {
+              role,
+              finding_id: finding.id,
+            }),
+          );
+          control.disabled = submitting || !!state?.job?.running;
+          card.append(control);
+        }
+      }
       parent.append(card);
     }
   }
+}
+async function reviewAction(action, fields = {}) {
+  await command({
+    command: "review_action",
+    task_id: selected,
+    action,
+    token: state.task.review_actions.token,
+    ...fields,
+  });
 }
 async function command(body) {
   if (submitting) return;
@@ -347,7 +391,9 @@ function render() {
     $("stop").textContent = state.stopping
       ? "Stopping…"
       : state.can_stop
-        ? "■ Stop model"
+        ? job.operation === "review_action"
+          ? "■ Stop action"
+          : "■ Stop model"
         : "Preparing / checking";
     if (!running && seenJob !== job.id) {
       seenJob = job.id;
@@ -398,7 +444,15 @@ function renderHistory(task) {
     pendingMessage = null;
   const pending =
     pendingMessage?.task_id === task.task_id ? pendingMessage : null;
-  const key = JSON.stringify([task.task_id, task.request, messages, pending]);
+  const key = JSON.stringify([
+    task.task_id,
+    task.request,
+    messages,
+    pending,
+    task.review_actions,
+    submitting,
+    state?.job?.running,
+  ]);
   if (key === historyKey) return;
   const history = $("history");
   const atBottom =
@@ -412,6 +466,32 @@ function renderHistory(task) {
     else if (item.question) {
       history.append(message("You", item.question, true));
       if (item.answer) history.append(message("Agent", item.answer));
+    } else if (item.action === "check_links") {
+      const latest =
+        messages.findLast((m) => m.action === "check_links") === item;
+      const entry = message(
+        latest
+          ? "Documentation link check"
+          : "Documentation link check · previous run",
+        item.summary,
+      );
+      const details = el("details");
+      details.append(
+        el("summary", "Results and scope"),
+        prose(item.limitations),
+      );
+      for (const issue of item.issues)
+        details.append(
+          prose(
+            `${issue.source}: ${issue.url}\n${issue.status} · ${issue.detail}`,
+          ),
+        );
+      entry.append(details);
+      history.append(entry);
+    } else if (item.action === "post_review_comment") {
+      const entry = message("GitHub", `Posted ${item.finding_id}`);
+      entry.append(githubCommentLink(item.url));
+      history.append(entry);
     } else if (item.analysis)
       history.append(
         message("Explorer", item.summary + "\n\n" + item.analysis),
@@ -462,7 +542,14 @@ function renderHistory(task) {
 function renderTask(task, running) {
   const prompt = task.prompt || {},
     actions = prompt.actions || [],
-    key = JSON.stringify([task.task_id, task.stage, prompt, task.test_scope]);
+    key = JSON.stringify([
+      task.task_id,
+      task.stage,
+      prompt,
+      task.test_scope,
+      task.review_actions,
+      running,
+    ]);
   $("task-meta").replaceChildren(
     el("strong", task.stage.replaceAll("_", " ")),
     el("div", "Base: " + task.base_ref + " · " + task.base.slice(0, 12)),
@@ -648,6 +735,14 @@ function renderTask(task, running) {
     );
     control.disabled = running;
     $("phases").append(control);
+  }
+  if (task.review_actions) {
+    const control = button("Check documentation links", () =>
+      reviewAction("check_links"),
+    );
+    control.disabled = running;
+    $("actions").append(control);
+    $("composer").hidden = false;
   }
   for (const id of ["resume", "restart", "abandon", "export-task"])
     $(id).disabled = running;

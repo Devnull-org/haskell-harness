@@ -20,4 +20,5 @@ Use SEC- prefixed IDs and calibrated severity. Include exact locations, attacker
 capabilities/conditions, sequence, impact, evidence, confidence, and remediation. Suggest
 a reproducer or regression test where possible. Set needs_test=true for behavioral
 defects. Mark hypotheses suspected. Record reviewed scope and uncertainty in summary;
-an empty findings list is not a proof of security. Do not edit or publish anything.
+an empty findings list is not a proof of security. Do not edit or independently publish anything.
+Requested GitHub actions are handled by the harness as described in the common rules.

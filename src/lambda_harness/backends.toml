@@ -2,6 +2,8 @@
 default_backend = "auto"
 
 [backends.local]
+models_command = ["{executable}", "--list-models"]
+models_format = "lines"
 command = ["cursor-agent", "--print", "--mode", "ask", "--output-format", "json", "--trust"]
 response_fields = ["result"]
 model_args = ["--model", "{model}"]
@@ -10,6 +12,8 @@ probe = ["{executable}", "status"]
 probe_reject_patterns = ["not logged in"]
 
 [backends.codex]
+models_command = ["{executable}", "app-server"]
+models_format = "codex"
 command = ["codex", "--ask-for-approval", "never", "exec", "--sandbox", "read-only", "--color", "never", "--ephemeral", "--ignore-user-config", "--ignore-rules", "-"]
 model_args = ["--model", "{model}"]
 unset_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"]
@@ -17,6 +21,8 @@ probe = ["{executable}", "login", "status"]
 probe_reject_patterns = ["not logged in"]
 
 [backends.claude-code]
+models_command = ["{executable}", "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--disable-slash-commands", "--no-session-persistence", "--settings", '{"disableAllHooks":true}']
+models_format = "claude"
 command = ["claude", "--print", "--output-format", "json", "--permission-mode", "plan", "--tools", "Read,Glob,Grep", "--strict-mcp-config", "--disable-slash-commands", "--no-session-persistence", "--json-schema", "{schema}"]
 response_fields = ["structured_output", "result"]
 model_args = ["--model", "{model}"]

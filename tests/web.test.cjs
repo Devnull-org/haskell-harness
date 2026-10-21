@@ -77,6 +77,185 @@ function snapshot(current = task()) {
 const response = (body) => ({ ok: true, json: async () => body });
 const settle = () => new Promise(setImmediate);
 
+test("chat model selection survives polling, reaches the next reply, and labels past responses", async () => {
+  const current = snapshot({
+    ...task(),
+    task_kind: "chat",
+    stage: "chat",
+    messages: [
+      {
+        role: "chat",
+        answer: "First answer",
+        generation: {
+          backend: "test",
+          model: "quick",
+          reported_model: "quick-v2",
+        },
+      },
+    ],
+    prompt: { actions: ["answer"] },
+  });
+  let posted;
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path.startsWith("/api/models"))
+        return response({
+          backend: "test",
+          catalogs: [
+            {
+              backend: "test",
+              current: "quick",
+              models: [
+                { id: "quick", name: "Quick" },
+                { id: "careful", name: "Careful" },
+              ],
+            },
+          ],
+        });
+      if (path === "/api/command") {
+        posted = JSON.parse(options.body);
+        return response({});
+      }
+      return response(current);
+    },
+  });
+  ui.run("render()");
+  await settle();
+  const picker = ui.elements.get("reply-chat-model");
+  assert.equal(ui.elements.get("reply-model-picker").hidden, false);
+  assert.equal(JSON.parse(picker.value).model, "quick");
+  assert.match(ui.elements.get("history").textContent, /quick-v2/);
+  picker.value = JSON.stringify({ backend: "test", model: "careful" });
+  picker.onchange();
+  ui.elements.get("message").value = "An unfinished question";
+  await ui.run("refresh()");
+  assert.equal(JSON.parse(picker.value).model, "careful");
+  assert.equal(ui.elements.get("message").value, "An unfinished question");
+  await ui.run('respond("answer")');
+  assert.equal(posted.model, "careful");
+  assert.equal(posted.backend, "test");
+  current.job = { running: true, id: "busy", log: [] };
+  await ui.run("refresh()");
+  assert.equal(picker.disabled, true);
+});
+
+test("new chats can choose a model from an automatically detected provider", async () => {
+  const current = { ...snapshot(), task: null, backend: "auto" };
+  let posted;
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path.startsWith("/api/models"))
+        return response({
+          backend: "auto",
+          catalogs: [
+            { backend: "provider-a", models: [{ id: "small", name: "Small" }] },
+            { backend: "provider-b", models: [{ id: "big", name: "Big" }] },
+          ],
+        });
+      if (path === "/api/command") {
+        posted = JSON.parse(options.body);
+        current.backend = posted.backend;
+        current.task = {
+          ...task(posted.task_id),
+          task_kind: "chat",
+          stage: "backend_blocked",
+          messages: [],
+          prompt: { actions: [] },
+        };
+        return response({});
+      }
+      return response(current);
+    },
+  });
+  ui.run("selected = null");
+  ui.kind.value = "chat";
+  ui.elements.get("new-form").onchange();
+  await settle();
+  const picker = ui.elements.get("new-chat-model");
+  assert.match(picker.textContent, /provider-a.*Small.*provider-b.*Big/);
+  picker.value = JSON.stringify({ backend: "provider-b", model: "big" });
+  picker.onchange();
+  ui.elements.get("task-name").value = "New chat";
+  ui.elements.get("request").value = "Hello";
+  ui.elements.get("new-form").onsubmit({ preventDefault() {} });
+  await settle();
+  assert.equal(posted.model, "big");
+  assert.equal(posted.backend, "provider-b");
+  assert.equal(
+    JSON.parse(ui.elements.get("reply-chat-model").value).model,
+    "big",
+  );
+});
+
+test("slow or failed model discovery preserves drafts and leaves default chat available", async () => {
+  let finish;
+  const current = snapshot({
+    ...task(),
+    task_kind: "chat",
+    stage: "chat",
+    prompt: { actions: ["answer"] },
+  });
+  const ui = await app({
+    fetcher: async (path) =>
+      path.startsWith("/api/models")
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : response(current),
+  });
+  ui.run("render()");
+  ui.elements.get("message").value = "Keep my draft";
+  assert.match(ui.elements.get("reply-model-status").textContent, /Detecting/);
+  assert.equal(ui.elements.get("send").disabled, false);
+  finish(
+    response({
+      backend: "test",
+      catalogs: [{ backend: "test", models: [], error: "Please sign in" }],
+    }),
+  );
+  await settle();
+  assert.match(
+    ui.elements.get("reply-model-status").textContent,
+    /Please sign in/,
+  );
+  assert.equal(ui.elements.get("message").value, "Keep my draft");
+  assert.equal(ui.elements.get("send").disabled, false);
+});
+
+test("switching conversations does not apply another chat's model choice", async () => {
+  const current = snapshot({
+    ...task(),
+    task_kind: "chat",
+    stage: "chat",
+    prompt: { actions: ["answer"] },
+  });
+  const ui = await app({
+    fetcher: async (path) =>
+      path.startsWith("/api/models")
+        ? response({
+            backend: "test",
+            catalogs: [
+              {
+                backend: "test",
+                current: "quick",
+                models: [
+                  { id: "quick", name: "Quick" },
+                  { id: "careful", name: "Careful" },
+                ],
+              },
+            ],
+          })
+        : response(current),
+  });
+  ui.run("render()");
+  await settle();
+  const picker = ui.elements.get("reply-chat-model");
+  picker.value = JSON.stringify({ backend: "test", model: "careful" });
+  picker.onchange();
+  ui.run('selected="other";state.task.task_id="other";render()');
+  assert.equal(JSON.parse(picker.value).model, "quick");
+});
+
 test("phone access shows the private address and mobile navigation closes after choosing work", async () => {
   const current = {
     ...snapshot(),

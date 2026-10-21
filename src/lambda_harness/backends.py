@@ -53,8 +53,10 @@ class Backend(Record):
     unset_env: list[str] = Field(default_factory=list)
     probe: list[str] = Field(default_factory=list)
     probe_reject_patterns: list[str] = Field(default_factory=list)
+    models_command: list[str] = Field(default_factory=list)
+    models_format: Literal["json", "lines", "codex", "claude"] = "json"
 
-    @field_validator("command", "probe", "model_args")
+    @field_validator("command", "probe", "model_args", "models_command")
     @classmethod
     def valid_arguments(cls, value):
         if any("\x00" in argument for argument in value):
@@ -136,6 +138,7 @@ class CommandAgent:
         self.backend = backend
         self.name = name
         self.model = model if model is not None else backend.model
+        self.reported_model = None
         self.timeout = timeout if timeout is not None else backend.timeout
         self.progress = progress
         self.activity = activity
@@ -260,6 +263,19 @@ class CommandAgent:
             result = decode_response(stdout)
             if not isinstance(result, dict):
                 raise ValueError("Output must be a JSON object")
+            reported = result.get("model") if self.backend.response_fields else None
+            usage = result.get("modelUsage")
+            if (
+                self.backend.models_format == "claude"
+                and isinstance(usage, dict)
+                and len(usage) == 1
+            ):
+                reported = next(iter(usage))
+            if self.backend.models_format == "codex":
+                match = re.search(r"^model:\s*(\S+)\s*$", stderr, re.MULTILINE)
+                reported = match[1] if match else None
+            if isinstance(reported, str) and 0 < len(reported) <= 256:
+                self.reported_model = reported
             if self.backend.response_fields:
                 if result.get("is_error") or str(result.get("subtype", "")).startswith("error"):
                     raise BackendError(

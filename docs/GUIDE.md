@@ -216,6 +216,20 @@ leave, and return to the saved chat whenever you like. **Stop model** and revise
 instructions work here too. Chat does not edit files or start a coding workflow.
 Its transcript is also saved as `chat.md` in the report directory.
 
+Use **Model for this reply** when starting a chat, or **Model for the next reply**
+beside the message box. Choices come from the selected backend's installed CLI.
+With automatic backend selection, the list groups models by installed provider;
+choosing one also selects that provider for the request. **Refresh models** reloads
+the catalog after signing in or changing accounts. Listing models sends no chat prompt.
+
+The picker keeps your choice within that conversation. Each reply records the
+backend and requested model, plus the actual model when the provider reports it.
+Older replies without this information are left unlabelled. **Use configured default**
+follows the launcher and backend configuration; a provider's **Default** option
+clears the launcher model override for that reply. A catalog is not a quota or
+entitlement check: providers can still refuse a request, and the saved chat remains
+resumable. Missing catalogs do not prevent using the configured default.
+
 **Explore** reads code and delivers findings, options, references, and follow-up
 answers. It does not start coding. **Finish exploration** saves the result; you
 can stop there or start a requirements interview later.
@@ -424,6 +438,15 @@ Memory is local to this project's harness state directory; Git does not sync it.
 Export/import handoffs transfer saved memory versions between developers.
 
 ## Backends and recovery
+
+Custom backends can expose a model picker by setting `models_command` to an argument
+array (use `{executable}` for the configured backend executable) and leaving
+`models_format = "json"`. Return an object like
+`{"models":[{"id":"fast","name":"Fast"}],"current":"fast"}`; `current` and
+`default` are optional. The command runs outside the project with a timeout and the
+backend's usual environment filtering. Configure `model_args` or JSON input so the
+selected model reaches the provider. Built-in adapters use the providers' own
+catalog and initialization interfaces; no model names are hard-coded.
 
 Automatic selection checks available executables, existing login probes, and a
 small generation request. It sends no project data during discovery. If several

@@ -99,6 +99,118 @@ def wait_for(test):
     raise AssertionError("Operation did not finish")
 
 
+def test_chat_selects_models_per_reply_and_keeps_provenance_after_reopening(browser_app, tmp_path):
+    from lambda_harness.backends import Backend
+
+    app, call, _, _ = browser_app
+    calls = tmp_path / "models-used.jsonl"
+    script = executable(
+        tmp_path,
+        "import json,sys\nfrom pathlib import Path\n"
+        "if len(sys.argv)>1:\n"
+        " print(json.dumps({'models':[{'id':'quick','name':'Quick'},"
+        "{'id':'careful','name':'Careful'}], 'current':'quick'}))\n"
+        "else:\n"
+        " request=json.load(sys.stdin)\n"
+        f" with Path({str(calls)!r}).open('a') as f: f.write(json.dumps(request['model'])+'\\n')\n"
+        " print(json.dumps({'answer':'A response', 'references':[]}))\n",
+    )
+    app.settings.backends["test"] = Backend(
+        command=[script], input_format="json", models_command=["{executable}", "models"]
+    )
+    app.selected_backend = "test"
+    app.args.model = "launch-default"
+    status, catalogs = call("/api/models")
+    assert status == 200 and catalogs["backend"] == "test"
+    assert catalogs["catalogs"][0]["current"] == "launch-default"
+    assert not calls.exists()
+    for command in [
+        {
+            "command": "chat",
+            "task_id": "model chat",
+            "request": "Explain this",
+            "base": "HEAD",
+            "model": "quick",
+        },
+        {
+            "command": "respond",
+            "task_id": "model chat",
+            "action": "answer",
+            "text": "More detail",
+            "model": "careful",
+        },
+        {
+            "command": "respond",
+            "task_id": "model chat",
+            "action": "answer",
+            "text": "Use default",
+            "model": None,
+        },
+    ]:
+        assert call("/api/command", command)[0] == 202
+        wait_for(lambda: app.job and not app.job["running"])
+        assert app.job["error"] is None
+        assert app.job["result"]["stage"] == "chat", app.job
+    assert [json.loads(line) for line in calls.read_text().splitlines()] == [
+        "quick",
+        "careful",
+        None,
+    ]
+    view = call("/api/state?task=model%20chat")[1]["task"]
+    generations = [m["generation"] for m in view["messages"] if m.get("role") == "chat"]
+    assert [g["model"] for g in generations] == ["quick", "careful", None]
+    assert all(g["backend"] == "test" for g in generations)
+    reopened = app.harness()
+    try:
+        assert reopened._state("model chat")["messages"] == view["messages"]
+    finally:
+        reopened.close()
+
+
+def test_model_discovery_does_not_lock_state_or_stop_requests(browser_app, monkeypatch):
+    app, call, _, _ = browser_app
+    app.selected_backend = "test"
+    entered, release = threading.Event(), threading.Event()
+
+    def discover(*args):
+        entered.set()
+        assert release.wait(timeout=10)
+        return {"models": [], "current": None, "default": None}
+
+    monkeypatch.setattr("lambda_harness.webapp.discover_models", discover)
+    result = []
+    worker = threading.Thread(target=lambda: result.append(call("/api/models")))
+    worker.start()
+    try:
+        assert entered.wait(timeout=5)
+        assert call("/api/state")[0] == 200
+        assert call("/api/stop", {})[0] == 200
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    assert result[0][0] == 200
+
+
+def test_models_api_is_authenticated_and_model_errors_are_recoverable(browser_app, monkeypatch):
+    app, call, _, _ = browser_app
+    app.selected_backend = "test"
+    assert call("/api/models", authenticated=False)[0] == 403
+
+    def broken(*args):
+        raise RuntimeError("Provider unavailable")
+
+    monkeypatch.setattr("lambda_harness.webapp.discover_models", broken)
+    status, catalog = call("/api/models")
+    assert status == 200 and catalog["catalogs"][0]["error"] == "Provider unavailable"
+    assert catalog["catalogs"][0]["models"] == []
+    for model in ("", "bad\x00model", 123):
+        assert (
+            call("/api/command", {"command": "chat", "task_id": "invalid", "model": model})[0]
+            == 400
+        )
+    assert app.job is None
+
+
 def test_requested_review_tools_use_http_scope_without_model_selection(browser_app, monkeypatch):
     app, call, calls, _ = browser_app
     harness = app.harness(ScriptedAgent())

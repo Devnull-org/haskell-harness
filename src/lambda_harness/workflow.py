@@ -866,6 +866,8 @@ class Harness:
                 "id": uuid4().hex,
                 "reply": self._ask(state, "chat", latest_user_message=latest),
             }
+            if generation := getattr(self.agent, "last_generation", None):
+                turn["generation"] = copy.deepcopy(generation)
             save_json(turn_path, turn)
         result = copy.deepcopy(turn["reply"])
         note = result.pop("memory_note", None)
@@ -881,6 +883,8 @@ class Harness:
                 state["project_context_id"] = saved["id"]
                 result["memory_save"] = {"status": "saved", "note": note, "snapshot": saved["id"]}
         message = {"stage": "chat", "role": "chat", "chat_turn": turn["id"], **result}
+        if turn.get("generation"):
+            message["generation"] = turn["generation"]
         for index, previous in enumerate(state["messages"]):
             if previous.get("chat_turn") == turn["id"]:
                 state["messages"][index] = message

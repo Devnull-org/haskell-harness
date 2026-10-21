@@ -16,7 +16,15 @@ def chat_report(state):
         if item.get("text"):
             lines += ["", "## You", "", item["text"]]
         elif item.get("role") == "chat":
-            lines += ["", "## Assistant", "", item["answer"]]
+            lines += ["", "## Assistant", ""]
+            if generation := item.get("generation"):
+                model = (
+                    generation.get("reported_model")
+                    or generation.get("model")
+                    or "provider default"
+                )
+                lines += [f"Model: {generation['backend']} · {model}", ""]
+            lines.append(item["answer"])
             references.extend(item["references"])
             if saved := item.get("memory_save"):
                 title = (

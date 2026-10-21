@@ -25,6 +25,11 @@ let memoryLoaded = false,
   memorySnapshot = null,
   memoryHistory = [],
   memoryPreviewId = 0;
+let modelCatalog = null,
+  modelCatalogKey = "",
+  modelLoadingKey = "",
+  modelRequestId = 0;
+const modelChoices = new Map();
 const pages = {
   projects: { path: "/projects", title: "Projects", link: "projects-link" },
   workspace: { path: "/", title: "Workspace", link: "workspace-link" },
@@ -278,16 +283,144 @@ async function reviewAction(action, fields = {}) {
     ...fields,
   });
 }
+function modelKey(backend = state?.backend || "auto") {
+  return `${activeProject?.id || state?.repository || ""}:${backend}`;
+}
+function modelScope(task = selected, backend = state?.backend || "auto") {
+  return `${modelKey(backend)}:${task || "new"}`;
+}
+function chatModelChoice() {
+  const prefix = selected ? "reply" : "new";
+  if ($(`${prefix}-model-picker`).hidden) return {};
+  return JSON.parse($(`${prefix}-chat-model`).value || "{}");
+}
+async function loadModels(force = false) {
+  const key = modelKey(),
+    version = ++modelRequestId;
+  modelLoadingKey = key;
+  renderModelPicker();
+  try {
+    const data = await api("/api/models" + (force ? "?refresh=1" : ""));
+    if (version !== modelRequestId || key !== modelKey()) return;
+    modelCatalog = data;
+  } catch (e) {
+    if (version !== modelRequestId || key !== modelKey()) return;
+    modelCatalog = { catalogs: [], error: e.message };
+  } finally {
+    if (version === modelRequestId) {
+      modelCatalogKey = key;
+      modelLoadingKey = "";
+      renderModelPicker();
+    }
+  }
+}
+function renderModelPicker() {
+  if (!state) return;
+  const chat =
+    selected &&
+    state.task?.task_id === selected &&
+    state.task.task_kind === "chat";
+  const creating = !selected && newTaskKind() === "chat";
+  $("new-model-picker").hidden = !creating;
+  $("reply-model-picker").hidden = !chat;
+  if ((!chat && !creating) || page !== "workspace" || state.project === null)
+    return;
+  const key = modelKey(),
+    scope = modelScope(),
+    prefix = chat ? "reply" : "new";
+  const picker = $(`${prefix}-chat-model`);
+  const data = modelCatalogKey === key ? modelCatalog : null;
+  const catalogs = data?.catalogs || [];
+  const last = chat
+    ? state.task.messages?.findLast((item) => item.role === "chat")?.generation
+    : null;
+  let chosen = modelChoices.get(scope);
+  if (
+    chosen === undefined &&
+    last &&
+    (last.backend === state.backend || state.backend === "auto")
+  )
+    chosen = JSON.stringify({ backend: last.backend, model: last.model });
+  if (chosen === undefined && catalogs.length === 1 && catalogs[0].current)
+    chosen = JSON.stringify({
+      backend: catalogs[0].backend,
+      model: catalogs[0].current,
+    });
+  const options = [{ value: "", label: "Use configured default" }];
+  for (const catalog of catalogs) {
+    options.push({
+      value: JSON.stringify({ backend: catalog.backend, model: null }),
+      label: `${catalog.backend} · Default`,
+    });
+    for (const model of catalog.models || [])
+      options.push({
+        value: JSON.stringify({ backend: catalog.backend, model: model.id }),
+        label: `${catalog.backend} · ${model.name}${model.resolved_model && model.resolved_model !== model.id ? ` (${model.resolved_model})` : ""}`,
+      });
+  }
+  if (chosen && !options.some((item) => item.value === chosen)) {
+    const previous = JSON.parse(chosen);
+    options.push({
+      value: chosen,
+      label: `${previous.backend} · ${previous.model || "Default"} (not in current list)`,
+    });
+  }
+  const optionKey = JSON.stringify(options);
+  if (picker.dataset.options !== optionKey) {
+    picker.replaceChildren();
+    for (const item of options) {
+      const option = el("option", item.label);
+      option.value = item.value;
+      picker.append(option);
+    }
+    picker.dataset.options = optionKey;
+  }
+  picker.value = chosen || "";
+  picker.disabled = submitting || !!state.job?.running;
+  $(`${prefix}-refresh-models`).disabled = modelLoadingKey === key;
+  const problems = catalogs
+    .filter((c) => c.error || c.notice)
+    .map((c) => `${c.backend}: ${c.error || c.notice}`);
+  $(`${prefix}-model-status`).textContent =
+    modelLoadingKey === key
+      ? "Detecting provider models… You can still send using the default."
+      : data?.error ||
+        problems.join(" ") ||
+        (last
+          ? `Last reply: ${last.backend} · ${last.reported_model || last.model || "provider default"}`
+          : `Backend: ${data?.backend || state.backend}. Choose a model for this response.`);
+  if (modelCatalogKey !== key && modelLoadingKey !== key) void loadModels();
+}
+for (const prefix of ["new", "reply"]) {
+  $(`${prefix}-chat-model`).onchange = () => {
+    modelChoices.set(modelScope(), $(`${prefix}-chat-model`).value);
+  };
+  $(`${prefix}-refresh-models`).onclick = () => loadModels(true);
+}
 async function command(body) {
   if (submitting) return;
   if (state?.job?.running)
     throw new Error(
       "An operation is still running. Stop it before sending another.",
     );
+  if (
+    body.command === "chat" ||
+    (state?.task?.task_kind === "chat" &&
+      ["respond", "resume", "restart"].includes(body.command))
+  ) {
+    const choice = chatModelChoice();
+    if (!body.backend || body.backend === choice.backend)
+      body = { ...choice, ...body };
+  }
   submitting = true;
   if (state) render();
   try {
     await api("/api/command", body);
+    if (body.backend && Object.hasOwn(body, "model"))
+      modelChoices.set(
+        modelScope(body.task_id, body.backend),
+        JSON.stringify({ backend: body.backend, model: body.model }),
+      );
     if (
       ["start", "explore", "review", "tests", "chat", "agent_builder"].includes(
         body.command,
@@ -401,6 +534,7 @@ function render() {
   $("import-project").disabled = busy;
   $("delete-confirm").disabled = busy;
   renderMemory(busy);
+  renderModelPicker();
   if (state.task) renderTask(state.task, busy);
   $("activity").hidden = page !== "workspace" || !state.job;
   if (state.job) {
@@ -532,7 +666,13 @@ function renderHistory(task) {
     } else if (item.role === "agent_builder") {
       history.append(message("Agent builder", item.answer));
     } else if (item.role === "chat") {
-      const entry = message("Assistant", item.answer);
+      const generation = item.generation;
+      const entry = message(
+        generation
+          ? `Assistant · ${generation.backend} · ${generation.reported_model || generation.model || "provider default"}`
+          : "Assistant",
+        item.answer,
+      );
       if (item.memory_save) {
         const saved = item.memory_save;
         const receipt = el("div", undefined, "memory-receipt");
@@ -1347,6 +1487,7 @@ function updateNewTask() {
     tests: "Write tests →",
     chat: "Start chat →",
   }[kind];
+  renderModelPicker();
 }
 $("new-form").onchange = updateNewTask;
 $("review-head").oninput = updateNewTask;

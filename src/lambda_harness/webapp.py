@@ -7,6 +7,7 @@ import secrets
 import shutil
 import signal
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
@@ -24,6 +25,7 @@ from .cancellation import ModelCancellation
 from .config import RoutedAgent, load_settings
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
 from .handoff import MAX_HANDOFF_BYTES, export_handoff, import_handoff, preview_handoff
+from .model_catalog import discover_models, valid_model
 from .phone import PhoneAccess, request_origin
 from .project_context import ContextStore, state_directory
 from .project_settings import ProjectSettings, project_identity
@@ -56,6 +58,8 @@ class LocalApp:
             "launch" if args.backend else "project" if saved_backend else "default"
         )
         self.selected_backend = self.project_backend
+        self.model_lock = threading.Lock()
+        self.model_cache = {}
         self.agent_settings = args.state_dir / "agents"
         with AgentLibrary(self.agent_settings) as library:
             self.agent_repository = (
@@ -274,6 +278,37 @@ class LocalApp:
             "backend": self.selected_backend or self.settings.default_backend,
         }
 
+    def models(self, refresh=False):
+        routed = RoutedAgent(self.settings, backend=self.selected_backend, model=self.args.model)
+        candidates = (
+            [
+                CommandAgent(profile, name=name, model=self.args.model)
+                for name, profile in sorted(self.settings.backends.items())
+                if CommandAgent(profile).executable(self.args.repo)
+            ]
+            if routed.automatic
+            else [routed.resolve("chat")]
+        )
+        catalogs = []
+        # This lock never blocks chat, stop, or state requests.
+        with self.model_lock:
+            for agent in candidates:
+                key = (agent.name, agent.model)
+                cached = self.model_cache.get(key)
+                if refresh or cached is None or time.monotonic() - cached[0] > 300:
+                    try:
+                        catalog = discover_models(agent, self.args.repo)
+                    except (ValueError, RuntimeError, OSError, KeyError, TypeError) as error:
+                        catalog = {
+                            "models": [],
+                            "current": agent.model,
+                            "default": None,
+                            "error": str(error),
+                        }
+                    self.model_cache[key] = (time.monotonic(), catalog)
+                catalogs.append({"backend": agent.name, **self.model_cache[key][1]})
+        return {"backend": "auto" if routed.automatic else candidates[0].name, "catalogs": catalogs}
+
     def start(self, command):
         allowed = {
             "start",
@@ -303,6 +338,7 @@ class LocalApp:
             "token",
             "confirmation",
             "backend",
+            "model",
             "head",
             "reviewers",
             "expectation",
@@ -326,6 +362,11 @@ class LocalApp:
         backend = command.get("backend", self.selected_backend)
         if backend is not None and backend != "auto" and backend not in self.settings.backends:
             raise ValueError("Unknown backend")
+        if command.get("model") is not None:
+            if not valid_model(command["model"]):
+                raise ValueError("Choose a valid model identifier")
+            if (backend or self.settings.default_backend) == "auto":
+                raise ValueError("Choose a model from a specific backend")
         with self.lock:
             if self.job and self.job["running"]:
                 raise ValueError("An operation is already running; stop it before sending another")
@@ -351,7 +392,7 @@ class LocalApp:
             agent = RoutedAgent(
                 self.settings,
                 backend=backend,
-                model=self.args.model,
+                model=command.get("model", self.args.model),
                 timeout=self.args.agent_timeout,
                 progress=self.progress,
                 cancellation=self.cancellation,
@@ -632,6 +673,13 @@ def create_server(app, port=8765, *, phone=None):
             if not self.authorized(api=path.path.startswith("/api/")):
                 return
             try:
+                if path.path == "/api/models":
+                    with hub.lock:
+                        app = hub.project(self.headers.get("X-Harness-Project"))
+                    if app is None:
+                        raise ValueError("Add or open a project first")
+                    self.send(200, app.models(parse_qs(path.query).get("refresh") == ["1"]))
+                    return
                 with hub.lock:
                     self.get(path)
             except (ValueError, RuntimeError, OSError) as error:

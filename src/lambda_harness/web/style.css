@@ -205,6 +205,20 @@ nav small {
   border-radius: 8px;
   background: #fff;
 }
+.model-picker {
+  margin: 12px 0;
+}
+.model-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.model-controls select {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 100%;
+}
 main {
   flex: 1;
   min-width: 0;

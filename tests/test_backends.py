@@ -72,6 +72,28 @@ def test_claude_profile_supplies_read_tools_schema_and_model(tmp_path):
     assert "--dangerously-skip-permissions" not in args
 
 
+@pytest.mark.parametrize("provider", ["codex", "claude-code", "local"])
+def test_provider_reported_model_is_kept_separate_from_the_requested_alias(tmp_path, provider):
+    payload = (
+        REPLY
+        if provider == "codex"
+        else {
+            "result": json.dumps(REPLY),
+            "model": "actual-model",
+            "modelUsage": {"actual-model": {"inputTokens": 1}},
+        }
+    )
+    script = executable(
+        tmp_path,
+        "import sys\nprint('model: actual-model', file=sys.stderr)\n"
+        f"print({json.dumps(payload)!r})\n",
+    )
+    agent = CommandAgent(profile(provider, script), model="alias")
+    assert agent("interviewer", {}, tmp_path) == REPLY
+    assert agent.model == "alias"
+    assert agent.reported_model == "actual-model"
+
+
 def test_json_bridge_receives_versioned_request_and_returns_direct_response(tmp_path):
     capture = tmp_path / "request.json"
     script = executable(

@@ -472,6 +472,16 @@
             <input id="require-walkthrough" type="checkbox" />
             Include a code walkthrough before handoff
           </label>
+          <div id="new-model-picker" class="model-picker" hidden>
+            <label for="new-chat-model">Model for this reply</label>
+            <div class="model-controls">
+              <select id="new-chat-model"></select>
+              <button id="new-refresh-models" type="button" class="quiet">
+                Refresh models
+              </button>
+            </div>
+            <small id="new-model-status" class="muted" role="status"></small>
+          </div>
           <div class="form-footer">
             <span class="muted">Each task gets its own worktree.</span
             ><button id="start-task" class="primary" type="submit">
@@ -511,6 +521,16 @@
             placeholder="Ask a follow-up or describe what should change."
           ></textarea>
           <div id="findings"></div>
+          <div id="reply-model-picker" class="model-picker" hidden>
+            <label for="reply-chat-model">Model for the next reply</label>
+            <div class="model-controls">
+              <select id="reply-chat-model"></select>
+              <button id="reply-refresh-models" type="button" class="quiet">
+                Refresh models
+              </button>
+            </div>
+            <small id="reply-model-status" class="muted" role="status"></small>
+          </div>
           <div class="form-footer">
             <div>
               <select id="message-action" aria-label="Message action"></select

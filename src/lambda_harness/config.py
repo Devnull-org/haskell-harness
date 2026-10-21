@@ -76,6 +76,7 @@ class RoutedAgent:
         self.progress = progress
         self.activity = activity
         self.cancellation = cancellation
+        self.last_generation = None
 
     @property
     def automatic(self):
@@ -101,7 +102,14 @@ class RoutedAgent:
         )
 
     def __call__(self, role, context, cwd):
-        return self.resolve(role)(role, context, cwd)
+        agent = self.resolve(role)
+        result = agent(role, context, cwd)
+        self.last_generation = {
+            "backend": agent.name,
+            "model": agent.model,
+            "reported_model": agent.reported_model,
+        }
+        return result
 
     def doctor(self, cwd):
         if self.automatic:

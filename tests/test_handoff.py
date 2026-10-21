@@ -45,6 +45,25 @@ def accept(harness, task):
     )
 
 
+def test_review_tool_receipts_survive_handoff(rig, repository, recipient, monkeypatch):
+    from .test_github_actions import github, review
+
+    source, view = review(rig, repository)
+    comments, _ = github(monkeypatch, source)
+    harness, target = rig[0], recipient[0]
+    view = harness.review_action(
+        "docs",
+        "post_review_comment",
+        token=view["review_actions"]["token"],
+        role="documentation_reviewer",
+        finding_id="DOC-002",
+    )
+    transfer(harness, target, ["docs"])
+    restored = accept(target, "docs")
+    assert restored["review_actions"]["posts"] == view["review_actions"]["posts"]
+    assert len(comments) == 1
+
+
 @pytest.mark.parametrize("reviewers", ["documentation", "all"])
 def test_documentation_reviews_can_be_handed_off_and_resumed(rig, recipient, reviewers):
     source, _, _ = rig

@@ -81,6 +81,7 @@
             runtimeInputs = [
               pkgs.git
               pkgs.gh
+              pkgs.lychee
               pkgs.nix
               pkgs.cursor-cli
               pkgs.codex
@@ -108,6 +109,7 @@
               development.${system}
               pkgs.git
               pkgs.gh
+              pkgs.lychee
               pkgs.just
               pkgs.nixfmt
               pkgs.nodejs
@@ -143,6 +145,7 @@
                 nativeBuildInputs = [
                   development.${system}
                   pkgs.git
+                  pkgs.lychee
                   pkgs.nixfmt
                   pkgs.nodejs
                   pkgs.prettier

@@ -93,6 +93,44 @@ def wait_for(test):
     raise AssertionError("Operation did not finish")
 
 
+def test_requested_review_tools_use_http_scope_without_model_selection(browser_app, monkeypatch):
+    app, call, calls, _ = browser_app
+    harness = app.harness(ScriptedAgent())
+    try:
+        repository = harness.repository
+        base = git(repository, "rev-parse", "HEAD")
+        (repository / "README.md").write_text("# Guide\n")
+        git(repository, "add", ".")
+        git(repository, "commit", "-m", "Docs")
+        view = harness.start_review("links", "Check docs", base=base, head="HEAD")
+    finally:
+        harness.close()
+    monkeypatch.setattr(
+        "lambda_harness.webapp.select_backend", lambda *a: pytest.fail("Model selected")
+    )
+    monkeypatch.setattr(
+        "lambda_harness.workflow.check_documentation_links",
+        lambda *a, **kw: {"summary": "Checked links", "issues": [], "limitations": "No build"},
+    )
+    body = {
+        "command": "review_action",
+        "task_id": "links",
+        "action": "check_links",
+        "token": view["review_actions"]["token"],
+    }
+    assert call("/api/command", body, authenticated=False)[0] == 403
+    assert call("/api/command", body)[0] == 202
+    wait_for(lambda: not app.state("links")["job"]["running"])
+    state = app.state("links")
+    assert state["job"]["error"] is None
+    assert state["task"]["messages"][-1]["action"] == "check_links"
+    assert state["task"]["stage"] == "standalone_review"
+    assert not calls.exists()
+    assert call("/api/command", {**body, "token": "stale"})[0] == 202
+    wait_for(lambda: not app.state("links")["job"]["running"])
+    assert "review changed" in app.state("links")["job"]["error"]
+
+
 def test_handoff_http_preview_import_and_takeover_do_not_call_a_backend(browser_app, monkeypatch):
     app, call, calls, _ = browser_app
     harness = app.harness(ScriptedAgent())

@@ -279,6 +279,7 @@ class LocalApp:
             "chat",
             "explore",
             "review",
+            "review_action",
             "tests",
             "resume",
             "run",
@@ -303,6 +304,8 @@ class LocalApp:
             "reviewers",
             "expectation",
             "agent_id",
+            "role",
+            "finding_id",
         ):
             if command.get(field) is not None and not isinstance(command[field], str):
                 raise ValueError(f"{field} must be text")
@@ -325,6 +328,7 @@ class LocalApp:
                 raise ValueError("An operation is already running; stop it before sending another")
             self.job = {
                 "id": secrets.token_hex(8),
+                "operation": command["command"],
                 "task_id": command["task_id"],
                 "running": True,
                 "log": [],
@@ -362,7 +366,7 @@ class LocalApp:
                         cancel=cancel,
                         progress=self.progress,
                     )
-            if action != "abandon" and not (
+            if action not in {"abandon", "review_action"} and not (
                 action == "respond" and command.get("action") in {"save_agent", "continue_handoff"}
             ):
                 selected = select_backend(agent, self.args.repo)
@@ -405,6 +409,16 @@ class LocalApp:
                 )
             elif action == "resume":
                 result = harness.resume(task_id, retry_backend=True)
+            elif action == "review_action":
+                with self.cancellation.request() as cancel:
+                    result = harness.review_action(
+                        task_id,
+                        command.get("action"),
+                        token=command.get("token"),
+                        role=command.get("role"),
+                        finding_id=command.get("finding_id"),
+                        cancel=cancel,
+                    )
             elif action == "run":
                 result = harness.run_phase(task_id, command.get("phase", ""))
             elif action == "respond":

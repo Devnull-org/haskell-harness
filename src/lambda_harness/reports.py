@@ -62,7 +62,8 @@ def standalone_review_report(state):
         f"Head: `{source['head_ref']}` (`{source['head']}`)",
         f"Diff starts at merge base: `{source['merge_base']}`",
         "",
-        "Read-only inspection. No builds or tests were run, and no comments were published.",
+        "Read-only inspection. No builds or tests were run. "
+        "GitHub actions run only when explicitly requested and are recorded below.",
     ]
     for role, review in state["standalone_reviews"].items():
         lines += ["", f"## {role.replace('_', ' ').capitalize()}", "", review["summary"]]
@@ -79,6 +80,23 @@ def standalone_review_report(state):
                 f"Sequence: {' → '.join(finding['sequence'])}",
                 f"Evidence: {finding['evidence']}",
                 f"Recommendation: {finding['recommendation']}",
+            ]
+    for item in state.get("messages", []):
+        if item.get("action") == "post_review_comment":
+            lines += ["", f"Posted {item['finding_id']}: {item['url']}"]
+        elif item.get("action") == "check_links":
+            lines += [
+                "",
+                "## Documentation link check",
+                "",
+                item.get("checked_at", ""),
+                item["summary"],
+                "",
+                item["limitations"],
+            ]
+            lines += [
+                f"- {issue['source']}: {issue['url']} — {issue['status']}: {issue['detail']}"
+                for issue in item["issues"]
             ]
     return "\n".join(lines) + "\n"
 

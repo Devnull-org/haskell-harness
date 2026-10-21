@@ -17,6 +17,8 @@ from pydantic import ValidationError
 from .agent_library import AVATARS, ROLES, AgentLibrary
 from .cleanup import cleanup_plan, remove_resources
 from .failures import AgentInterrupted, BackendError, BackendResponseError
+from .github_actions import post_review_comment
+from .link_checks import check_documentation_links
 from .project_context import ContextStore, state_directory
 from .reports import chat_report, exploration_report, pr_description, standalone_review_report
 from .review_context import review_diff
@@ -444,6 +446,81 @@ class Harness:
         self.context.close()
         self.agents.close()
 
+    def review_action(self, task_id, action, *, token, role=None, finding_id=None, cancel=None):
+        """Run a requested review tool without invoking a model or advancing the review."""
+        with self._lock():
+            state = copy.deepcopy(self._state(task_id))
+            tools = self._review_actions(state)
+            if not tools or tools["token"] != token:
+                raise ValueError("The review changed; refresh it before requesting this action")
+            self._assert_review_revision(state)
+            if action == "check_links":
+                result = check_documentation_links(
+                    state["worktree"],
+                    state["review_source"],
+                    state["report_directory"],
+                    cancel=cancel,
+                    progress=self.progress,
+                )
+            elif action == "post_review_comment":
+                result = self._post_finding(state, role, finding_id, cancel)
+            else:
+                raise ValueError("Unknown review action")
+            receipt = {
+                "stage": "review_action",
+                "action": action,
+                "review_token": tools["token"],
+                **result,
+            }
+            if receipt not in state["messages"]:
+                state["messages"].append(receipt)
+                self.graph.update_state(self._config(task_id), state)
+                if state["stage"] == "standalone_review":
+                    # Re-enter the same interrupt after recording the tool result.
+                    # No review or model node runs; exports still see a stable gate.
+                    self.graph.invoke(None, self._config(task_id))
+            reports = Path(state["report_directory"])
+            (reports / "review.md").write_text(standalone_review_report(state))
+            save_json(reports / "current-review.json", self._view(state))
+            return self._view(state)
+
+    def _post_finding(self, state, role, finding_id, cancel):
+        finding = next(
+            (
+                item
+                for item in state["standalone_reviews"].get(role, {}).get("findings", [])
+                if item["id"] == finding_id
+            ),
+            None,
+        )
+        if finding is None:
+            raise ValueError("Select an existing finding from this review")
+        return post_review_comment(
+            self.repository,
+            state["review_source"],
+            role,
+            finding,
+            cancel=cancel,
+            progress=self.progress,
+        )
+
+    def _review_actions(self, state):
+        if state.get("task_kind") != "review" or state["stage"] not in {
+            "standalone_review",
+            "review_complete",
+        }:
+            return None
+        token = digest([state["review_source"], state["standalone_reviews"]])
+        return {
+            "token": token,
+            "github": bool(state["review_source"].get("pull_request")),
+            "posts": [
+                m
+                for m in state["messages"]
+                if m.get("action") == "post_review_comment" and m.get("review_token") == token
+            ],
+        }
+
     def _workspace(self, state):
         return Workspace(state.get("worktree", self.repository))
 
@@ -489,6 +566,8 @@ class Harness:
             view["test_scope"] = {
                 key: state["specification"][key] for key in ("packages", "acceptance_criteria")
             }
+        if actions := self._review_actions(state):
+            view["review_actions"] = actions
         return view
 
     def _available_phases(self, state):

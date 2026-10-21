@@ -14,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
+from .agent_library import AVATARS, ROLES, AgentLibrary
 from .cleanup import cleanup_plan, remove_resources
 from .failures import AgentInterrupted, BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
@@ -48,6 +49,7 @@ class Harness:
         unsigned_commits=False,
         progress=None,
         validation=None,
+        agent_repository=None,
     ):
         self.repository = Path(repository).expanduser().resolve()
         if Path(git(self.repository, "rev-parse", "--show-toplevel")).resolve() != self.repository:
@@ -55,6 +57,7 @@ class Harness:
         self.state_dir = state_directory(self.repository, state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.context = ContextStore(self.state_dir)
+        self.agents = AgentLibrary(Path(state_dir) / "agents", agent_repository)
         self.agent, self.execute = agent, execute
         self.max_repair_rounds = max(1, max_repair_rounds)
         self.unsigned_commits = unsigned_commits
@@ -67,6 +70,7 @@ class Harness:
         nodes = (
             "prepare",
             "chat",
+            "agent_builder",
             "explore",
             "standalone_review",
             "interview",
@@ -126,6 +130,26 @@ class Harness:
         with self._lock():
             return self._start(
                 task_id, request, base=base, mode=mode, walkthrough=walkthrough, phase=phase
+            )
+
+    def start_agent_builder(self, task_id, request, *, agent_id=None):
+        with self._lock():
+            if not self.agents.writable:
+                raise ValueError("Choose a writable agent repository on the Agents page first")
+            existing = self.agents.get(agent_id) if agent_id else None
+            return self._start(
+                task_id,
+                request,
+                phase="agent_builder",
+                standalone={
+                    "task_kind": "agent_builder",
+                    "agent_origin": {
+                        "id": existing["id"] if existing else uuid4().hex,
+                        "version": existing["version"] if existing else None,
+                        "repository": self.agents.catalog,
+                    },
+                    "draft_definition": existing["definition"] if existing else None,
+                },
             )
 
     def start_tests(self, task_id, request, *, packages, criteria, base="HEAD", expectation="red"):
@@ -211,6 +235,7 @@ class Harness:
         if phase not in {"interview", "explore", "chat"} and not standalone:
             raise ValueError("A new task must start with interview, explore, or chat")
         base_revision = resolve_base(self.repository, base)
+        agent_profiles = {} if phase == "agent_builder" else self.agents.selected(self.repository)
         directory = self.state_dir / task_id
         directory.mkdir(mode=0o700)
         state = {
@@ -233,7 +258,8 @@ class Harness:
             "review_round": 0,
             "dispositions": [],
             "attempts": 0,
-            "project_context_id": self.context.latest_id(),
+            "project_context_id": None if phase == "agent_builder" else self.context.latest_id(),
+            "agent_profiles": agent_profiles,
             "validation_config": self.validation.model_dump(),
         }
         if phase == "chat":
@@ -365,6 +391,8 @@ class Harness:
 
     def can_use_context(self, task_id):
         checkpoint = self.graph.get_state(self._config(task_id))
+        if checkpoint.values.get("task_kind") == "agent_builder":
+            return False
         if checkpoint.values.get("stage") in {"ready", "abandoning"}:
             return False
         return not checkpoint.next or (
@@ -391,7 +419,7 @@ class Harness:
             state = self._state(task_id)
             if action not in state.get("prompt", {}).get("actions", []):
                 raise ValueError(f"Action {action!r} is not available at {state.get('stage')}")
-            if action in {"approve", "accept_red"}:
+            if action in {"approve", "accept_red", "save_agent"}:
                 if fields.get("approval_token") != state["prompt"].get("approval_token"):
                     raise ValueError("Stale or missing approval token")
                 if self._workspace(state).fingerprint() != state["gate_fingerprint"]:
@@ -411,6 +439,7 @@ class Harness:
     def close(self):
         self.connection.close()
         self.context.close()
+        self.agents.close()
 
     def _workspace(self, state):
         return Workspace(state.get("worktree", self.repository))
@@ -431,6 +460,8 @@ class Harness:
                 "task_kind",
                 "test_expectation",
                 "review_source",
+                "agent_profiles",
+                "saved_agent",
             )
             if key in state
         }
@@ -455,7 +486,7 @@ class Harness:
         return view
 
     def _available_phases(self, state):
-        if state.get("task_kind") in {"tests", "review", "chat"}:
+        if state.get("task_kind") in {"tests", "review", "chat", "agent_builder"}:
             return []
         following = {
             "specification_ready": ["explore", "tests"],
@@ -562,6 +593,16 @@ class Harness:
         return state
 
     def _context(self, state, **extra):
+        if state.get("task_kind") == "agent_builder":
+            return {
+                "request": state["request"],
+                "messages": state["messages"],
+                "definition": state.get("draft_definition"),
+                "roles": ROLES,
+                "coding_toolchains": ["haskell"],
+                "avatars": AVATARS,
+                **extra,
+            }
         workspace = self._workspace(state)
         context = {
             "request": state["request"],
@@ -593,6 +634,8 @@ class Harness:
 
     def _ask(self, state, role, **extra):
         context = self._context(state, **extra)
+        if profile := state.get("agent_profiles", {}).get(role):
+            context["agent_profile"] = profile
         workspace = self._workspace(state)
         before = workspace.fingerprint()
         if state.get("agent_integrity_fingerprint"):
@@ -698,6 +741,13 @@ class Harness:
                 {"specification": state["specification"]},
                 ["approve", "question", "revise"],
             )
+
+    def _agent_builder(self, state):
+        result = self._ask(state, "agent_builder")
+        state["draft_definition"] = result["definition"]
+        state["messages"].append({"role": "agent_builder", "answer": result["answer"]})
+        actions = ["answer", "save_agent"] if result["definition"] else ["answer"]
+        self._gate(state, "agent_builder", {"definition": result["definition"]}, actions)
 
     def _chat(self, state):
         # Keep the response and write ID stable until this user message is checkpointed.
@@ -1173,6 +1223,33 @@ class Harness:
                     }
                 )
             state["next"] = state["retry_node"]
+        elif stage == "agent_builder" and action == "answer":
+            state["messages"].append({"stage": stage, "action": action, "text": response["text"]})
+            state["next"] = "agent_builder"
+        elif stage == "agent_builder" and action == "save_agent":
+            origin = state["agent_origin"]
+            if origin["repository"] != self.agents.catalog:
+                raise ValueError(
+                    "The agent repository changed. Reopen this agent from the Agents page."
+                )
+            saved = self.agents.save(
+                origin["id"], state["draft_definition"], expected_version=origin["version"]
+            )
+            state["saved_agent"] = saved
+            state["messages"].append(
+                {
+                    "role": "agent_builder",
+                    "answer": (
+                        f"Saved {saved['definition']['name']} to {saved['path']}. "
+                        "Review the Git diff, then commit and push to share it. "
+                        "Assign it to a project when you want to use it."
+                    ),
+                    "saved_agent": saved,
+                }
+            )
+            self._phase_complete(
+                state, "agent_ready", "Agent saved to the repository. Commit and push to share it."
+            )
         elif stage == "chat" and action == "answer":
             state["messages"].append({"stage": stage, "action": action, "text": response["text"]})
             state["next"] = "chat"

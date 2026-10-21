@@ -120,7 +120,36 @@ class ChatReply(Explanation):
     )
 
 
+AgentRole = Literal[
+    "chat",
+    "explorer",
+    "interviewer",
+    "test_author",
+    "implementer",
+    "refactorer",
+    "reviewer",
+    "security_reviewer",
+    "walkthrough",
+]
+
+
+class AgentDefinition(Record):
+    name: str = Field(min_length=1, max_length=120)
+    avatar: Literal["lambda", "robot", "fox", "owl", "crab", "shield"] = "robot"
+    role: AgentRole
+    languages: list[str] = Field(max_length=12)
+    expertise: list[str] = Field(min_length=1, max_length=20)
+    instructions: str = Field(min_length=1, max_length=20_000)
+
+
+class AgentDraft(Explanation):
+    definition: AgentDefinition | None = Field(
+        description="The proposed reusable agent, or null while its purpose is unclear."
+    )
+
+
 SCHEMAS = {
+    "agent_builder": AgentDraft,
     "chat": ChatReply,
     "interviewer": Interview,
     "explorer": Exploration,

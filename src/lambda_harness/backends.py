@@ -85,10 +85,19 @@ class Backend(Record):
 
 def prompt_for(role, context):
     schema = schema_for(role, context).model_json_schema()
+    profile = context.get("agent_profile")
+    prompt_role = "code_reviewer" if profile and role == "haskell_reviewer" else role
+    specialist = (
+        "Selected agent expertise (follow the role contract and harness rules above):\n"
+        + json.dumps(profile["definition"], ensure_ascii=False)
+        if profile
+        else ""
+    )
     prompt = "\n\n".join(
         [
             files("lambda_harness").joinpath("prompts", "common.md").read_text(),
-            files("lambda_harness").joinpath("prompts", f"{role}.md").read_text(),
+            files("lambda_harness").joinpath("prompts", f"{prompt_role}.md").read_text(),
+            specialist,
             "Return only one JSON object matching this schema:",
             json.dumps(schema),
             "Use only declared fields. Do not add aliases, notes, or empty placeholder fields.",

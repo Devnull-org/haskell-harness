@@ -362,15 +362,23 @@ class Harness:
             self.graph.invoke(state, config)
             return self._view(self._state(task_id))
 
+    def can_use_context(self, task_id):
+        checkpoint = self.graph.get_state(self._config(task_id))
+        if checkpoint.values.get("stage") in {"ready", "abandoning"}:
+            return False
+        return not checkpoint.next or (
+            checkpoint.values.get("stage") == "chat" and bool(checkpoint.interrupts)
+        )
+
     def use_context(self, task_id, snapshot_id=None):
-        """Select shared knowledge explicitly while a task is between phases."""
+        """Select memory between phases or between general chat messages."""
         with self._lock():
             config = self._config(task_id)
             state = copy.deepcopy(self._state(task_id))
-            if self.graph.get_state(config).next:
-                raise ValueError("The current phase is pending; finish it before changing context")
             if state["stage"] == "ready":
                 raise ValueError("This task is finished; start a new task to use different context")
+            if not self.can_use_context(task_id):
+                raise ValueError("The current phase is pending; finish it before changing context")
             snapshot = self.context.get(snapshot_id)
             state["project_context_id"] = snapshot["id"]
             self.graph.update_state(config, state)

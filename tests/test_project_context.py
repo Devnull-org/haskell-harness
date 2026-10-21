@@ -119,3 +119,156 @@ def test_context_prompt_excerpts_are_bounded_but_full_sources_are_saved(reposito
         document = store.for_agent(snapshot["id"], Workspace(repository))["documents"][0]
         assert document["truncated"]
         assert len(document["excerpt"]) <= 4_000
+
+
+def test_memory_notes_can_be_created_edited_and_cleared_without_sources(repository, tmp_path):
+    with ContextStore(tmp_path / "context") as store:
+        first = store.save(
+            repository, notes="# Invariants\nJobs are retryable.", sources=[], expected_current=None
+        )
+        assert first["notes"].startswith("# Invariants")
+        assert store.for_agent(first["id"], Workspace(repository))["notes"] == first["notes"]
+        second = store.save(
+            repository, notes="Jobs are idempotent.", sources=[], expected_current=first["id"]
+        )
+        assert store.get(first["id"])["notes"] == first["notes"]
+        assert store.get()["notes"] == second["notes"]
+        empty = store.save(repository, notes="", sources=[], expected_current=second["id"])
+        assert empty["notes"] == "" and empty["documents"] == []
+        assert len(store.history()) == 3
+    with ContextStore(tmp_path / "context") as reopened:
+        assert reopened.get() == empty
+
+
+def test_editing_memory_retains_sources_until_explicitly_refreshed(repository, tmp_path):
+    with ContextStore(tmp_path / "context") as store:
+        first = store.refresh(repository, sources=[SOURCE, "CLAUDE.md"])
+        (repository / SOURCE).write_text("-- Updated reference\n")
+        git(repository, "commit", "-am", "Change reference")
+        saved = store.save(
+            repository,
+            notes="Explain the state machine.",
+            sources=[SOURCE],
+            expected_current=first["id"],
+        )
+        assert saved["documents"] == first["documents"][:1]
+        assert saved["revision"] == first["revision"]
+        assert store.for_agent(saved["id"], Workspace(repository))["changed_sources"] == [SOURCE]
+        refreshed = store.save(
+            repository,
+            notes=saved["notes"],
+            sources=[SOURCE],
+            expected_current=saved["id"],
+            refresh_sources=True,
+        )
+        assert "Updated reference" in refreshed["documents"][0]["content"]
+        assert refreshed["notes"] == saved["notes"]
+        assert store.for_agent(refreshed["id"], Workspace(repository))["changed_sources"] == []
+        assert store.get(first["id"]) == first
+
+
+def test_adding_sources_and_legacy_refresh_preserve_notes(repository, tmp_path):
+    with ContextStore(tmp_path / "context") as store:
+        first = store.save(
+            repository, notes="Architecture decisions", sources=[], expected_current=None
+        )
+        saved = store.save(
+            repository, notes=first["notes"], sources=[SOURCE], expected_current=first["id"]
+        )
+        assert saved["documents"][0]["path"] == SOURCE
+        refreshed = store.refresh(repository, sources=["CLAUDE.md"])
+        assert refreshed["notes"] == first["notes"]
+
+
+def test_memory_rejects_stale_edits_and_restores_without_destroying_versions(repository, tmp_path):
+    with ContextStore(tmp_path / "context") as first, ContextStore(tmp_path / "context") as second:
+        original = first.save(repository, notes="Original", sources=[], expected_current=None)
+        changed = second.save(
+            repository, notes="Changed", sources=[], expected_current=original["id"]
+        )
+        with pytest.raises(ValueError, match="changed"):
+            first.save(repository, notes="Stale", sources=[], expected_current=original["id"])
+        with pytest.raises(ValueError, match="changed"):
+            first.restore(original["id"], expected_current=original["id"])
+        assert first.latest_id() == changed["id"]
+        assert first.restore(original["id"], expected_current=changed["id"]) == original
+        assert first.get(changed["id"])["notes"] == "Changed"
+        assert len(first.history()) == 2
+
+
+@pytest.mark.parametrize(
+    "notes,sources",
+    [
+        (None, []),
+        ("x" * 32001, []),
+        ("bad\x00note", []),
+        ("valid", ["../outside"]),
+        ("valid", [123]),
+    ],
+    ids=["not-text", "too-long", "nul", "outside", "non-string-path"],
+)
+def test_invalid_memory_edits_do_not_replace_existing_version(repository, tmp_path, notes, sources):
+    with ContextStore(tmp_path / "context") as store:
+        first = store.refresh(repository, sources=[SOURCE])
+        with pytest.raises(ValueError):
+            store.save(repository, notes=notes, sources=sources, expected_current=first["id"])
+        assert store.latest_id() == first["id"]
+
+
+def test_chat_can_explicitly_use_updated_memory_between_messages(rig):
+    harness, agent, executor = rig
+    first = harness.context.save(
+        harness.repository, notes="Old invariant", sources=[], expected_current=None
+    )
+    agent.responses["chat"].append({"answer": "Understood", "references": []})
+    harness.start("chat", "Discuss invariants", phase="chat")
+    new = harness.context.save(
+        harness.repository, notes="New invariant", sources=[], expected_current=first["id"]
+    )
+    assert harness.inspect("chat")["project_context_id"] == first["id"]
+    view = harness.use_context("chat", new["id"])
+    assert view["stage"] == "chat" and view["prompt"]["actions"] == ["answer"]
+    agent.responses["chat"].append({"answer": "Using the new invariant", "references": []})
+    harness.respond("chat", "answer", text="What changed?")
+    assert agent.calls[-1][1]["project_context"]["notes"] == "New invariant"
+    assert len(agent.calls) == 2 and not executor.calls
+
+
+def test_source_import_cannot_overwrite_a_concurrent_save(repository, tmp_path, monkeypatch):
+    with ContextStore(tmp_path / "context") as first, ContextStore(tmp_path / "context") as second:
+        original = first.save(repository, notes="Before", sources=[], expected_current=None)
+        read = first._read_documents
+
+        def read_while_another_session_saves(*args):
+            second.save(
+                repository, notes="Concurrent edit", sources=[], expected_current=original["id"]
+            )
+            return read(*args)
+
+        monkeypatch.setattr(first, "_read_documents", read_while_another_session_saves)
+        with pytest.raises(ValueError, match="changed"):
+            first.save(
+                repository, notes="Slow import", sources=[SOURCE], expected_current=original["id"]
+            )
+        assert first.get()["notes"] == "Concurrent edit"
+        assert len(first.history()) == 2
+
+
+def test_legacy_snapshots_remain_readable_without_rewriting_them(repository, tmp_path):
+    import json
+
+    with ContextStore(tmp_path / "context") as store:
+        saved = store.refresh(repository, sources=[SOURCE])
+        legacy = {key: value for key, value in saved.items() if key != "notes"}
+        legacy["version"] = 2
+        with store.connection:
+            store.connection.execute(
+                "UPDATE snapshots SET data = ? WHERE id = ?", (json.dumps(legacy), saved["id"])
+            )
+        assert store.get() == legacy
+        assert store.for_agent(saved["id"], Workspace(repository))["notes"] == ""
+        updated = store.save(
+            repository, notes="New notes", sources=[SOURCE], expected_current=saved["id"]
+        )
+        assert updated["notes"] == "New notes"
+        assert store.get(saved["id"]) == legacy

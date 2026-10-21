@@ -16,7 +16,7 @@ from .project_context import ContextStore, state_directory
 from .review_source import resolve_review
 from .validation import LocalExecutor
 from .workflow import Harness
-from .workspace import git
+from .workspace import Workspace, git
 
 
 class LocalApp:
@@ -53,6 +53,24 @@ class LocalApp:
         with ContextStore(state_directory(self.args.repo, self.args.state_dir)) as context:
             return context.get(snapshot)
 
+    def context_preview(self, snapshot=None, task_id=None):
+        harness = self.harness()
+        try:
+            if task_id:
+                state = harness._state(task_id)
+                workspace = harness._workspace(state)
+                selected = snapshot or state.get("project_context_id")
+            else:
+                workspace = Workspace(self.args.repo)
+                selected = snapshot or harness.context.latest_id()
+            return {
+                "context": harness.context.for_agent(selected, workspace) if selected else None,
+                "revision": workspace.revision,
+                "task_id": task_id,
+            }
+        finally:
+            harness.close()
+
     def project_change(self, operation, body):
         with self.lock:
             if self.job and self.job["running"]:
@@ -73,12 +91,28 @@ class LocalApp:
                     ):
                         raise ValueError("Choose a task and saved snapshot")
                     return harness.use_context(body["task_id"], body["snapshot"])
-                sources = body.get("sources")
-                if not isinstance(sources, list) or not all(
-                    isinstance(path, str) for path in sources
-                ):
-                    raise ValueError("Choose source file paths")
                 with harness._lock():
+                    if operation in {"save", "restore"}:
+                        if "expected_current" not in body:
+                            raise ValueError("Include the current memory version before saving")
+                        if operation == "restore":
+                            if not isinstance(body.get("snapshot"), str) or not body["snapshot"]:
+                                raise ValueError("Choose a saved memory version")
+                            return harness.context.restore(
+                                body["snapshot"], expected_current=body["expected_current"]
+                            )
+                        return harness.context.save(
+                            self.args.repo,
+                            notes=body.get("notes"),
+                            sources=body.get("sources"),
+                            expected_current=body["expected_current"],
+                            refresh_sources=body.get("refresh_sources", False),
+                        )
+                    sources = body.get("sources")
+                    if not isinstance(sources, list) or not all(
+                        isinstance(path, str) for path in sources
+                    ):
+                        raise ValueError("Choose source file paths")
                     return harness.context.refresh(self.args.repo, sources=sources)
             finally:
                 harness.close()
@@ -129,6 +163,7 @@ class LocalApp:
                 task = harness._view(saved, inspect_worktree=False)
                 task["request"] = saved["request"]
                 task["messages"] = saved["messages"]
+                task["can_use_context"] = harness.can_use_context(task_id)
         finally:
             harness.close()
         active = self.cancellation.active
@@ -367,6 +402,8 @@ def create_server(app, port=8765):
                     self.send(200, app.abandon_plan(task_id))
                 elif path.path == "/api/project":
                     self.send(200, app.project())
+                elif path.path == "/api/context/preview":
+                    self.send(200, app.context_preview(query.get("snapshot", [None])[0], task_id))
                 elif path.path == "/api/context":
                     self.send(200, app.context_snapshot(query.get("snapshot", [None])[0]))
                 elif path.path in {"/", "/guide", "/app.js", "/theme.js", "/style.css"}:
@@ -401,10 +438,18 @@ def create_server(app, port=8765):
                     self.send(202, app.start(body))
                 elif self.path == "/api/stop":
                     self.send(200, {"stopping": app.cancellation.stop()})
-                elif self.path in {"/api/context", "/api/context/use", "/api/backend"}:
+                elif self.path in {
+                    "/api/context",
+                    "/api/context/use",
+                    "/api/context/save",
+                    "/api/context/restore",
+                    "/api/backend",
+                }:
                     operation = {
                         "/api/context": "refresh",
                         "/api/context/use": "use",
+                        "/api/context/save": "save",
+                        "/api/context/restore": "restore",
                         "/api/backend": "backend",
                     }[self.path]
                     self.send(200, app.project_change(operation, body))

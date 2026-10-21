@@ -350,6 +350,16 @@ def test_context_selection_keeps_the_workflow_gate(browser_app):
     )
     wait_for(ready.exists)
     assert call("/api/context", {"sources": ["CLAUDE.md"]})[0] == 400
+    assert (
+        call("/api/context/save", {"notes": "New", "sources": [], "expected_current": saved["id"]})[
+            0
+        ]
+        == 400
+    )
+    assert (
+        call("/api/context/restore", {"snapshot": saved["id"], "expected_current": saved["id"]})[0]
+        == 400
+    )
     assert call("/api/context/use", {"task_id": "context", "snapshot": saved["id"]})[0] == 400
     call("/api/stop", {})
     wait_for(lambda: not app.state()["job"]["running"])
@@ -395,6 +405,9 @@ def test_project_controls_require_same_origin_and_session_token(browser_app):
     assert call("/guide", authenticated=False)[0] == 200
     for path, body in (
         ("/api/project", None),
+        ("/api/context/preview", None),
+        ("/api/context/save", {"notes": "", "sources": [], "expected_current": None}),
+        ("/api/context/restore", {"snapshot": "invalid", "expected_current": None}),
         ("/api/context", {"sources": ["CLAUDE.md"]}),
         ("/api/context/use", {"task_id": "example", "snapshot": "invalid"}),
         ("/api/backend", {"backend": "test"}),
@@ -500,3 +513,86 @@ def test_browser_can_require_a_walkthrough_and_restart_without_losing_the_old_ta
         assert harness._state(fresh["task_id"])["walkthrough_enabled"] is True
     finally:
         harness.close()
+
+
+def test_memory_editor_saves_previews_restores_and_protects_stale_drafts(browser_app):
+    app, call, calls, _ = browser_app
+    draft = {
+        "notes": "# Rules\nJobs are idempotent.",
+        "sources": ["CLAUDE.md"],
+        "expected_current": None,
+    }
+    code, first = call("/api/context/save", draft)
+    assert code == 200
+    assert first["notes"] == draft["notes"]
+    assert call("/api/context/preview")[1]["context"]["notes"] == draft["notes"]
+    code, second = call(
+        "/api/context/save", {**draft, "notes": "Updated rules", "expected_current": first["id"]}
+    )
+    assert code == 200
+    assert call("/api/context/save", draft)[0] == 400
+    assert (
+        call("/api/context/restore", {"snapshot": first["id"], "expected_current": first["id"]})[0]
+        == 400
+    )
+    assert call("/api/context/save", {"notes": "", "sources": []})[0] == 400
+    assert (
+        call(
+            "/api/context/save",
+            {**draft, "expected_current": second["id"], "refresh_sources": "yes"},
+        )[0]
+        == 400
+    )
+    assert call(
+        "/api/context/restore", {"snapshot": first["id"], "expected_current": second["id"]}
+    ) == (200, first)
+    assert call("/api/context?snapshot=" + second["id"])[1] == second
+    assert len(call("/api/project")[1]["context"]["history"]) == 2
+    (app.args.repo / "CLAUDE.md").write_text("Changed local reference")
+    preview = call("/api/context/preview?snapshot=" + first["id"])[1]["context"]
+    assert preview["changed_sources"] == ["CLAUDE.md"]
+    assert "excerpt" not in preview["documents"][0]
+    assert not calls.exists()
+    assert app.state()["tasks"] == []
+
+
+def test_task_memory_preview_and_explicit_update_use_the_tasks_pinned_checkout(
+    browser_app, monkeypatch
+):
+    app, call, _, _ = browser_app
+    agent = ScriptedAgent()
+    monkeypatch.setattr("lambda_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", lambda *a: "test")
+    agent.responses["chat"].append({"answer": "Initial answer", "references": []})
+    call(
+        "/api/command",
+        {"command": "chat", "task_id": "memory", "base": "main", "request": "Discuss rules"},
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    assert call("/api/context/preview?task=memory")[1]["context"] is None
+    saved = call(
+        "/api/context/save",
+        {"notes": "Saved rules", "sources": ["CLAUDE.md"], "expected_current": None},
+    )[1]
+    assert call("/api/context/preview?task=memory")[1]["context"] is None
+    assert call("/api/state?task=memory")[1]["task"]["can_use_context"]
+    assert call("/api/context/use", {"task_id": "memory", "snapshot": saved["id"]})[0] == 200
+    # Changing the main checkout does not change a task's isolated source references.
+    (app.args.repo / "CLAUDE.md").write_text("Changed in the main checkout")
+    preview = call("/api/context/preview?task=memory")[1]
+    assert preview["context"]["changed_sources"] == []
+    assert preview["context"]["notes"] == "Saved rules"
+    assert call("/api/context/preview")[1]["context"]["changed_sources"] == ["CLAUDE.md"]
+    agent.responses["chat"].append({"answer": "Updated answer", "references": []})
+    call(
+        "/api/command",
+        {
+            "command": "respond",
+            "task_id": "memory",
+            "action": "answer",
+            "text": "Use the updated rules",
+        },
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    assert agent.calls[-1][1]["project_context"] == preview["context"]
+    assert len(agent.calls) == 2

@@ -12,23 +12,27 @@
   <body>
     <aside>
       <a class="brand" href="/">λ <span>Lambda Harness</span></a>
-      <div class="eyebrow">ACTIVE PROJECT</div>
-      <strong id="project-name" class="project-name"></strong>
-      <div id="repository" class="repo"></div>
-      <a id="workspace-link" class="workspace-link" href="/">Workspace</a>
-      <a id="project-memory" class="workspace-link" href="/project-memory"
-        >Memory</a
-      >
-      <a id="project-tools" class="workspace-link" href="/project-settings"
-        >Settings</a
-      >
-      <button id="new-task" class="primary wide">＋ New task</button>
-      <div class="sidebar-heading">
-        SAVED WORK <button id="refresh" class="quiet">Refresh</button>
-      </div>
-      <nav id="tasks" aria-label="Saved tasks"></nav>
-      <div class="eyebrow shared-heading">SHARED ACROSS PROJECTS</div>
-      <a id="agents-link" class="workspace-link" href="/agents">Agents</a>
+      <details class="project-navigation" open>
+        <summary>
+          <span class="eyebrow">ACTIVE PROJECT</span>
+          <strong id="project-name" class="project-name"></strong>
+        </summary>
+        <div id="repository" class="repo"></div>
+        <a id="workspace-link" class="workspace-link" href="/">Workspace</a>
+        <a id="project-memory" class="workspace-link" href="/project-memory"
+          >Memory</a
+        >
+        <a id="project-tools" class="workspace-link" href="/project-settings"
+          >Settings</a
+        >
+        <button id="new-task" class="primary wide">＋ New task</button>
+        <div class="sidebar-heading">
+          SAVED WORK <button id="refresh" class="quiet">Refresh</button>
+        </div>
+        <nav id="tasks" aria-label="Saved tasks"></nav>
+        <div class="eyebrow shared-heading">SHARED ACROSS PROJECTS</div>
+        <a id="agents-link" class="workspace-link" href="/agents">Agents</a>
+      </details>
       <a class="guide-link" href="/guide" target="_blank" rel="noopener"
         >Workflow guide ↗</a
       >

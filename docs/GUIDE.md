@@ -206,7 +206,9 @@ branch). The review uses the diff from their merge base to the selected head,
 excluding unrelated changes made later on the base branch. Both revisions are
 pinned when the task starts; the review worktree contains the head revision.
 
-A GitHub PR URL uses the PR's target branch and includes its title and description.
+A GitHub PR URL includes its title and description. Leave the comparison base
+empty to use the PR's target branch, or enter a local branch, remote-tracking ref,
+tag, or commit to override it. This changes only the review comparison, not the PR.
 It must belong to a GitHub remote configured in the selected project. The harness
 reads metadata through `gh` and fetches the base and PR head without changing
 branches or working files. The Nix launcher includes `gh`; without Nix, install

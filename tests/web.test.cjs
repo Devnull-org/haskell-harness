@@ -336,6 +336,38 @@ async function app({ pathname = "/", fetcher: initialFetch } = {}) {
   };
 }
 
+test("review bases stay editable and preserve branch and PR choices across polling", async () => {
+  const ui = await app();
+  const base = ui.elements.get("base"),
+    head = ui.elements.get("review-head");
+  ui.kind.value = "review";
+  base.value = "release";
+  head.value = "feature/parser";
+  head.oninput();
+  assert.equal(base.disabled, false);
+  assert.equal(base.required, true);
+  head.value = " https://github.com/example/project/pull/12/ ";
+  head.oninput();
+  assert.equal(base.disabled, false);
+  assert.equal(base.value, "");
+  base.value = "stack/base";
+  await ui.run("refresh()");
+  assert.equal(base.value, "stack/base");
+  head.value = "feature/parser";
+  head.oninput();
+  assert.equal(base.value, "release");
+  head.value = "https://github.com/example/project/pull/12";
+  head.oninput();
+  assert.equal(base.value, "stack/base");
+  base.value = "";
+  await ui.run("refresh()");
+  assert.equal(base.value, "");
+  head.value = "https://github.com/example/project/tree/feature";
+  head.oninput();
+  assert.equal(base.required, true);
+  assert.doesNotMatch(ui.elements.get("base-label").textContent, /PR/);
+});
+
 test("standalone forms submit their own scope without feature-only options", async () => {
   const ui = await app();
   const submitted = [];
@@ -356,13 +388,17 @@ test("standalone forms submit their own scope without feature-only options", asy
   ui.elements.get("review-head").value =
     "https://github.com/example/project/pull/12";
   ui.elements.get("review-head").oninput();
-  assert.equal(ui.elements.get("base").disabled, true);
+  assert.equal(ui.elements.get("base").disabled, false);
   assert.equal(ui.elements.get("base").required, false);
+  assert.equal(ui.elements.get("base").value, "");
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("base").value, "");
   ui.elements.get("new-form").onsubmit({ preventDefault() {} });
   await settle();
   assert.equal(submitted[0].command, "review");
   assert.equal(submitted[0].head, "https://github.com/example/project/pull/12");
   assert.equal(submitted[0].reviewers, "both");
+  assert.equal(submitted[0].base, "");
   assert(!("walkthrough" in submitted[0]));
   assert(!("criteria" in submitted[0]));
   assert.match(submitted[0].request, /Review this change/);

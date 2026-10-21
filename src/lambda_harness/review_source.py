@@ -19,8 +19,9 @@ def _github_repository(url):
 
 
 def resolve_review(repository, base, head, *, cancel=None, progress=None):
-    """GitHub URLs use the PR's own base; local refs use the selected comparison base."""
+    """Pin the comparison; a blank PR base defaults to its target branch."""
     head = head.strip()
+    base = base.strip()
     match = PR_URL.fullmatch(head)
     metadata = {}
     if match:
@@ -86,7 +87,9 @@ def resolve_review(repository, base, head, *, cancel=None, progress=None):
                 f"refs/pull/{match[2]}/head",
             ]
         )
-        base_revision = resolve_base(repository, metadata["baseRefOid"])
+        if base:
+            base_ref = base
+        base_revision = resolve_base(repository, base or metadata["baseRefOid"])
         head_revision = resolve_base(repository, metadata["headRefOid"])
     else:
         if "://" in head:

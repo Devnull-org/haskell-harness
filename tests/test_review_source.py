@@ -29,7 +29,7 @@ def test_github_pr_uses_metadata_and_fetches_without_moving_branches(repository,
         return 0, json.dumps(metadata) if argv[0] == "gh" else "", ""
 
     monkeypatch.setattr("lambda_harness.review_source.run_process", run)
-    source = resolve_review(repository, "unused", metadata["url"])
+    source = resolve_review(repository, "", metadata["url"])
     assert source["base"] == base and source["head"] == head
     assert source["pull_request"]["body"] == "Original request"
     assert calls == [
@@ -94,7 +94,35 @@ def test_pr_fetch_keeps_local_refs_and_fetch_head_unchanged(repository, tmp_path
         return run_process(argv, cwd, **kwargs)
 
     monkeypatch.setattr("lambda_harness.review_source.run_process", run)
-    source = resolve_review(repository, "ignored", "https://github.com/example/project/pull/12")
+    source = resolve_review(repository, "", "https://github.com/example/project/pull/12")
     assert source["head"] == head
     assert git(repository, "show-ref") == refs
     assert fetch_head.read_text() == "Existing fetch information\n"
+
+
+def test_pr_comparison_base_can_be_overridden_without_changing_pr_metadata(repository, monkeypatch):
+    original = git(repository, "rev-parse", "HEAD")
+    (repository / "README.md").write_text("Earlier change\n")
+    git(repository, "add", ".")
+    git(repository, "commit", "-m", "First change")
+    comparison = git(repository, "rev-parse", "HEAD")
+    git(repository, "branch", "stack-base")
+    (repository / SOURCE).write_text(IMPLEMENTED)
+    git(repository, "commit", "-am", "Second change")
+    head = git(repository, "rev-parse", "HEAD")
+    git(repository, "remote", "add", "origin", "git@github.com:Example/Project.git")
+    metadata = {"baseRefName": "main", "baseRefOid": original, "headRefOid": head}
+    monkeypatch.setattr(
+        "lambda_harness.review_source.run_process",
+        lambda argv, *a, **kw: (0, json.dumps(metadata) if argv[0] == "gh" else "", ""),
+    )
+    source = resolve_review(
+        repository, " stack-base ", "https://github.com/Example/Project/pull/12"
+    )
+    assert source["base_ref"] == "stack-base"
+    assert source["base"] == source["merge_base"] == comparison
+    assert source["head"] == head
+    assert source["pull_request"] == metadata
+    assert git(repository, "diff", "--name-only", source["merge_base"], head) == SOURCE
+    with pytest.raises(ValueError, match="base"):
+        resolve_review(repository, "missing-base", "https://github.com/Example/Project/pull/12")

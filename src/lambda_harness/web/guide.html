@@ -101,9 +101,11 @@
         </p>
         <p>
           For local refs, choose the comparison base. The review uses the diff
-          from the common ancestor to the selected head. A GitHub PR uses its
-          target branch and must belong to a remote configured in this project.
-          The Nix launcher includes the GitHub CLI; sign in with
+          from the common ancestor to the selected head. For a GitHub PR, leave
+          the base empty to use its target branch, or enter a branch or commit
+          to override the comparison. This does not change the PR. The PR must
+          belong to a remote configured in this project. The Nix launcher
+          includes the GitHub CLI; sign in with
           <code>gh auth login</code> if needed.
         </p>
         <p>

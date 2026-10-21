@@ -70,6 +70,10 @@ let handoffBusy = false,
   handoffArchive = null,
   handoffPreview = null,
   handoffTasks = [];
+let reviewFromPR = false,
+  branchBase = "",
+  prBase = "",
+  baseInitialized = false;
 const labels = {
   continue_handoff: "Continue from saved step",
   save_agent: "Save to repository",
@@ -282,7 +286,11 @@ function render() {
   $("repository").textContent = state.repository;
   $("backend").textContent =
     state.backend === "auto" ? "Automatic backend" : state.backend;
-  if (!$("base").value) $("base").value = state.base;
+  if (!baseInitialized && state.base) {
+    branchBase = branchBase || state.base;
+    if (!reviewFromPR && !$("base").value) $("base").value = branchBase;
+    baseInitialized = true;
+  }
   const running = !!state.job?.running;
   const busy = running || submitting || handoffBusy || !!connectionError;
   $("tasks").replaceChildren();
@@ -1169,11 +1177,25 @@ function updateNewTask() {
   $("test-packages").required = tests;
   $("test-criteria").required = tests;
   const github =
-    review && $("review-head").value.startsWith("https://github.com/");
+    review &&
+    /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*\/?$/.test(
+      $("review-head").value.trim(),
+    );
+  if (github !== reviewFromPR) {
+    if (github) {
+      branchBase = $("base").value;
+      $("base").value = prBase;
+    } else {
+      prBase = $("base").value;
+      $("base").value = branchBase;
+    }
+    reviewFromPR = github;
+  }
   $("base").required = !github;
-  $("base").disabled = github;
+  $("base").disabled = false;
+  $("base").placeholder = github ? "PR target branch by default" : "";
   $("base-label").textContent = github
-    ? "Base comes from the PR"
+    ? "Comparison base (optional override)"
     : "Base branch or commit";
   $("request").required = !review;
   $("request-label").textContent = review

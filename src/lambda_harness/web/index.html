@@ -12,23 +12,23 @@
   <body>
     <aside>
       <a class="brand" href="/">λ <span>Lambda Harness</span></a>
-      <div class="eyebrow">LOCAL WORKSPACE</div>
+      <div class="eyebrow">ACTIVE PROJECT</div>
+      <strong id="project-name" class="project-name"></strong>
       <div id="repository" class="repo"></div>
+      <a id="workspace-link" class="workspace-link" href="/">Workspace</a>
+      <a id="project-memory" class="workspace-link" href="/project-memory"
+        >Memory</a
+      >
+      <a id="project-tools" class="workspace-link" href="/project-settings"
+        >Settings</a
+      >
       <button id="new-task" class="primary wide">＋ New task</button>
       <div class="sidebar-heading">
         SAVED WORK <button id="refresh" class="quiet">Refresh</button>
       </div>
       <nav id="tasks" aria-label="Saved tasks"></nav>
-      <a id="workspace-link" class="workspace-link" href="/">Workspace</a>
-      <a id="agents-link" class="workspace-link" href="/agents"
-        >Agents <span>↗</span></a
-      >
-      <a id="project-memory" class="workspace-link" href="/project-memory"
-        >Project memory</a
-      >
-      <a id="project-tools" class="workspace-link" href="/project-settings"
-        >Project settings</a
-      >
+      <div class="eyebrow shared-heading">SHARED ACROSS PROJECTS</div>
+      <a id="agents-link" class="workspace-link" href="/agents">Agents</a>
       <a class="guide-link" href="/guide" target="_blank" rel="noopener"
         >Workflow guide ↗</a
       >
@@ -137,7 +137,7 @@
           aria-label="Agent details"
         ></section>
         <details class="panel">
-          <summary>Agents for this project</summary>
+          <summary id="agent-project-title">Agents for this project</summary>
           <p class="muted">
             Selections apply to new tasks. Existing tasks keep their saved agent
             definitions.
@@ -146,6 +146,7 @@
         </details>
         <section id="agent-drafts-section" class="panel" hidden>
           <h3>Agent conversations</h3>
+          <p id="agent-drafts-project" class="muted"></p>
           <p class="muted">
             Pick up a draft or revisit how an agent was designed.
           </p>
@@ -157,12 +158,18 @@
           <h2>Project settings</h2>
           <button id="close-project" class="quiet">Back to workspace</button>
         </div>
+        <p id="settings-project" class="project-scope"></p>
+        <p class="muted">
+          Preferences here apply to this project. Agent definitions and provider
+          logins can be reused across projects.
+        </p>
         <p id="setup-status" class="muted"></p>
-        <label for="backend-setting">Model backend</label>
+        <label for="backend-setting">Preferred model backend</label>
         <div class="button-row">
           <select id="backend-setting"></select>
-          <button id="save-backend">Use backend</button>
+          <button id="save-backend">Save preference</button>
         </div>
+        <p id="backend-preference-status" class="muted" role="status"></p>
         <p class="muted">
           Automatic selection checks your existing logins when work starts and
           lets you choose if several backends work.
@@ -181,6 +188,7 @@
           </div>
           <button id="close-memory" class="quiet">Back to workspace</button>
         </div>
+        <p id="memory-project" class="project-scope"></p>
         <p class="muted">
           Keep architecture, invariants, and decisions close to every
           conversation. New tasks use the current version. Existing tasks keep

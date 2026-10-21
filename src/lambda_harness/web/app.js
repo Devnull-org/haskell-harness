@@ -35,6 +35,10 @@ const pages = {
   },
 };
 function pageFromLocation() {
+  const match = globalThis.location?.pathname.match(
+    /^\/projects\/[^/]+\/(memory|settings)$/,
+  );
+  if (match) return match[1];
   return (
     Object.keys(pages).find(
       (name) => pages[name].path === globalThis.location?.pathname,
@@ -42,6 +46,7 @@ function pageFromLocation() {
   );
 }
 let page = pageFromLocation(),
+  activeProject = null,
   catalog = null,
   editingAgent = null,
   viewedAgent = null,
@@ -225,6 +230,7 @@ async function refresh() {
       "/api/state" + (taskId ? "?task=" + encodeURIComponent(taskId) : ""),
     );
     if (requestId !== refreshId || taskId !== selected) return;
+    setActiveProject(next.project);
     state = next;
     if (connectionError) error("");
     connectionError = null;
@@ -641,6 +647,7 @@ async function respond(action) {
 }
 async function loadProject() {
   const project = await api("/api/project");
+  setActiveProject(project.project);
   $("setup-status").textContent = [
     project.tools.git ? "Git ready" : "Git missing",
     project.tools.nix ? "Nix ready" : "Nix needed for code validation",
@@ -660,6 +667,13 @@ async function loadProject() {
     $("backend-setting").append(option);
   }
   $("backend-setting").value = project.backend;
+  $("backend-preference-status").textContent = project.unavailable_backend
+    ? `Saved backend ${project.unavailable_backend} is unavailable. Choose a replacement for this project.`
+    : project.backend_origin === "project"
+      ? "Saved for this project. Automatic discovery does not change this preference."
+      : project.backend_origin === "launch"
+        ? "Initial choice from the server launcher. Launch overrides take precedence over saved preferences on restart."
+        : "Using your default configuration. Save a choice to give this project its own preference.";
 }
 async function changeProject(path, body) {
   if (submitting || state?.job?.running) return;
@@ -745,6 +759,7 @@ async function loadMemory(snapshotId = null, discard = false) {
   renderMemory();
   try {
     const project = await api("/api/project");
+    setActiveProject(project.project);
     const id = snapshotId || project.context.latest;
     const saved = id
       ? await api("/api/context?snapshot=" + encodeURIComponent(id))
@@ -1055,11 +1070,45 @@ $("delete-dialog").addEventListener("close", () => {
       }),
     );
 });
+function projectPagePath(name) {
+  return activeProject && ["memory", "settings"].includes(name)
+    ? `/projects/${encodeURIComponent(activeProject.id)}/${name}`
+    : pages[name].path;
+}
+function setActiveProject(project) {
+  if (!project) return;
+  if (activeProject && activeProject.id !== project.id)
+    throw new Error(
+      "The active project changed. Copy any unsaved text before reloading the page.",
+    );
+  activeProject = project;
+  $("project-name").textContent = project.name;
+  $("repository").textContent = project.repository;
+  $("memory-project").textContent =
+    `Memory for ${project.name} · ${project.repository}`;
+  $("settings-project").textContent =
+    `Settings for ${project.name} · ${project.repository}`;
+  $("agent-project-title").textContent = `Agents selected for ${project.name}`;
+  $("agent-drafts-project").textContent =
+    `Conversations in ${project.name}. Saved agent definitions can be shared across projects.`;
+  renderPage();
+}
+function pageMatchesProject() {
+  const match = globalThis.location?.pathname.match(
+    /^\/projects\/([^/]+)\/(memory|settings)$/,
+  );
+  return !activeProject || !match || match[1] === activeProject.id;
+}
 function renderPage() {
+  const matches = pageMatchesProject();
   const workspace = page === "workspace";
   $("agents-page").hidden = page !== "agents";
-  $("memory-panel").hidden = page !== "memory";
-  $("project-panel").hidden = page !== "settings";
+  $("memory-panel").hidden = page !== "memory" || !matches;
+  $("project-panel").hidden = page !== "settings" || !matches;
+  if (!matches)
+    error(
+      "This page belongs to another project. Choose Memory or Settings under the active project in the sidebar.",
+    );
   $("new-panel").hidden = !workspace || !!selected;
   $("work").hidden =
     !workspace || !selected || state?.task?.task_id !== selected;
@@ -1070,22 +1119,32 @@ function renderPage() {
     $(info.link).className =
       "workspace-link" + (name === page ? " selected" : "");
     $(info.link).ariaCurrent = name === page ? "page" : null;
+    $(info.link).href = projectPagePath(name);
   }
   $("title").textContent = workspace
     ? state?.task?.task_kind === "agent_builder"
       ? "Agent workshop"
       : selected || "What would you like to work on?"
-    : pages[page].title;
-  document.title = pages[page].title + " · Lambda Harness";
+    : activeProject && ["memory", "settings"].includes(page)
+      ? `${activeProject.name} / ${page === "memory" ? "Memory" : "Settings"}`
+      : pages[page].title;
+  document.title = $("title").textContent + " · Lambda Harness";
+  if (
+    activeProject &&
+    ["memory", "settings"].includes(page) &&
+    globalThis.location?.pathname === pages[page].path
+  )
+    globalThis.history?.replaceState({}, "", projectPagePath(page));
 }
 function showPage(next) {
   page = next;
-  const url = pages[next].path;
+  const url = projectPagePath(next);
   if (globalThis.location?.pathname !== url)
     globalThis.history?.pushState({}, "", url);
   renderPage();
 }
 async function loadPage() {
+  if (!pageMatchesProject()) return;
   if (page === "agents") await loadAgents();
   else if (page === "memory" && !memoryDirty) await loadMemory();
   else if (page === "settings") await loadProject();
@@ -1162,6 +1221,7 @@ async function loadAgents() {
   agentControls();
   try {
     catalog = await api("/api/agents");
+    setActiveProject(catalog.project);
     $("agent-source-summary").textContent = catalog.repository
       ? "Repository · " + catalog.repository
       : "Choose a repository to add or edit agents";

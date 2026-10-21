@@ -38,13 +38,25 @@
       <section id="start" class="panel">
         <h2>Start with what you need</h2>
         <p>
-          <a href="/agents">Agents</a>,
-          <a href="/project-memory">Project memory</a>, and
-          <a href="/project-settings">Project settings</a> open on separate
-          pages. Use Workspace, a saved task, or your browser's Back button to
-          return to your conversation. Switching pages preserves unsent messages
-          and memory drafts in this tab; refreshing or closing the tab discards
-          unsaved text.
+          The sidebar names the active project and shows its checkout path. Its
+          Memory and Settings pages show the same identity and have
+          project-specific URLs. Use Workspace, a saved task, or your browser's
+          Back button to return to a conversation. Switching pages preserves
+          unsent messages and memory drafts in this tab; refreshing or closing
+          the tab discards unsaved text.
+        </p>
+        <p>
+          Memory, conversations, backend preferences, and agent selections
+          belong to this project. The Agents catalog and provider logins can be
+          reused across projects. This server opens one project, chosen with
+          <code>--repo</code>; run another server on a different port to open
+          another project alongside it.
+        </p>
+        <p>
+          Settings saves the preferred backend for future sessions. An explicit
+          <code>--backend</code> launch override takes precedence without
+          erasing that preference. Automatic discovery picks a backend for the
+          session without changing the saved preference.
         </p>
         <p>
           Choose <strong>General chat</strong> for an ongoing conversation: ask

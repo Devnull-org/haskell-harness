@@ -4,11 +4,29 @@ The website is the interface for conversations, approvals, phases, saved work,
 backend selection, and project memory. Open **Workflow guide** in the sidebar
 for an in-app walkthrough.
 
-**Agents**, **Project memory**, and **Project settings** each have their own page,
-with no conversation underneath. Their URLs are `/agents`, `/project-memory`, and
-`/project-settings`. Use **Workspace**, a saved task, or your browser's Back button
-to return. Switching pages keeps your unsent chat message and memory draft in the
-open browser tab; refresh or closing the tab still discards unsaved text.
+The sidebar names the **active project** and shows its checkout path. **Memory**
+and **Settings** belong to that project, with separate pages at
+`/projects/<project-id>/memory` and `/projects/<project-id>/settings`. The project ID
+uses the resolved checkout path, so repositories with the same name remain distinct.
+Old `/project-memory` and `/project-settings` links still open the active project's
+page. A bookmark for a different project is not silently opened against the active one.
+
+**Agents** is a shared catalog at `/agents`. Definitions can be reused across
+projects; agent assignments, conversations, and memory remain project-specific.
+The server currently opens one project, selected by `--repo`. To work on another,
+start a server for its checkout (with a different port if both are running).
+
+The project's **Settings** page saves its preferred backend across restarts. An
+explicit `--backend` launch override takes precedence without erasing the saved
+preference. With no project preference or launch override, the user configuration
+supplies the default. Automatic backend discovery chooses a backend for the session
+without overwriting the project's preference. Provider definitions and logins are
+reusable across projects. If a saved backend is removed from your configuration,
+the page explains the fallback and lets you select a replacement.
+
+Use **Workspace**, a saved task, or your browser's Back button to return to a
+conversation. Switching pages keeps unsent messages and memory drafts in the open
+browser tab; refresh or closing the tab still discards unsaved text.
 
 ## Start the local server
 

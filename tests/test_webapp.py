@@ -745,3 +745,88 @@ def test_project_pages_are_available_by_direct_url(browser_app, path):
     assert 'id="memory-panel"' in content
     assert 'id="project-panel"' in content
     assert not calls.exists()
+
+
+def test_project_identity_memory_and_backend_preferences_are_isolated(browser_app, tmp_path):
+    import copy
+
+    app, call, calls, _ = browser_app
+    first = call("/api/project")[1]["project"]
+    assert first["name"] == app.args.repo.name
+    assert first["repository"] == str(app.args.repo)
+    assert call("/api/state")[1]["project"] == first
+    assert call("/api/agents")[1]["project"] == first
+    assert call("/api/backend", {"backend": "codex"})[0] == 200
+    assert (
+        call(
+            "/api/context/save",
+            {"notes": "Only for the first project", "sources": [], "expected_current": None},
+        )[0]
+        == 200
+    )
+    other_path = tmp_path / "other" / app.args.repo.name
+    other_path.parent.mkdir()
+    git(tmp_path, "clone", str(app.args.repo), str(other_path))
+    args = copy.copy(app.args)
+    args.repo = other_path
+    other = LocalApp(args)
+    reopened = LocalApp(app.args)
+    try:
+        second = other.project()["project"]
+        assert second["name"] == first["name"] and second["id"] != first["id"]
+        assert other.project()["context"]["latest"] is None
+        assert other.project()["backend"] == "test"
+        assert reopened.project()["backend"] == "codex"
+        assert reopened.project()["backend_origin"] == "project"
+        assert reopened.context_snapshot()["notes"] == "Only for the first project"
+        other.project_change("backend", {"backend": "auto"})
+        assert reopened.project()["backend"] == "codex"
+        reopened.selected_backend = "test"
+        assert reopened.project()["backend"] == "codex"
+        assert not calls.exists()
+    finally:
+        other.close()
+        reopened.close()
+
+
+def test_project_urls_cannot_open_another_projects_memory_or_settings(browser_app):
+    _, call, _, _ = browser_app
+    project = call("/api/project")[1]["project"]
+    for page in ["memory", "settings"]:
+        assert call(f"/projects/{project['id']}/{page}")[0] == 200
+        assert call(f"/projects/not-this-project/{page}")[0] == 404
+
+
+def test_launch_backend_override_does_not_erase_project_preference(browser_app):
+    import copy
+
+    app, call, _, _ = browser_app
+    assert call("/api/backend", {"backend": "codex"})[0] == 200
+    args = copy.copy(app.args)
+    args.backend = "test"
+    overridden = LocalApp(args)
+    reopened = LocalApp(app.args)
+    try:
+        assert overridden.project()["backend"] == "test"
+        assert overridden.project()["backend_origin"] == "launch"
+        assert reopened.project()["backend"] == "codex"
+    finally:
+        overridden.close()
+        reopened.close()
+
+
+def test_unavailable_saved_backend_allows_the_project_to_open_and_be_reconfigured(browser_app):
+    from lambda_harness.project_context import state_directory
+    from lambda_harness.project_settings import ProjectSettings
+
+    app, _, _, _ = browser_app
+    with ProjectSettings(state_directory(app.args.repo, app.args.state_dir)) as settings:
+        settings.save_backend("removed-profile")
+    reopened = LocalApp(app.args)
+    try:
+        assert reopened.project()["backend"] == "test"
+        assert reopened.project()["unavailable_backend"] == "removed-profile"
+        reopened.project_change("backend", {"backend": "auto"})
+        assert reopened.project()["unavailable_backend"] is None
+    finally:
+        reopened.close()

@@ -84,6 +84,9 @@ async function app({ pathname = "/", fetcher: initialFetch } = {}) {
   const context = vm.createContext({
     location,
     history: {
+      replaceState: (_, __, path) => {
+        location.pathname = path;
+      },
       pushState: (_, __, path) => {
         location.pathname = path;
         navigation.push(path);
@@ -942,4 +945,106 @@ test("all project page URLs load directly and browser history loads the matching
     assertOnlyPage(ui, "memory-panel", "Project memory");
     assert.equal(ui.elements.get("context-notes").value, "");
   }
+});
+
+test("project memory and settings identify their owner and use project-specific links", async () => {
+  const identity = {
+    id: "project-a",
+    name: "example-app",
+    repository: "/code/example-app",
+  };
+  const project = {
+    project: identity,
+    backend: "auto",
+    backend_origin: "project",
+    backends: [],
+    tools: { git: true, nix: true, flake: true },
+    context: { latest: null, history: [] },
+  };
+  const ui = await app({
+    fetcher: async (path) =>
+      response(
+        path === "/api/project"
+          ? project
+          : path === "/api/agents"
+            ? { ...agentCatalog(), project: identity }
+            : {
+                ...snapshot(),
+                project: identity,
+                repository: identity.repository,
+              },
+      ),
+  });
+  assert.equal(ui.elements.get("project-name").textContent, "example-app");
+  assert.equal(
+    ui.elements.get("project-memory").href,
+    "/projects/project-a/memory",
+  );
+  assert.equal(
+    ui.elements.get("project-tools").href,
+    "/projects/project-a/settings",
+  );
+  await ui.elements.get("project-memory").onclick();
+  assert.equal(ui.location.pathname, "/projects/project-a/memory");
+  assert.match(ui.elements.get("title").textContent, /example-app.*Memory/);
+  assert.match(
+    ui.elements.get("memory-project").textContent,
+    /\/code\/example-app/,
+  );
+  await ui.elements.get("project-tools").onclick();
+  assert.equal(ui.location.pathname, "/projects/project-a/settings");
+  assert.match(ui.elements.get("title").textContent, /example-app.*Settings/);
+  assert.match(
+    ui.elements.get("settings-project").textContent,
+    /\/code\/example-app/,
+  );
+  assert.match(
+    ui.elements.get("backend-preference-status").textContent,
+    /Saved for this project/,
+  );
+  await ui.back("/projects/project-a/memory");
+  assert.equal(ui.elements.get("memory-panel").hidden, false);
+  assert.equal(ui.elements.get("project-panel").hidden, true);
+  await ui.run("openAgents()");
+  assert.equal(ui.location.pathname, "/agents");
+  assert.equal(ui.elements.get("title").textContent, "Agents");
+  assert.match(
+    ui.elements.get("agent-project-title").textContent,
+    /example-app/,
+  );
+});
+
+test("project bookmarks load directly and reject another project's identity", async () => {
+  const identity = {
+    id: "project-a",
+    name: "example-app",
+    repository: "/code/example-app",
+  };
+  const project = {
+    project: identity,
+    backend: "auto",
+    backend_origin: "project",
+    backends: [],
+    tools: { git: true, nix: true, flake: true },
+    context: { latest: null, history: [] },
+  };
+  const requests = [];
+  const fetcher = async (path) => {
+    requests.push(path);
+    return response(
+      path === "/api/project" ? project : { ...snapshot(), project: identity },
+    );
+  };
+  const ui = await app({ pathname: "/projects/project-a/memory", fetcher });
+  assert.equal(ui.elements.get("memory-panel").hidden, false);
+  assert.match(ui.elements.get("title").textContent, /example-app.*Memory/);
+  requests.length = 0;
+  await ui.back("/projects/project-b/settings");
+  assert.equal(ui.elements.get("project-panel").hidden, true);
+  assert.match(ui.elements.get("error").textContent, /another project/);
+  assert.deepEqual(requests, []);
+  await ui.elements.get("project-tools").onclick();
+  assert.equal(ui.location.pathname, "/projects/project-a/settings");
+  assert.equal(ui.elements.get("project-panel").hidden, false);
+  assert.equal(ui.elements.get("error").hidden, true);
 });

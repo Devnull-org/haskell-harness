@@ -803,3 +803,22 @@ dialog {
     grid-template-columns: 1fr;
   }
 }
+.project-name {
+  display: block;
+  font-size: 18px;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.project-scope {
+  border-left: 3px solid var(--accent);
+  padding: 8px 14px;
+  background: var(--soft);
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.shared-heading {
+  margin-top: 22px;
+}
+#new-task {
+  margin-top: 16px;
+}

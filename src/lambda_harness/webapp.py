@@ -20,6 +20,7 @@ from .cancellation import ModelCancellation
 from .config import RoutedAgent, load_settings
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
 from .project_context import ContextStore, state_directory
+from .project_settings import ProjectSettings, project_identity
 from .review_source import resolve_review
 from .validation import LocalExecutor
 from .workflow import Harness
@@ -36,7 +37,18 @@ class LocalApp:
         self.worker = None
         self.cancellation = ModelCancellation()
         self.shutdown = threading.Event()
-        self.selected_backend = args.backend
+        self.identity = project_identity(args.repo)
+        with ProjectSettings(state_directory(args.repo, args.state_dir)) as preferences:
+            saved_backend = preferences.backend()
+        self.unavailable_backend = (
+            saved_backend if saved_backend not in {None, "auto", *self.settings.backends} else None
+        )
+        saved_backend = None if self.unavailable_backend else saved_backend
+        self.project_backend = args.backend or saved_backend
+        self.backend_origin = (
+            "launch" if args.backend else "project" if saved_backend else "default"
+        )
+        self.selected_backend = self.project_backend
         self.agent_settings = args.state_dir / "agents"
         with AgentLibrary(self.agent_settings) as library:
             self.agent_repository = (
@@ -54,6 +66,7 @@ class LocalApp:
             repository = str(library.repository) if library.repository else None
             writable = library.writable
         return {
+            "project": self.identity,
             "roles": ROLES,
             "avatars": AVATARS,
             "repository": repository,
@@ -95,12 +108,15 @@ class LocalApp:
             saved = {"latest": context.latest_id(), "history": context.history()}
         flake = (self.args.nix_flake or self.args.repo).expanduser().resolve()
         return {
+            "project": self.identity,
             "context": saved,
             "backends": [
                 {"name": name, "available": bool(CommandAgent(backend).executable(self.args.repo))}
                 for name, backend in sorted(self.settings.backends.items())
             ],
-            "backend": self.selected_backend or self.settings.default_backend,
+            "backend": self.project_backend or self.settings.default_backend,
+            "backend_origin": self.backend_origin,
+            "unavailable_backend": self.unavailable_backend,
             "tools": {
                 "git": bool(shutil.which("git")),
                 "nix": bool(shutil.which("nix")),
@@ -140,8 +156,14 @@ class LocalApp:
                     name != "auto" and name not in self.settings.backends
                 ):
                     raise ValueError("Unknown backend")
-                self.selected_backend = name
-                return {"backend": name}
+                with ProjectSettings(
+                    state_directory(self.args.repo, self.args.state_dir)
+                ) as preferences:
+                    preferences.save_backend(name)
+                self.project_backend = self.selected_backend = name
+                self.backend_origin = "project"
+                self.unavailable_backend = None
+                return {"backend": name, "project": self.identity}
             harness = self.harness()
             try:
                 if operation == "use":
@@ -234,6 +256,7 @@ class LocalApp:
             harness.close()
         active = self.cancellation.active
         return {
+            "project": self.identity,
             "repository": str(self.args.repo),
             "base": git(self.args.repo, "branch", "--show-current") or "HEAD",
             "tasks": tasks,
@@ -488,6 +511,8 @@ def create_server(app, port=8765):
                     "/agents",
                     "/project-memory",
                     "/project-settings",
+                    f"/projects/{app.identity['id']}/memory",
+                    f"/projects/{app.identity['id']}/settings",
                     "/guide",
                     "/app.js",
                     "/theme.js",
@@ -498,6 +523,8 @@ def create_server(app, port=8765):
                         "/agents": "index.html",
                         "/project-memory": "index.html",
                         "/project-settings": "index.html",
+                        f"/projects/{app.identity['id']}/memory": "index.html",
+                        f"/projects/{app.identity['id']}/settings": "index.html",
                         "/guide": "guide.html",
                     }.get(path.path, path.path[1:])
                     content = files("lambda_harness").joinpath("web", name).read_text()

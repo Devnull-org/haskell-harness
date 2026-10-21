@@ -26,8 +26,8 @@ agents—all from a local website.
   Strict builds, lint, and Nix checks accompany code changes.
 - **Get a second opinion.** Dedicated Haskell and security reviewers examine the
   implementation, or review an existing PR. An optional walkthrough helps you retain context.
-- **Keep project knowledge close.** Read and edit shared memory, preview what agents
-  receive, and revisit earlier versions from the website.
+- **Keep project knowledge close.** Save notes straight from chat, edit shared memory,
+  preview what agents receive, and revisit earlier versions.
 - **Own every patch.** Work stays in isolated local worktrees, with saved conversations
   and small commits. Prepare a handoff when you're ready to publish.
 

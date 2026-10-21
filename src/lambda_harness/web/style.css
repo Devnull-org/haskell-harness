@@ -652,3 +652,16 @@ dialog {
   min-width: 0;
   max-width: 100%;
 }
+
+.memory-receipt {
+  margin-top: 16px;
+  padding: 14px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.memory-receipt small {
+  display: block;
+  margin-top: 10px;
+  color: var(--muted);
+}

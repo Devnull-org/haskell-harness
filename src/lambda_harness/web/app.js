@@ -336,8 +336,34 @@ function renderHistory(task) {
       const entry = el("div", undefined, "message");
       renderReviews(entry, item.reviews);
       history.append(entry);
-    } else if (item.role === "chat")
-      history.append(message("Assistant", item.answer));
+    } else if (item.role === "chat") {
+      const entry = message("Assistant", item.answer);
+      if (item.memory_save) {
+        const saved = item.memory_save;
+        const receipt = el("div", undefined, "memory-receipt");
+        receipt.append(
+          el(
+            "strong",
+            saved.status === "saved"
+              ? "Saved to project memory"
+              : "Memory not saved",
+          ),
+          prose(saved.note),
+        );
+        if (saved.status === "saved") {
+          receipt.append(
+            el("small", "Version " + saved.snapshot.slice(0, 12)),
+            button(
+              "View saved memory",
+              () => openMemory(saved.snapshot),
+              "quiet",
+            ),
+          );
+        } else receipt.append(el("p", saved.error));
+        entry.append(receipt);
+      }
+      history.append(entry);
+    }
   }
   if (pending) {
     const entry = message("You", pending.text, true);
@@ -774,12 +800,12 @@ $("save-backend").onclick = () =>
   guard(() =>
     changeProject("/api/backend", { backend: $("backend-setting").value }),
   );
-$("project-memory").onclick = () =>
-  guard(async () => {
-    $("memory-panel").hidden = false;
-    $("project-panel").hidden = true;
-    if (!memoryDirty) await loadMemory();
-  });
+async function openMemory(snapshotId = null) {
+  $("memory-panel").hidden = false;
+  $("project-panel").hidden = true;
+  if (snapshotId || !memoryDirty) await loadMemory(snapshotId);
+}
+$("project-memory").onclick = () => guard(() => openMemory());
 $("close-memory").onclick = () => {
   $("memory-panel").hidden = true;
 };

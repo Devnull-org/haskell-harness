@@ -168,6 +168,15 @@ files. Add or edit architecture notes, invariants, decisions, and terminology,
 then choose **Save memory**. Notes support plain text or Markdown and are included
 in full (up to 32,000 UTF-8 bytes). No model call or repository edit is involved.
 
+In **General chat**, you can say “Save this to project memory: every job must be
+safe to retry,” or ask to remember a clear point from the conversation. The agent
+returns a note for the harness to append to current memory. The conversation shows
+**Saved to project memory**, the exact text, and a link to its saved version only
+after the write succeeds. That chat uses the new version immediately; other tasks
+keep theirs. Ordinary discussion does not request a memory write. If “this” is
+ambiguous, the agent asks what to save. Editing or deleting existing notes still
+uses the editor. A failed save shows its reason and keeps the proposed note.
+
 Reference paths are relative to the selected repository, one per line. Adding a
 path captures **all listed files** from committed HEAD. Editing notes or removing
 a path keeps the retained files' saved contents. **Refresh sources & save** reads

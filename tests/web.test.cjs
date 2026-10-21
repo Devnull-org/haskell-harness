@@ -602,3 +602,51 @@ test("a late preview cannot replace a new memory draft", async () => {
   assert.equal(ui.elements.get("context-preview").textContent, "");
   assert.equal(ui.elements.get("context-notes").value, "New draft");
 });
+
+test("chat displays the committed memory receipt and opens that exact version", async () => {
+  const ui = await app();
+  memoryFixture(ui);
+  ui.run(
+    `state.task.messages = [{role: "chat", answer: "Here is the note.", references: [], memory_save: {status: "saved", note: "Original rules", snapshot: "original"}}]; render();`,
+  );
+  const history = ui.elements.get("history");
+  assert.match(
+    history.textContent,
+    /Saved to project memory.*Original rules.*Version original/s,
+  );
+  const receipt = history.children[1].children.at(-1);
+  await receipt.children.find((item) => item.tagName === "button").onclick();
+  assert.equal(ui.elements.get("memory-panel").hidden, false);
+  assert.equal(ui.elements.get("context-snapshot").value, "original");
+  assert.equal(ui.elements.get("context-notes").value, "Original rules");
+});
+
+test("a failed chat save displays the reason and proposed note without a saved-version link", async () => {
+  const ui = await app();
+  ui.run(
+    `state.task.messages = [{role: "chat", answer: "The note was not saved.", references: [], memory_save: {status: "error", note: "Keep the core pure", error: "Project notes would exceed 32,000 UTF-8 bytes"}}]; render();`,
+  );
+  const history = ui.elements.get("history");
+  assert.match(
+    history.textContent,
+    /Memory not saved.*Keep the core pure.*32,000/s,
+  );
+  assert(!history.textContent.includes("Saved to project memory"));
+  const receipt = history.children[1].children.at(-1);
+  assert(!receipt.children.some((item) => item.tagName === "button"));
+});
+
+test("opening a memory receipt preserves an unsaved editor draft", async () => {
+  const ui = await app();
+  memoryFixture(ui);
+  await ui.elements.get("project-memory").onclick();
+  ui.elements.get("context-notes").value = "Unfinished edit";
+  ui.elements.get("context-notes").oninput();
+  ui.run(
+    `state.task.messages = [{role: "chat", answer: "Here is the note.", references: [], memory_save: {status: "saved", note: "Old rules", snapshot: "older"}}]; render();`,
+  );
+  const receipt = ui.elements.get("history").children[1].children.at(-1);
+  await receipt.children.find((item) => item.tagName === "button").onclick();
+  assert.equal(ui.elements.get("context-notes").value, "Unfinished edit");
+  assert.match(ui.elements.get("error").textContent, /Save your memory draft/);
+});

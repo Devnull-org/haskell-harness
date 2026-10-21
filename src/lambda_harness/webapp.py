@@ -22,6 +22,7 @@ from .backends import CommandAgent
 from .cancellation import ModelCancellation
 from .config import RoutedAgent, load_settings
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
+from .handoff import MAX_HANDOFF_BYTES, export_handoff, import_handoff, preview_handoff
 from .project_context import ContextStore, state_directory
 from .project_settings import ProjectSettings, project_identity
 from .projects import ProjectRegistry, validate_repository
@@ -362,7 +363,7 @@ class LocalApp:
                         progress=self.progress,
                     )
             if action != "abandon" and not (
-                action == "respond" and command.get("action") == "save_agent"
+                action == "respond" and command.get("action") in {"save_agent", "continue_handoff"}
             ):
                 selected = select_backend(agent, self.args.repo)
                 self.selected_backend = selected
@@ -447,6 +448,48 @@ class LocalApp:
             return harness.abandon_plan(task_id)
         finally:
             harness.close()
+
+    def reserve_handoff(self, operation):
+        with self.lock:
+            if self.shutdown.is_set():
+                raise ValueError("This project was closed; reopen it before transferring work")
+            if self.job and self.job["running"]:
+                raise ValueError("Stop or finish the current operation before transferring work")
+            self.job = {
+                "id": secrets.token_hex(8),
+                "task_id": "project handoff",
+                "running": True,
+                "log": [f"Preparing handoff {operation}…"],
+                "result": None,
+                "error": None,
+                "selection": None,
+            }
+
+    def handoff(self, operation, body, *, reserved=False):
+        if not reserved:
+            self.reserve_handoff(operation)
+        harness = None
+        try:
+            harness = self.harness()
+            if operation == "export":
+                result = export_handoff(harness, body.get("tasks"))
+            elif operation == "preview":
+                result = preview_handoff(harness, body.get("archive"))
+            else:
+                result = import_handoff(
+                    harness, body.get("archive"), confirmation=body.get("confirmation")
+                )
+            self.progress(f"Handoff {operation} complete")
+            return result
+        except Exception as error:
+            with self.lock:
+                self.job["error"] = str(error)
+            raise
+        finally:
+            if harness:
+                harness.close()
+            with self.lock:
+                self.job["running"] = False
 
     def close(self):
         self.shutdown.set()
@@ -659,11 +702,27 @@ def create_server(app, port=8765):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 1_000_000:
-                    raise ValueError("Request must contain at most 1 MB of JSON")
+                transfer = self.path in {
+                    "/api/handoff/export",
+                    "/api/handoff/preview",
+                    "/api/handoff/import",
+                }
+                limit = MAX_HANDOFF_BYTES + 1_000_000 if transfer else 1_000_000
+                if not 0 < length <= limit:
+                    raise ValueError("Request is empty or exceeds the allowed size")
                 body = json.loads(self.rfile.read(length))
                 if not isinstance(body, dict):
                     raise ValueError("Expected a JSON object")
+                if transfer:
+                    with hub.lock:
+                        app = hub.project(self.headers.get("X-Harness-Project"))
+                        if app is None:
+                            raise ValueError("Add or open the destination project first")
+                        operation = self.path.rsplit("/", 1)[1]
+                        app.reserve_handoff(operation)
+                    # Bundling commits can take time. Other tabs can still read status.
+                    self.send(200, app.handoff(operation, body, reserved=True))
+                    return
                 with hub.lock:
                     self.post(body)
             except (ValueError, RuntimeError, OSError) as error:

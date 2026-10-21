@@ -93,6 +93,101 @@ def wait_for(test):
     raise AssertionError("Operation did not finish")
 
 
+def test_handoff_http_preview_import_and_takeover_do_not_call_a_backend(browser_app, monkeypatch):
+    app, call, calls, _ = browser_app
+    harness = app.harness(ScriptedAgent())
+    try:
+        harness.start("share", "Explain this change")
+    finally:
+        harness.close()
+    status, archive = call("/api/handoff/export", {"tasks": ["share"]})
+    assert status == 200, archive
+    assert call("/api/handoff/export", {"tasks": ["share"]}, authenticated=False)[0] == 403
+    assert (
+        call(
+            "/api/handoff/export",
+            {"tasks": ["share"]},
+            headers={"Origin": "https://elsewhere.invalid"},
+        )[0]
+        == 403
+    )
+    status, preview = call("/api/handoff/preview", {"archive": archive})
+    assert status == 200, preview
+    assert preview["tasks"][0]["task_id"] == "share-import-1"
+    status, result = call(
+        "/api/handoff/import", {"archive": archive, "confirmation": preview["confirmation"]}
+    )
+    assert status == 200, result
+    view = call("/api/state?task=share-import-1")[1]["task"]
+    assert view["stage"] == "handoff_review"
+    monkeypatch.setattr(
+        "lambda_harness.webapp.select_backend", lambda *a: pytest.fail("Unexpected backend call")
+    )
+    call(
+        "/api/command",
+        {
+            "command": "respond",
+            "task_id": "share-import-1",
+            "action": "continue_handoff",
+            "token": view["prompt"]["approval_token"],
+        },
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    state = call("/api/state?task=share-import-1")[1]
+    assert state["task"]["stage"] == "specification_review", state["job"]
+    assert not calls.exists()
+
+
+def test_handoff_status_remains_responsive_and_blocks_mutations(browser_app, monkeypatch):
+    app, call, _, _ = browser_app
+    entered, release = threading.Event(), threading.Event()
+
+    def paused_export(harness, tasks):
+        entered.set()
+        assert release.wait(5)
+        return {"exported": True}
+
+    monkeypatch.setattr("lambda_harness.webapp.export_handoff", paused_export)
+    result = []
+    thread = threading.Thread(
+        target=lambda: result.append(call("/api/handoff/export", {"tasks": []}))
+    )
+    thread.start()
+    try:
+        assert entered.wait(5)
+        assert call("/api/state")[1]["job"]["running"]
+        assert (
+            call(
+                "/api/command",
+                {"command": "start", "task_id": "new", "request": "new", "base": "main"},
+            )[0]
+            == 400
+        )
+        assert call("/api/handoff/export", {"tasks": []})[0] == 400
+        assert (
+            call(
+                "/api/projects/remove",
+                {"project_id": app.identity["id"], "confirmation": app.identity["id"]},
+            )[0]
+            == 400
+        )
+        assert call("/api/backend", {"backend": "auto"})[0] == 400
+    finally:
+        release.set()
+        thread.join(5)
+    assert result == [(200, {"exported": True})]
+    assert not call("/api/state")[1]["job"]["running"]
+
+
+def test_invalid_handoff_returns_a_useful_error_and_releases_busy_state(browser_app):
+    _, call, _, _ = browser_app
+    status, result = call("/api/handoff/preview", {"archive": {"version": 99}})
+    assert status == 400 and result["error"]
+    job = call("/api/state")[1]["job"]
+    assert not job["running"]
+    assert job["error"] == result["error"]
+
+
 @pytest.mark.parametrize("kind", ["tests", "review"])
 def test_browser_standalone_tasks_start_directly_and_finish_locally(browser_app, monkeypatch, kind):
     app, call, _, _ = browser_app

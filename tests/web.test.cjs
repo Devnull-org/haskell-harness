@@ -47,6 +47,9 @@ class Element {
     this.open = false;
   }
   focus() {}
+  click() {
+    this.onclick?.();
+  }
 }
 
 function task(name = "example") {
@@ -74,6 +77,174 @@ function snapshot(current = task()) {
 const response = (body) => ({ ok: true, json: async () => body });
 const settle = () => new Promise(setImmediate);
 
+test("export downloads only selected tasks and keeps the browser project scope", async () => {
+  const requests = [];
+  const current = {
+    ...snapshot(),
+    project: { id: "project-a", name: "Example", repository: "/example" },
+    tasks: [
+      { task_id: "example", stage: "exploration" },
+      { task_id: "another", stage: "chat" },
+    ],
+  };
+  const archive = {
+    format: "lambda-harness-handoff",
+    created: "2026-10-21T00:00:00Z",
+    tasks: [],
+  };
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path === "/api/handoff/export") {
+        requests.push(options);
+        return response(archive);
+      }
+      return response(current);
+    },
+  });
+  ui.elements.get("export-task").onclick();
+  const choices = ui.elements.get("handoff-tasks").children;
+  assert.equal(choices[0].children[0].checked, true);
+  assert.equal(choices[1].children[0].checked, false);
+  await ui.elements.get("download-handoff").onclick();
+  assert.deepEqual(JSON.parse(requests[0].body), { tasks: ["example"] });
+  assert.equal(requests[0].headers["X-Harness-Project"], "project-a");
+  assert.deepEqual(JSON.parse(await ui.downloads[0].text()), archive);
+  assert.match(ui.elements.get("handoff-status").textContent, /unchanged/);
+  assert.equal(ui.elements.get("close-handoff").disabled, false);
+});
+
+test("import previews the file and requires confirmation before restoring paused work", async () => {
+  const requests = [];
+  const archive = { format: "lambda-harness-handoff", version: 1 };
+  const preview = {
+    project: "Example",
+    created: "2026-10-21",
+    memory_versions: 2,
+    keep_current_memory: true,
+    confirmation: "reviewed",
+    tasks: [
+      {
+        original: "example",
+        task_id: "example-import-1",
+        stage: "test_review",
+        request: "Write tests",
+        commits: 1,
+        uncommitted: true,
+      },
+    ],
+  };
+  let imported = false;
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path.startsWith("/api/handoff/")) {
+        requests.push([path, JSON.parse(options.body)]);
+        if (path.endsWith("preview")) return response(preview);
+        imported = true;
+        return response({
+          tasks: [{ original: "example", task_id: "example-import-1" }],
+        });
+      }
+      if (imported)
+        return response(
+          snapshot({
+            ...task("example-import-1"),
+            stage: "handoff_review",
+            prompt: { actions: ["continue_handoff"], approval_token: "new" },
+          }),
+        );
+      return response(snapshot());
+    },
+  });
+  ui.elements.get("import-project").onclick();
+  assert.equal(ui.elements.get("confirm-handoff").disabled, true);
+  ui.elements.get("handoff-file").files = [
+    { size: 100, text: async () => JSON.stringify(archive) },
+  ];
+  await ui.elements.get("handoff-file").onchange();
+  assert.equal(requests.length, 1);
+  assert.match(
+    ui.elements.get("handoff-preview").textContent,
+    /example-import-1/,
+  );
+  assert.match(
+    ui.elements.get("handoff-preview").textContent,
+    /current project memory stays/,
+  );
+  assert.equal(ui.elements.get("confirm-handoff").disabled, false);
+  await ui.elements.get("confirm-handoff").onclick();
+  assert.deepEqual(requests[1], [
+    "/api/handoff/import",
+    { archive, confirmation: "reviewed" },
+  ]);
+  assert.equal(ui.elements.get("handoff-dialog").open, false);
+  assert.equal(ui.run("selected"), "example-import-1");
+  assert.equal(
+    ui.elements.get("actions").children[0].textContent,
+    "Continue from saved step",
+  );
+});
+
+test("invalid replacement files clear a previous import preview and cannot be submitted", async () => {
+  const ui = await app();
+  ui.elements.get("import-project").onclick();
+  ui.run("handoffArchive = {}; handoffPreview = {confirmation: 'stale'}");
+  ui.elements.get("handoff-file").files = [
+    { size: 4, text: async () => "oops" },
+  ];
+  await ui.elements.get("handoff-file").onchange();
+  assert.equal(ui.elements.get("confirm-handoff").disabled, true);
+  assert.equal(ui.run("handoffPreview"), null);
+  assert.match(ui.elements.get("handoff-error").textContent, /valid JSON/);
+});
+
+test("import preserves an unsent message in the previous task", async () => {
+  const ui = await app();
+  ui.elements.get("message").value = "An unfinished question";
+  ui.elements.get("import-project").onclick();
+  ui.run("handoffArchive = {}; handoffPreview = {confirmation: 'reviewed'}");
+  ui.fetch(async (path) =>
+    path === "/api/handoff/import"
+      ? response({ tasks: [{ task_id: "new-task" }] })
+      : response(snapshot()),
+  );
+  await ui.elements.get("confirm-handoff").onclick();
+  assert.equal(ui.run("selected"), "example");
+  assert.equal(ui.elements.get("message").value, "An unfinished question");
+  assert.equal(ui.elements.get("handoff-dialog").open, true);
+  assert.match(ui.elements.get("handoff-status").textContent, /preserved/);
+});
+
+test("a transfer prevents duplicate clicks and shows progress until the server finishes", async () => {
+  const ui = await app();
+  let finish;
+  let count = 0;
+  ui.fetch(async (path) => {
+    if (path === "/api/handoff/export") {
+      count++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    }
+    return response(snapshot());
+  });
+  ui.elements.get("export-task").onclick();
+  const pending = ui.elements.get("download-handoff").onclick();
+  await settle();
+  assert.equal(ui.elements.get("download-handoff").disabled, true);
+  assert.equal(ui.elements.get("close-handoff").disabled, true);
+  assert.match(ui.elements.get("handoff-status").className, /transfer-busy/);
+  assert.equal(ui.beforeUnload(), true);
+  await ui.elements.get("download-handoff").onclick();
+  assert.equal(count, 1);
+  finish({
+    ok: false,
+    json: async () => ({ error: "Recheck changed files first" }),
+  });
+  await pending;
+  assert.match(ui.elements.get("handoff-error").textContent, /Recheck/);
+  assert.equal(ui.elements.get("close-handoff").disabled, false);
+});
+
 async function app({ pathname = "/", fetcher: initialFetch } = {}) {
   const elements = new Map();
   const html = readFileSync("src/lambda_harness/web/index.html", "utf8");
@@ -86,6 +257,7 @@ async function app({ pathname = "/", fetcher: initialFetch } = {}) {
   const pageLoads = [];
   location.assign = (path) => pageLoads.push(path);
   const listeners = {};
+  const downloads = [];
   const kind = { value: "explore" };
   let timerId = 0;
   const timers = new Map();
@@ -116,6 +288,14 @@ async function app({ pathname = "/", fetcher: initialFetch } = {}) {
     },
     fetch: (...args) => fetcher(...args),
     AbortController,
+    Blob,
+    URL: {
+      createObjectURL: (blob) => {
+        downloads.push(blob);
+        return "blob:handoff";
+      },
+      revokeObjectURL: () => {},
+    },
     setTimeout: (callback, delay) => {
       timers.set(++timerId, { callback, delay });
       return timerId;
@@ -130,6 +310,7 @@ async function app({ pathname = "/", fetcher: initialFetch } = {}) {
   vm.runInContext("selected = 'example'", context);
   return {
     elements,
+    downloads,
     kind,
     timers,
     location,

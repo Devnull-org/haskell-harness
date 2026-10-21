@@ -66,7 +66,12 @@ let page = pageFromLocation(),
   editingAgent = null,
   viewedAgent = null,
   catalogLoading = false;
+let handoffBusy = false,
+  handoffArchive = null,
+  handoffPreview = null,
+  handoffTasks = [];
 const labels = {
+  continue_handoff: "Continue from saved step",
   save_agent: "Save to repository",
   answer: "Answer",
   question: "Ask a question",
@@ -118,7 +123,10 @@ async function guard(action) {
 }
 async function api(path, body) {
   const controller = new AbortController();
-  const deadline = setTimeout(() => controller.abort(), 10000);
+  const deadline = setTimeout(
+    () => controller.abort(),
+    path.startsWith("/api/handoff/") ? 180000 : 10000,
+  );
   const options = {
     headers: { "X-Harness-Token": token },
     signal: controller.signal,
@@ -276,7 +284,7 @@ function render() {
     state.backend === "auto" ? "Automatic backend" : state.backend;
   if (!$("base").value) $("base").value = state.base;
   const running = !!state.job?.running;
-  const busy = running || submitting || !!connectionError;
+  const busy = running || submitting || handoffBusy || !!connectionError;
   $("tasks").replaceChildren();
   for (const task of state.tasks.filter(
     (item) => item.task_kind !== "agent_builder",
@@ -308,6 +316,8 @@ function render() {
   $("choose-backend").disabled = busy;
   $("new-form").querySelector("button").disabled = busy;
   $("save-backend").disabled = busy;
+  $("export-project").disabled = busy;
+  $("import-project").disabled = busy;
   renderMemory(busy);
   if (state.task) renderTask(state.task, busy);
   $("activity").hidden = page !== "workspace" || !state.job;
@@ -477,6 +487,7 @@ function renderTask(task, running) {
     );
   }
   $("restart").hidden = task.task_kind === "agent_builder";
+  $("export-task").hidden = task.task_kind === "agent_builder";
   renderHistory(task);
   if (key !== packetKey) {
     packetKey = key;
@@ -626,7 +637,8 @@ function renderTask(task, running) {
     control.disabled = running;
     $("phases").append(control);
   }
-  for (const id of ["resume", "restart", "abandon"]) $(id).disabled = running;
+  for (const id of ["resume", "restart", "abandon", "export-task"])
+    $(id).disabled = running;
 }
 async function respond(action) {
   if (submitting || state?.job?.running) return;
@@ -897,6 +909,190 @@ async function openSettings() {
   showPage("settings");
   await loadProject();
 }
+function handoffControls() {
+  $("close-handoff").disabled = handoffBusy;
+  $("download-handoff").disabled = handoffBusy;
+  $("handoff-file").disabled = handoffBusy;
+  $("confirm-handoff").disabled = handoffBusy || !handoffPreview;
+  $("handoff-status").className = handoffBusy ? "muted transfer-busy" : "muted";
+  for (const input of handoffTasks) input.disabled = handoffBusy;
+  if (state) render();
+}
+async function handoffOperation(message, operation) {
+  if (handoffBusy || submitting || state?.job?.running) return;
+  handoffBusy = true;
+  $("handoff-error").textContent = "";
+  $("handoff-status").textContent = message;
+  handoffControls();
+  try {
+    await operation();
+  } catch (error) {
+    $("handoff-status").textContent = "";
+    $("handoff-error").textContent = error.message;
+  } finally {
+    handoffBusy = false;
+    handoffControls();
+  }
+}
+function openHandoff(mode, taskId = null) {
+  if (handoffBusy || submitting || state?.job?.running) return;
+  handoffArchive = handoffPreview = null;
+  handoffTasks = [];
+  $("handoff-title").textContent =
+    mode === "export" ? "Export a handoff" : "Import a handoff";
+  $("handoff-project").textContent = activeProject
+    ? `${activeProject.name} · ${activeProject.repository}`
+    : state.repository;
+  $("handoff-export").hidden = mode !== "export";
+  $("handoff-import").hidden = mode !== "import";
+  $("handoff-status").textContent = "";
+  $("handoff-error").textContent = "";
+  $("handoff-file").value = "";
+  $("handoff-preview").replaceChildren();
+  $("handoff-tasks").replaceChildren();
+  for (const task of state.tasks.filter(
+    (task) => task.task_kind !== "agent_builder",
+  )) {
+    const label = el("label", undefined, "handoff-task");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = task.task_id;
+    input.checked = taskId === null || task.task_id === taskId;
+    handoffTasks.push(input);
+    label.append(
+      input,
+      el("span", `${task.task_id} · ${task.stage.replaceAll("_", " ")}`),
+    );
+    $("handoff-tasks").append(label);
+  }
+  if (!handoffTasks.length)
+    $("handoff-tasks").append(
+      el(
+        "p",
+        "No saved tasks. You can export project memory on its own.",
+        "muted",
+      ),
+    );
+  handoffControls();
+  $("handoff-dialog").showModal();
+}
+$("export-project").onclick = () => openHandoff("export");
+$("export-task").onclick = () => openHandoff("export", selected);
+$("import-project").onclick = () => openHandoff("import");
+$("close-handoff").onclick = () => {
+  if (!handoffBusy) $("handoff-dialog").close();
+};
+$("handoff-dialog").addEventListener("cancel", (event) => {
+  if (handoffBusy) event.preventDefault();
+});
+$("download-handoff").onclick = () =>
+  handoffOperation("Preparing your handoff…", async () => {
+    const archive = await api("/api/handoff/export", {
+      tasks: handoffTasks
+        .filter((input) => input.checked)
+        .map((input) => input.value),
+    });
+    const blob = new Blob([JSON.stringify(archive, null, 2) + "\n"], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "lambda-handoff-" + archive.created.slice(0, 10) + ".json";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    $("handoff-status").textContent =
+      "Handoff downloaded. Your local tasks are unchanged.";
+    await refresh();
+  });
+$("handoff-file").onchange = () => {
+  handoffArchive = handoffPreview = null;
+  $("handoff-preview").replaceChildren();
+  handoffControls();
+  return handoffOperation("Checking this handoff…", async () => {
+    const file = $("handoff-file").files?.[0];
+    if (!file) {
+      $("handoff-status").textContent = "";
+      return;
+    }
+    if (file.size > 32 * 1024 * 1024)
+      throw new Error("Choose a handoff file no larger than 32 MB.");
+    let archive;
+    try {
+      archive = JSON.parse(await file.text());
+    } catch {
+      throw new Error(
+        "This file is not valid JSON. Choose a Lambda Harness handoff.",
+      );
+    }
+    const preview = await api("/api/handoff/preview", { archive });
+    handoffArchive = archive;
+    handoffPreview = preview;
+    const container = $("handoff-preview");
+    container.append(el("h3", `From ${preview.project}`));
+    for (const task of preview.tasks) {
+      const entry = el("div", undefined, "handoff-item");
+      entry.append(
+        el("strong", task.task_id),
+        el("p", task.request, "handoff-request"),
+        el(
+          "small",
+          `${task.stage.replaceAll("_", " ")} · ${task.commits} commits${task.uncommitted ? " · unfinished edits" : ""}`,
+        ),
+      );
+      if (task.task_id !== task.original)
+        entry.append(
+          el(
+            "p",
+            `Renamed from ${task.original} to keep existing work.`,
+            "muted",
+          ),
+        );
+      container.append(entry);
+    }
+    container.append(
+      el(
+        "p",
+        `${preview.memory_versions} memory versions. ` +
+          (preview.keep_current_memory
+            ? "Your current project memory stays selected. Imported versions remain available in Memory."
+            : "Incoming project memory will become current."),
+        "muted",
+      ),
+    );
+    container.append(
+      el(
+        "p",
+        "Each task gets its own worktree and waits for your review. Import does not run agents, builds, or tests. Your backend and agent catalog stay unchanged.",
+        "muted",
+      ),
+    );
+    $("handoff-status").textContent =
+      "Ready to import into the project shown above.";
+    await refresh();
+  });
+};
+$("confirm-handoff").onclick = () =>
+  handoffOperation("Restoring your work…", async () => {
+    if (!handoffPreview) return;
+    const result = await api("/api/handoff/import", {
+      archive: handoffArchive,
+      confirmation: handoffPreview.confirmation,
+    });
+    handoffArchive = handoffPreview = null;
+    if (!memoryDirty) memoryLoaded = false;
+    const openImported = result.tasks.length && !$("message").value.trim();
+    if (openImported) {
+      selected = result.tasks[0].task_id;
+      packetKey = "";
+      showPage("workspace");
+    }
+    await refresh();
+    $("handoff-status").textContent = result.tasks.length
+      ? "Import complete. Open the imported tasks in Saved work when you are ready. Any unsent message is preserved."
+      : "Memory imported. Open Memory to view the saved versions.";
+    if (openImported) $("handoff-dialog").close();
+  });
 $("project-tools").onclick = (event) => {
   event?.preventDefault();
   return guard(openSettings);
@@ -1097,6 +1293,7 @@ function hasProjectDrafts() {
   return (
     memoryDirty ||
     submitting ||
+    handoffBusy ||
     !!$("message").value.trim() ||
     (!selected && !!$("request").value.trim()) ||
     (!$("agent-create").hidden && !!$("agent-request").value.trim())

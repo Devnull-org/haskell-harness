@@ -217,6 +217,16 @@
           Automatic selection checks your existing logins when work starts and
           lets you choose if several backends work.
         </p>
+        <hr />
+        <h3>Share work with your team</h3>
+        <p class="muted">
+          Pass a conversation or a set of tasks to another developer, including
+          the code, memory, and the step where you stopped.
+        </p>
+        <div class="button-row">
+          <button id="export-project">Export handoff</button>
+          <button id="import-project">Import handoff</button>
+        </div>
       </section>
       <section
         id="memory-panel"
@@ -493,6 +503,7 @@
         <div class="task-footer">
           <button id="resume" class="quiet">Resume</button
           ><button id="restart" class="quiet">Start a fresh attempt</button
+          ><button id="export-task" class="quiet">Export handoff</button
           ><button id="abandon" class="quiet danger">Abandon task</button>
         </div>
         <section id="exploration-notes" class="panel" hidden></section>
@@ -516,6 +527,47 @@
       </section>
       <footer>Lambda Harness · Chat, explore, build, review</footer>
     </main>
+    <dialog id="handoff-dialog" aria-labelledby="handoff-title">
+      <div class="compose-top">
+        <h2 id="handoff-title">Share work</h2>
+        <button id="close-handoff" class="quiet" type="button">Close</button>
+      </div>
+      <p id="handoff-project" class="project-scope"></p>
+      <div id="handoff-export">
+        <p>
+          Select the tasks to pass on. Export leaves your local work unchanged.
+        </p>
+        <div id="handoff-tasks" class="handoff-tasks"></div>
+        <p class="muted">
+          Includes saved conversations, project memory history, pinned agents,
+          reports, task commits, and unfinished edits. Agent design
+          conversations stay in the agent repository workflow.
+        </p>
+        <p class="muted">
+          Review the file before sharing: conversations, notes, and code may be
+          private. Provider logins, settings, and raw backend diagnostics are
+          excluded. Ignored files and build outputs are excluded too.
+        </p>
+        <button id="download-handoff" class="primary" type="button">
+          Download handoff
+        </button>
+      </div>
+      <div id="handoff-import" hidden>
+        <p>
+          Open the destination project's checkout first. It must contain the
+          original base commit; fetch your team's branch if needed. Task commits
+          are included in the handoff.
+        </p>
+        <label for="handoff-file">Choose a handoff file (up to 32 MB)</label>
+        <input id="handoff-file" type="file" accept=".json,application/json" />
+        <div id="handoff-preview"></div>
+        <button id="confirm-handoff" class="primary" type="button" disabled>
+          Import paused work
+        </button>
+      </div>
+      <p id="handoff-status" class="muted" role="status" aria-live="polite"></p>
+      <p id="handoff-error" class="danger" role="alert"></p>
+    </dialog>
     <dialog id="remove-project-dialog">
       <form method="dialog">
         <h2>Remove this project?</h2>

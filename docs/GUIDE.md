@@ -256,6 +256,52 @@ new worktree from its original pinned base. **Abandon task** permanently deletes
 the selected task's conversation, reports, branch, and worktree after you type
 its name to confirm.
 
+## Share work with another developer
+
+Open **Settings → Export handoff** to select up to 30 saved tasks, or use
+**Export handoff** at the bottom of a task to select that task. Download the JSON
+file and send it through your team's usual sharing channel. Export does not move
+or delete your local work. Uncheck all tasks to share project memory alone.
+
+The recipient adds their clone in **Projects**, opens its **Settings → Import
+handoff**, and chooses the file. The preview shows incoming tasks, name changes,
+and how memory will be handled. **Import paused work** restores each task into a
+new worktree. Open an imported task, review its conversation and files, then
+choose **Continue from saved step**. This restores the saved gate or phase;
+it does not call a model. Further work uses the recipient's own backend login.
+
+The handoff contains saved conversation history, specifications, test plans,
+reviews, validation evidence, pinned agent definitions, reports, project memory
+versions, task commits, and uncommitted edits. The recipient needs the original
+base commit in their checkout; fetch it from the team's Git repository if the
+preview reports it missing. Task commits after that base travel in the file, so
+they do not have to be pushed first. Original commit IDs are retained.
+
+Existing tasks are never overwritten. Name collisions get an `-import-N` suffix.
+Existing project memory remains current; incoming versions are available in
+**Memory** and imported tasks retain their pinned versions. For a project without
+memory, the exported current version becomes current. Agent definitions remain
+pinned to the imported tasks; import does not edit the shared agent catalog or
+change project assignments. Backend preferences and validation commands come from
+the recipient's configuration.
+
+All imported tasks pause for review, including tasks exported from a continuous
+workflow. Previous approvals and check results remain historical evidence.
+Pending test approval requires **Recheck** on the recipient's machine before
+**Approve tests** becomes available. Import itself runs no model, build, or test.
+
+Files are limited to 32 MB. Only stable review gates and completed phases can be
+exported; stop running work first. If files changed outside the saved gate, use
+the task's recheck/recovery actions before exporting. Agent design conversations
+are excluded; share their saved definitions in Git. Ignored files, build outputs,
+provider logins, backend settings, and raw backend diagnostics are not exported.
+Conversation text, notes, source references, and code are included, so review the
+file before sharing it. This is a point-in-time handoff, not live synchronization
+or an ownership lock; agree who will continue the task.
+
+**Prepare local handoff** in the coding workflow still prepares reports and a PR
+description. **Export handoff** transfers saved work to another harness instance.
+
 ## Project memory
 
 Open **Project memory** in the sidebar to see the current notes and saved source
@@ -298,6 +344,7 @@ choose **Use viewed version for selected task**. This is allowed between complet
 phases or between general chat messages, never during model work or a pending
 review. Saving or restoring project memory does not change existing task history.
 Memory is local to this project's harness state directory; Git does not sync it.
+Export/import handoffs transfer saved memory versions between developers.
 
 ## Backends and recovery
 

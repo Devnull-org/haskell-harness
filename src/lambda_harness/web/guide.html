@@ -31,6 +31,7 @@
         <a href="#workflow">The workflow</a>
         <a href="#agents">Agents</a>
         <a href="#context">Project memory</a>
+        <a href="#sharing">Share work</a>
         <a href="#models">Models</a>
         <a href="#validation">Validation</a>
         <a href="#server">The local server</a>
@@ -277,6 +278,60 @@
           completed phases or general chat messages. Pending reviews keep their
           original memory. Memory is local to this project's harness state
           directory.
+        </p>
+      </section>
+      <section id="sharing" class="panel">
+        <h2>Pick up where a teammate stopped</h2>
+        <p>
+          In <strong>Settings → Export handoff</strong>, select up to 30 saved
+          tasks and download the file. A task also has its own
+          <strong>Export handoff</strong> button. Uncheck all tasks to share
+          only project memory. Export leaves your local work intact.
+        </p>
+        <p>
+          Your teammate opens their clone in <strong>Projects</strong>, then
+          chooses <strong>Settings → Import handoff</strong>. Review the preview
+          and choose <strong>Import paused work</strong>. Each task gets a fresh
+          worktree. Open it, inspect the conversation and files, then choose
+          <strong>Continue from saved step</strong>. No model runs until you
+          choose a later action that needs one.
+        </p>
+        <p>
+          Conversations, specifications, test plans, reviews, check evidence,
+          reports, pinned agents, project memory history, task commits, and
+          unfinished edits travel together. The destination checkout must
+          contain the original base commit. Fetch it from your team's repository
+          if the preview reports it missing; later task commits are included in
+          the file.
+        </p>
+        <p>
+          Existing tasks keep their names; incoming collisions get an
+          <code>-import-N</code> suffix. Existing project memory stays current.
+          Imported versions are available in <strong>Memory</strong>, and each
+          task keeps its pinned version. A project without memory adopts the
+          incoming current version. Import does not change agent assignments,
+          the shared catalog, provider logins, or validation commands.
+        </p>
+        <p>
+          Every imported task pauses for your review. Earlier approvals and
+          checks remain historical evidence. Pending test approval requires
+          <strong>Recheck</strong> on your machine before approval becomes
+          available. Import itself runs no agents, builds, or tests.
+        </p>
+        <p>
+          Handoffs are limited to 32 MB and saved review gates or completed
+          phases. Stop running work before exporting. If the worktree changed
+          outside its saved gate, recheck or recover that task first. Agent
+          design conversations are excluded; share saved definitions in Git.
+          Ignored files, build outputs, settings, logins, and raw backend
+          diagnostics are excluded. Review the file before sharing: your
+          conversations, notes, and code may contain private information.
+        </p>
+        <p>
+          This is a snapshot, not live synchronization: agree who continues the
+          work. <strong>Prepare local handoff</strong> in the coding workflow
+          still prepares reports and a PR description; the export/import
+          controls transfer saved work to another developer.
         </p>
       </section>
       <section id="models" class="panel">

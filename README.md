@@ -32,6 +32,8 @@ agents—all from a local website.
   preview what agents receive, and revisit earlier versions.
 - **Own every patch.** Work stays in isolated local worktrees, with saved conversations
   and small commits. Prepare a handoff when you're ready to publish.
+- **Pass the work on.** Export a handoff with the conversation, code, and project
+  memory. A teammate imports it and continues from the saved step.
 
 Start where you need help: have a chat, explore an idea, write tests, review a PR,
 or take a feature through the full workflow. Every phase is a choice.

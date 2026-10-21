@@ -927,3 +927,48 @@ dialog {
 .project-card .button-row {
   margin: 0;
 }
+/* Keep transfer controls compact while long task names wrap naturally. */
+.handoff-tasks {
+  max-height: 15rem;
+  overflow-y: auto;
+}
+.handoff-task {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  overflow-wrap: anywhere;
+}
+.handoff-task input {
+  width: auto;
+  flex: none;
+}
+.handoff-item {
+  margin-block: 1rem;
+  overflow-wrap: anywhere;
+}
+.handoff-request {
+  max-height: 8rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.transfer-busy::before {
+  content: "";
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.6em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: transfer-spin 0.8s linear infinite;
+}
+@keyframes transfer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transfer-busy::before {
+    animation: none;
+  }
+}

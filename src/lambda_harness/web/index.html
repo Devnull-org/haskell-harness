@@ -12,7 +12,14 @@
   <body>
     <aside>
       <a class="brand" href="/">λ <span>Lambda Harness</span></a>
-      <details class="project-navigation" open>
+      <label class="project-picker-label" for="project-picker"
+        >Switch project</label
+      >
+      <select id="project-picker" aria-label="Switch project"></select>
+      <a id="projects-link" class="workspace-link" href="/projects"
+        >Projects <span>＋</span></a
+      >
+      <details id="project-navigation" class="project-navigation" open>
         <summary>
           <span class="eyebrow">ACTIVE PROJECT</span>
           <strong id="project-name" class="project-name"></strong>
@@ -62,6 +69,38 @@
         </div>
       </header>
       <div id="error" role="alert" hidden></div>
+      <section id="projects-page" hidden aria-label="Projects">
+        <div class="agents-intro">
+          <div>
+            <div class="eyebrow">YOUR LOCAL WORKSPACES</div>
+            <h2>One home for your projects.</h2>
+            <p class="muted">
+              Each project keeps its own conversations, memory, settings, and
+              agent selections.
+            </p>
+          </div>
+        </div>
+        <form id="project-add-form" class="panel">
+          <label for="project-path">Add an existing Git checkout</label>
+          <div class="button-row">
+            <input
+              id="project-path"
+              placeholder="/path/to/project"
+              required
+              autocomplete="off"
+            />
+            <button id="add-project" class="primary" type="submit">
+              Add project
+            </button>
+          </div>
+          <p class="muted">
+            Use a checkout on this machine. Adding it makes no changes to its
+            source files.
+          </p>
+          <p id="project-list-status" class="muted" role="status"></p>
+        </form>
+        <div id="project-list" class="project-list"></div>
+      </section>
       <section id="agents-page" hidden aria-label="Agents">
         <div class="agents-intro">
           <div>
@@ -477,6 +516,27 @@
       </section>
       <footer>Lambda Harness · Chat, explore, build, review</footer>
     </main>
+    <dialog id="remove-project-dialog">
+      <form method="dialog">
+        <h2>Remove this project?</h2>
+        <p id="remove-project-details"></p>
+        <p>
+          This removes it from the project list. Source files, saved
+          conversations, memory, settings, and worktrees stay on disk. Add the
+          same checkout again to return to them.
+        </p>
+        <p id="remove-project-drafts" class="muted" hidden>
+          Unsent text in this tab will be discarded.
+        </p>
+        <p id="remove-project-error" class="danger" role="alert"></p>
+        <div class="form-footer">
+          <button value="cancel">Keep project</button>
+          <button id="remove-project-confirm" type="button" class="danger">
+            Remove project
+          </button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="delete-dialog">
       <form method="dialog">
         <h2>Abandon this task?</h2>

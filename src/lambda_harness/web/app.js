@@ -21,6 +21,7 @@ let memoryLoaded = false,
   memoryHistory = [],
   memoryPreviewId = 0;
 const pages = {
+  projects: { path: "/projects", title: "Projects", link: "projects-link" },
   workspace: { path: "/", title: "Workspace", link: "workspace-link" },
   agents: { path: "/agents", title: "Agents", link: "agents-link" },
   memory: {
@@ -34,11 +35,18 @@ const pages = {
     link: "project-tools",
   },
 };
+function projectFromLocation() {
+  return (
+    globalThis.location?.pathname.match(
+      /^\/projects\/([^/]+)(?:\/(memory|settings|agents))?$/,
+    )?.[1] || null
+  );
+}
 function pageFromLocation() {
   const match = globalThis.location?.pathname.match(
-    /^\/projects\/[^/]+\/(memory|settings)$/,
+    /^\/projects\/[^/]+(?:\/(memory|settings|agents))?$/,
   );
-  if (match) return match[1];
+  if (match) return match[1] || "workspace";
   return (
     Object.keys(pages).find(
       (name) => pages[name].path === globalThis.location?.pathname,
@@ -46,7 +54,14 @@ function pageFromLocation() {
   );
 }
 let page = pageFromLocation(),
+  requestedProject = projectFromLocation(),
   activeProject = null,
+  projectList = [],
+  projectCardsKey = "",
+  projectPickerKey = "",
+  projectBusy = false,
+  removingProject = null,
+  confirmedProjectRemoval = false,
   catalog = null,
   editingAgent = null,
   viewedAgent = null,
@@ -108,6 +123,8 @@ async function api(path, body) {
     headers: { "X-Harness-Token": token },
     signal: controller.signal,
   };
+  const projectId = requestedProject || activeProject?.id;
+  if (projectId) options.headers["X-Harness-Project"] = projectId;
   if (body !== undefined) {
     options.method = "POST";
     options.headers["Content-Type"] = "application/json";
@@ -232,6 +249,12 @@ async function refresh() {
     if (requestId !== refreshId || taskId !== selected) return;
     setActiveProject(next.project);
     state = next;
+    if (next.projects) updateProjects(next.projects);
+    if (next.project === null) {
+      activeProject = null;
+      selected = null;
+      showPage("projects");
+    }
     if (connectionError) error("");
     connectionError = null;
     render();
@@ -1070,18 +1093,184 @@ $("delete-dialog").addEventListener("close", () => {
       }),
     );
 });
+function hasProjectDrafts() {
+  return (
+    memoryDirty ||
+    submitting ||
+    !!$("message").value.trim() ||
+    (!selected && !!$("request").value.trim()) ||
+    (!$("agent-create").hidden && !!$("agent-request").value.trim())
+  );
+}
+function openProject(projectId) {
+  if (!projectList.some((project) => project.id === projectId))
+    throw new Error("Choose a registered project");
+  globalThis.location.assign(`/projects/${encodeURIComponent(projectId)}`);
+}
+function updateProjects(projects) {
+  projectList = projects;
+  const picker = $("project-picker");
+  const pickerKey = JSON.stringify(projects);
+  if (
+    document.activeElement !== picker &&
+    (pickerKey !== projectPickerKey ||
+      picker.value !== (activeProject?.id || ""))
+  ) {
+    projectPickerKey = pickerKey;
+    const placeholder = el("option", "Choose a project");
+    placeholder.value = "";
+    picker.replaceChildren(placeholder);
+    for (const project of projects) {
+      const sameName =
+        projects.filter((other) => other.name === project.name).length > 1;
+      const option = el(
+        "option",
+        sameName ? `${project.name} · ${project.repository}` : project.name,
+      );
+      option.value = project.id;
+      option.disabled = !project.available;
+      picker.append(option);
+    }
+    picker.value = activeProject?.id || "";
+  }
+  const cardsKey = JSON.stringify([projects, projectBusy]);
+  if (cardsKey === projectCardsKey) return;
+  projectCardsKey = cardsKey;
+  $("project-list").replaceChildren();
+  for (const project of projects) {
+    const card = el("article", undefined, "panel project-card");
+    const identity = el("div");
+    identity.append(
+      el("h3", project.name),
+      el("p", project.repository, "muted"),
+    );
+    if (project.running)
+      identity.append(el("span", "Work is running", "badge"));
+    if (!project.available)
+      identity.append(
+        el(
+          "p",
+          "Checkout unavailable. Restore its location or remove this entry.",
+          "muted",
+        ),
+      );
+    const actions = el("div", undefined, "button-row");
+    const open = button("Open project", () => openProject(project.id));
+    open.disabled = !project.available || projectBusy;
+    const remove = button(
+      "Remove",
+      () => {
+        removingProject = project;
+        $("remove-project-error").textContent = "";
+        $("remove-project-details").textContent =
+          `${project.name} · ${project.repository}`;
+        $("remove-project-drafts").hidden =
+          project.id !== activeProject?.id || !hasProjectDrafts();
+        $("remove-project-dialog").showModal();
+      },
+      "quiet danger",
+    );
+    remove.disabled = project.running || projectBusy;
+    actions.append(open, remove);
+    card.append(identity, actions);
+    $("project-list").append(card);
+  }
+  if (!projects.length)
+    $("project-list").append(
+      el("p", "No projects yet. Add a checkout above to start.", "muted"),
+    );
+}
+async function loadProjects() {
+  const result = await api("/api/projects");
+  updateProjects(result.projects);
+}
+$("projects-link").onclick = (event) => {
+  event?.preventDefault();
+  guard(async () => {
+    showPage("projects");
+    await loadProjects();
+  });
+};
+$("project-picker").onchange = () =>
+  guard(() => {
+    const id = $("project-picker").value;
+    if (id && id !== activeProject?.id) openProject(id);
+  });
+$("project-add-form").onsubmit = (event) => {
+  event.preventDefault();
+  return guard(async () => {
+    if (projectBusy) return;
+    projectBusy = true;
+    updateProjects(projectList);
+    $("add-project").disabled = true;
+    try {
+      const added = await api("/api/projects", {
+        repository: $("project-path").value,
+      });
+      $("project-path").value = "";
+      $("project-list-status").textContent =
+        `Added ${added.name}. Open the project to start working.`;
+      await loadProjects();
+    } finally {
+      projectBusy = false;
+      $("add-project").disabled = false;
+      updateProjects(projectList);
+    }
+  });
+};
+$("remove-project-confirm").onclick = () =>
+  guard(async () => {
+    if (projectBusy || !removingProject) return;
+    projectBusy = true;
+    updateProjects(projectList);
+    $("remove-project-confirm").disabled = true;
+    try {
+      const id = removingProject.id;
+      const result = await api("/api/projects/remove", {
+        project_id: id,
+        confirmation: id,
+      });
+      $("remove-project-dialog").close();
+      removingProject = null;
+      updateProjects(result.projects);
+      if (id === activeProject?.id) {
+        confirmedProjectRemoval = true;
+        globalThis.location.assign("/projects");
+      } else {
+        $("project-list-status").textContent =
+          "Project removed. Its files and saved work remain on disk.";
+      }
+    } catch (error) {
+      $("remove-project-error").textContent = error.message;
+      throw error;
+    } finally {
+      projectBusy = false;
+      $("remove-project-confirm").disabled = false;
+      updateProjects(projectList);
+    }
+  });
+globalThis.addEventListener?.("beforeunload", (event) => {
+  if (!confirmedProjectRemoval && hasProjectDrafts()) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
 function projectPagePath(name) {
-  return activeProject && ["memory", "settings"].includes(name)
-    ? `/projects/${encodeURIComponent(activeProject.id)}/${name}`
+  return activeProject && name !== "projects"
+    ? `/projects/${encodeURIComponent(activeProject.id)}${name === "workspace" ? "" : "/" + name}`
     : pages[name].path;
 }
 function setActiveProject(project) {
   if (!project) return;
-  if (activeProject && activeProject.id !== project.id)
+  if (
+    (requestedProject && requestedProject !== project.id) ||
+    (activeProject && activeProject.id !== project.id)
+  )
     throw new Error(
       "The active project changed. Copy any unsaved text before reloading the page.",
     );
   activeProject = project;
+  requestedProject = project.id;
   $("project-name").textContent = project.name;
   $("repository").textContent = project.repository;
   $("memory-project").textContent =
@@ -1094,14 +1283,15 @@ function setActiveProject(project) {
   renderPage();
 }
 function pageMatchesProject() {
-  const match = globalThis.location?.pathname.match(
-    /^\/projects\/([^/]+)\/(memory|settings)$/,
-  );
-  return !activeProject || !match || match[1] === activeProject.id;
+  const id = projectFromLocation();
+  return !activeProject || !id || id === activeProject.id;
 }
 function renderPage() {
   const matches = pageMatchesProject();
   const workspace = page === "workspace";
+  $("projects-page").hidden = page !== "projects";
+  $("project-navigation").hidden = state?.project === null;
+  $("backend").hidden = page === "projects";
   $("agents-page").hidden = page !== "agents";
   $("memory-panel").hidden = page !== "memory" || !matches;
   $("project-panel").hidden = page !== "settings" || !matches;
@@ -1131,7 +1321,7 @@ function renderPage() {
   document.title = $("title").textContent + " · Lambda Harness";
   if (
     activeProject &&
-    ["memory", "settings"].includes(page) &&
+    page !== "projects" &&
     globalThis.location?.pathname === pages[page].path
   )
     globalThis.history?.replaceState({}, "", projectPagePath(page));
@@ -1145,7 +1335,9 @@ function showPage(next) {
 }
 async function loadPage() {
   if (!pageMatchesProject()) return;
-  if (page === "agents") await loadAgents();
+  if (page === "projects") await loadProjects();
+  else if (state?.project === null) showPage("projects");
+  else if (page === "agents") await loadAgents();
   else if (page === "memory" && !memoryDirty) await loadMemory();
   else if (page === "settings") await loadProject();
 }
@@ -1523,11 +1715,18 @@ $("agent-form").onsubmit = (event) => {
 };
 globalThis.addEventListener?.("popstate", () =>
   guard(async () => {
+    const nextProject = projectFromLocation();
+    if (nextProject && activeProject && nextProject !== activeProject.id) {
+      globalThis.location.assign(globalThis.location.pathname);
+      return;
+    }
     page = pageFromLocation();
     renderPage();
     await loadPage();
   }),
 );
 renderPage();
-guard(refresh);
-guard(loadPage);
+guard(async () => {
+  await refresh();
+  await loadPage();
+});

@@ -49,9 +49,15 @@
         <p>
           Memory, conversations, backend preferences, and agent selections
           belong to this project. The Agents catalog and provider logins can be
-          reused across projects. This server opens one project, chosen with
-          <code>--repo</code>; run another server on a different port to open
-          another project alongside it.
+          reused across projects. Open <a href="/projects">Projects</a> to add
+          an existing Git checkout or remove an entry. Use the sidebar's project
+          picker to switch. Each tab stays attached to its own project.
+        </p>
+        <p>
+          Removing a project leaves its source, conversations, memory, settings,
+          and worktrees on disk. Re-add the same checkout to return to them.
+          Stop running work before removing its project. Switching projects
+          opens a fresh page; the browser warns if you have unsent text.
         </p>
         <p>
           Settings saves the preferred backend for future sessions. An explicit
@@ -344,12 +350,13 @@ junit_glob = "test-reports/{package}/**/*.xml"</code></pre>
           background session even though your terminal is idle.
         </p>
         <p>To start it yourself from any directory:</p>
-        <pre><code>nix run --refresh github:Devnull-org/lambda-harness -- --repo "/path/to/project"</code></pre>
+        <pre><code>nix run --refresh github:Devnull-org/lambda-harness</code></pre>
         <p>
-          Replace the path with your Git checkout. Keep this command running and
-          open its printed URL. Closing the browser leaves work running. Ctrl+C
-          in the server terminal stops active work; submitted messages and
-          completed steps remain saved.
+          Open the printed URL and add a checkout from Projects. You can also
+          append <code>-- --repo "/path/to/project"</code> to open it
+          immediately. Keep this command running. Closing the browser leaves
+          work running. Ctrl+C in the server terminal stops active work;
+          submitted messages and completed steps remain saved.
         </p>
         <p>
           From a harness clone, use
@@ -377,7 +384,7 @@ junit_glob = "test-reports/{package}/**/*.xml"</code></pre>
           <tbody>
             <tr>
               <td><code>--repo PATH</code></td>
-              <td>Required target Git checkout.</td>
+              <td>Optional initial Git checkout. Omit to start on Projects.</td>
             </tr>
             <tr>
               <td><code>--port PORT</code></td>
@@ -388,8 +395,8 @@ junit_glob = "test-reports/{package}/**/*.xml"</code></pre>
             <tr>
               <td><code>--state-dir PATH</code></td>
               <td>
-                Existing tasks and worktrees. Defaults to the user's state
-                directory, outside the checkout.
+                Project list, tasks, and worktrees. Defaults to the user's state
+                directory, outside all registered checkouts.
               </td>
             </tr>
             <tr>
@@ -398,7 +405,10 @@ junit_glob = "test-reports/{package}/**/*.xml"</code></pre>
             </tr>
             <tr>
               <td><code>--nix-flake PATH</code></td>
-              <td>Dependency flake override for project validation.</td>
+              <td>
+                Dependency flake override for the initial --repo only. Other
+                projects use their own worktrees.
+              </td>
             </tr>
             <tr>
               <td><code>--help</code></td>

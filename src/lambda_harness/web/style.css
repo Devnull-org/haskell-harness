@@ -891,3 +891,39 @@ dialog {
 #new-task {
   margin-top: 16px;
 }
+.project-picker-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+#project-picker {
+  width: 100%;
+  min-width: 0;
+  flex-shrink: 0;
+}
+#projects-link {
+  margin: 8px 0 20px;
+  flex-shrink: 0;
+}
+#project-path {
+  flex: 1;
+  min-width: 180px;
+  margin: 0;
+}
+.project-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.project-card > div:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-card h3,
+.project-card p,
+.project-card .button-row {
+  margin: 0;
+}

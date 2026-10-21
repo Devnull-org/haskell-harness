@@ -13,10 +13,20 @@ page. A bookmark for a different project is not silently opened against the acti
 Click the project name to collapse or expand the sidebar menu, including saved
 work and the shared Agents link.
 
-**Agents** is a shared catalog at `/agents`. Definitions can be reused across
-projects; agent assignments, conversations, and memory remain project-specific.
-The server currently opens one project, selected by `--repo`. To work on another,
-start a server for its checkout (with a different port if both are running).
+Open **Projects** to add an existing local Git checkout, open it, or remove it
+from the list. The list survives server restarts. Use **Switch project** in the
+sidebar to change projects on the same server. Each browser tab stays attached to
+its own project, including while work is running in another tab.
+
+Removing a project requires confirmation and is blocked while that project's work
+is running. Removal only hides the entry: source files, saved tasks, memory,
+settings, and worktrees remain on disk. Re-add the same checkout to return to them.
+Removing the last project leaves the Projects page ready for another checkout.
+
+**Agents** is a shared catalog. Definitions can be reused across projects; agent
+assignments, conversations, and memory remain project-specific. Its URL includes
+the project when opened from the sidebar so assignments retain their context.
+The old `/agents` link still uses the launcher's initial project, when supplied.
 
 The project's **Settings** page saves its preferred backend across restarts. An
 explicit `--backend` launch override takes precedence without erasing the saved
@@ -27,19 +37,21 @@ reusable across projects. If a saved backend is removed from your configuration,
 the page explains the fallback and lets you select a replacement.
 
 Use **Workspace**, a saved task, or your browser's Back button to return to a
-conversation. Switching pages keeps unsent messages and memory drafts in the open
-browser tab; refresh or closing the tab still discards unsaved text.
+conversation. Switching pages within a project keeps unsent messages and memory
+drafts. Switching projects opens a fresh page; the browser warns about unsent text
+before leaving. Refreshing or closing the tab can still discard unsaved text.
 
 ## Start the local server
 
 From any directory, with Nix and Git installed:
 
 ```sh
-nix run --refresh github:Devnull-org/lambda-harness -- --repo "/path/to/project"
+nix run --refresh github:Devnull-org/lambda-harness
 ```
 
-Replace the path with the root of your existing Git checkout. Open the printed URL,
-usually `http://127.0.0.1:8765`. Keep the server process running. Closing the browser
+Open the printed URL, usually `http://127.0.0.1:8765`, and add a checkout from
+**Projects**. To register and open a particular checkout at launch, append
+`-- --repo "/path/to/project"`. Keep the server process running. Closing the browser
 leaves active work running. Ctrl+C in the server's terminal stops the server and
 cancels active work while keeping submitted messages and completed steps saved.
 
@@ -83,13 +95,13 @@ All options go after `--` with `nix run`. There are no workflow subcommands.
 
 | Option | Purpose |
 | --- | --- |
-| `--repo PATH` | Required target Git checkout; no project path is assumed. |
+| `--repo PATH` | Optional initial Git checkout. Registers it and opens it by default. Omit to start on Projects. |
 | `--agents-repo PATH` | Git checkout containing `agents/*.json`; overrides the saved catalog selection. Source launches detect the harness checkout. Installed packages otherwise show the bundled catalog. |
 | `--port PORT` | Loopback port, default 8765; 0 chooses a free port. |
-| `--state-dir PATH` | Saved tasks, logs, and worktrees; outside the checkout. Default: `$XDG_STATE_HOME/lambda-harness` or `~/.local/state/lambda-harness`. |
+| `--state-dir PATH` | Project list, saved tasks, logs, and worktrees; outside all registered checkouts. Default: `$XDG_STATE_HOME/lambda-harness` or `~/.local/state/lambda-harness`. |
 | `--config FILE` | User-owned backend and validation configuration. |
-| `--nix-flake PATH` | Dependency flake override; otherwise use each task's worktree. |
-| `--backend NAME` | Initial backend choice; also selectable on the page. |
+| `--nix-flake PATH` | Dependency flake override for the initial `--repo` only; other projects use their own task worktrees. Requires `--repo`. |
+| `--backend NAME` | Initial backend override for projects opened by this server; also selectable on the page. |
 | `--model ID` | Model override for all agents. |
 | `--agent-timeout SECONDS` | Override the backend request timeout. |
 | `--check-timeout SECONDS` | Validation command timeout, default 3600. |
@@ -97,14 +109,16 @@ All options go after `--` with `nix run`. There are no workflow subcommands.
 | `--help` | Describe server startup options. |
 
 Existing tasks keep their worktrees and checkpoints. The previous product's default
-state directory is detected for this checkout when it has no state in the new
+state directory is detected for the initial `--repo` checkout when it has no state in the new
 directory. Nothing is moved or merged. The previous default configuration and
 browser theme are also reused when no new setting exists.
 
 For a custom or older state location, keep passing
 `--state-dir /path/to/existing/state-root` and any existing `--config` override.
 Keep the same target checkout path; do not move registered worktrees. Restart the
-server to load an updated version.
+server to load an updated version. Keep the same state root for your registered
+project list. Explicitly launching with `--repo` registers that checkout again even
+if you previously removed it; omit `--repo` to keep it out of the list.
 
 ## Your agent catalog
 

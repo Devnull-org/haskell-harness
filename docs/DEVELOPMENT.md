@@ -32,6 +32,9 @@ There are no per-provider harness executables or terminal workflow commands.
 The shared `Harness` workflow owns checkpoints, gates, validation, and worktrees.
 The HTTP interface is in `webapp.py`, startup in `__main__.py`, and browser assets
 in `web/`. Provider adapters are described in [BACKENDS.md](../BACKENDS.md).
+`ProjectHub` selects an independent app and worker for each request using its
+`X-Harness-Project` header. `projects.py` stores the project list; removal never
+deletes a checkout or task state. Omit `--repo` to develop the empty Projects screen.
 
 - [LangGraph interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)
 - [LangGraph persistence](https://docs.langchain.com/oss/python/langgraph/persistence)

@@ -40,6 +40,12 @@ class Element {
     return [];
   }
   addEventListener() {}
+  showModal() {
+    this.open = true;
+  }
+  close() {
+    this.open = false;
+  }
   focus() {}
 }
 
@@ -77,6 +83,8 @@ async function app({ pathname = "/", fetcher: initialFetch } = {}) {
   let fetcher = initialFetch || (async () => response(snapshot()));
   const location = { pathname };
   const navigation = [];
+  const pageLoads = [];
+  location.assign = (path) => pageLoads.push(path);
   const listeners = {};
   const kind = { value: "explore" };
   let timerId = 0;
@@ -126,6 +134,16 @@ async function app({ pathname = "/", fetcher: initialFetch } = {}) {
     timers,
     location,
     navigation,
+    pageLoads,
+    beforeUnload: () => {
+      let blocked = false;
+      listeners.beforeunload?.({
+        preventDefault: () => {
+          blocked = true;
+        },
+      });
+      return blocked;
+    },
     back: async (path) => {
       location.pathname = path;
       await listeners.popstate();
@@ -1044,7 +1062,7 @@ test("project memory and settings identify their owner and use project-specific 
   assert.equal(ui.elements.get("memory-panel").hidden, false);
   assert.equal(ui.elements.get("project-panel").hidden, true);
   await ui.run("openAgents()");
-  assert.equal(ui.location.pathname, "/agents");
+  assert.equal(ui.location.pathname, "/projects/project-a/agents");
   assert.equal(ui.elements.get("title").textContent, "Agents");
   assert.match(
     ui.elements.get("agent-project-title").textContent,
@@ -1052,7 +1070,7 @@ test("project memory and settings identify their owner and use project-specific 
   );
 });
 
-test("project bookmarks load directly and reject another project's identity", async () => {
+test("project bookmarks load directly and history changes project through a fresh page", async () => {
   const identity = {
     id: "project-a",
     name: "example-app",
@@ -1079,10 +1097,139 @@ test("project bookmarks load directly and reject another project's identity", as
   requests.length = 0;
   await ui.back("/projects/project-b/settings");
   assert.equal(ui.elements.get("project-panel").hidden, true);
-  assert.match(ui.elements.get("error").textContent, /another project/);
+  assert.deepEqual(ui.pageLoads, ["/projects/project-b/settings"]);
   assert.deepEqual(requests, []);
   await ui.elements.get("project-tools").onclick();
   assert.equal(ui.location.pathname, "/projects/project-a/settings");
   assert.equal(ui.elements.get("project-panel").hidden, false);
   assert.equal(ui.elements.get("error").hidden, true);
+});
+
+test("an empty workspace can register a project and open it from Projects", async () => {
+  const project = {
+    id: "project-a",
+    name: "example",
+    repository: "/code/example",
+    available: true,
+    running: false,
+  };
+  const projects = [];
+  const requests = [];
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path === "/api/projects") {
+        if (options.method === "POST") {
+          requests.push(JSON.parse(options.body));
+          projects.push(project);
+          return response(project);
+        }
+        return response({ projects });
+      }
+      return response({
+        ...snapshot(),
+        project: null,
+        projects,
+        tasks: [],
+        task: null,
+      });
+    },
+  });
+  assert.equal(ui.location.pathname, "/projects");
+  assert.equal(ui.elements.get("projects-page").hidden, false);
+  assert.equal(ui.elements.get("project-navigation").hidden, true);
+  assert.equal(ui.elements.get("new-panel").hidden, true);
+  ui.elements.get("project-path").value = project.repository;
+  await ui.elements.get("project-add-form").onsubmit({ preventDefault() {} });
+  assert.deepEqual(requests, [{ repository: project.repository }]);
+  assert.equal(ui.elements.get("project-path").value, "");
+  assert.match(ui.elements.get("project-list").textContent, /example/);
+  await ui.elements
+    .get("project-list")
+    .children[0].children[1].children[0].onclick();
+  assert.deepEqual(ui.pageLoads, ["/projects/project-a"]);
+});
+
+test("project selection scopes every request and does not discard drafts silently", async () => {
+  const projects = ["a", "b"].map((id) => ({
+    id: `project-${id}`,
+    name: "same-name",
+    repository: `/code/${id}`,
+    available: true,
+    running: false,
+  }));
+  const requests = [];
+  const ui = await app({
+    pathname: "/projects/project-b",
+    fetcher: async (path, options) => {
+      requests.push({ path, project: options.headers["X-Harness-Project"] });
+      return response({ ...snapshot(), project: projects[1], projects });
+    },
+  });
+  assert.equal(ui.elements.get("project-picker").value, "project-b");
+  assert.match(ui.elements.get("project-picker").textContent, /\/code\/a/);
+  assert.match(ui.elements.get("project-picker").textContent, /\/code\/b/);
+  const firstCard = ui.elements.get("project-list").children[0];
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("project-list").children[0], firstCard);
+  ui.elements.get("message").value = "Keep this draft";
+  ui.elements.get("project-picker").value = "project-a";
+  await ui.elements.get("project-picker").onchange();
+  assert.deepEqual(ui.pageLoads, ["/projects/project-a"]);
+  assert.equal(ui.beforeUnload(), true);
+  assert.equal(ui.elements.get("message").value, "Keep this draft");
+  assert.ok(
+    requests.length > 0 &&
+      requests.every((request) => request.project === "project-b"),
+  );
+});
+
+test("project removal is explicit, handles running work, and can remove the last entry", async () => {
+  const project = {
+    id: "project-a",
+    name: "example",
+    repository: "/code/example",
+    available: true,
+    running: false,
+  };
+  const requests = [];
+  let blocked = true;
+  const ui = await app({
+    pathname: "/projects",
+    fetcher: async (path, options) => {
+      if (path === "/api/projects/remove") {
+        requests.push(JSON.parse(options.body));
+        return blocked
+          ? {
+              ok: false,
+              json: async () => ({ error: "This project has running work." }),
+            }
+          : response({ projects: [] });
+      }
+      if (path === "/api/projects") return response({ projects: [project] });
+      return response({ ...snapshot(), project, projects: [project] });
+    },
+  });
+  ui.elements.get("message").value = "Unsent text";
+  await ui.elements
+    .get("project-list")
+    .children[0].children[1].children[1].onclick();
+  assert.equal(requests.length, 0);
+  assert.equal(ui.elements.get("remove-project-dialog").open, true);
+  assert.equal(ui.elements.get("remove-project-drafts").hidden, false);
+  await ui.elements.get("remove-project-confirm").onclick();
+  assert.equal(ui.elements.get("remove-project-dialog").open, true);
+  assert.match(
+    ui.elements.get("remove-project-error").textContent,
+    /running work/,
+  );
+  assert.deepEqual(ui.pageLoads, []);
+  blocked = false;
+  await ui.elements.get("remove-project-confirm").onclick();
+  assert.deepEqual(requests.at(-1), {
+    project_id: "project-a",
+    confirmation: "project-a",
+  });
+  assert.equal(ui.elements.get("remove-project-dialog").open, false);
+  assert.deepEqual(ui.pageLoads, ["/projects"]);
+  assert.equal(ui.beforeUnload(), false);
 });

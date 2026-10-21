@@ -53,11 +53,12 @@ flowchart LR
 With Nix, run this from any directory:
 
 ```sh
-nix run --refresh github:Devnull-org/lambda-harness -- --repo "/path/to/project"
+nix run --refresh github:Devnull-org/lambda-harness
 ```
 
-Replace the path with your Git checkout, then open the printed local URL.
-The command starts the local server; keep it running while using the website.
+Open the printed local URL and add a Git checkout from **Projects**.
+Switch between projects from the sidebar; each keeps its own memory and saved work.
+Keep the server running while using the website.
 
 Choose **General chat**, **Explore**, **Plan a feature or fix**,
 **Review a PR or branch**, or **Write tests**.

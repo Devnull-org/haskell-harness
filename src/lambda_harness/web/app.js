@@ -13,6 +13,13 @@ let selected = null,
   submitting = false,
   refreshId = 0,
   connectionError = null;
+let memoryLoaded = false,
+  memoryLoading = false,
+  memoryDirty = false,
+  memoryCurrent = null,
+  memorySnapshot = null,
+  memoryHistory = [],
+  memoryPreviewId = 0;
 const labels = {
   answer: "Answer",
   question: "Ask a question",
@@ -217,6 +224,8 @@ function render() {
       task.task_id,
       async () => {
         selected = task.task_id;
+        memoryPreviewId++;
+        $("context-preview").replaceChildren();
         packetKey = "";
         $("message").value = "";
         await refresh();
@@ -236,8 +245,8 @@ function render() {
   $("choose-backend").hidden = !state.task;
   $("choose-backend").disabled = busy;
   $("new-form").querySelector("button").disabled = busy;
-  for (const id of ["save-backend", "save-context", "use-context"])
-    $(id).disabled = busy || (id === "use-context" && !selected);
+  $("save-backend").disabled = busy;
+  renderMemory(busy);
   $("title").textContent = selected || "What would you like to work on?";
   if (state.task) renderTask(state.task, busy);
   $("activity").hidden = !state.job;
@@ -557,27 +566,6 @@ async function loadProject() {
     $("backend-setting").append(option);
   }
   $("backend-setting").value = project.backend;
-  const previous = $("context-snapshot").value;
-  $("context-snapshot").replaceChildren();
-  for (const snapshot of project.context.history) {
-    const option = el(
-      "option",
-      snapshot.created.slice(0, 16).replace("T", " ") +
-        " · " +
-        snapshot.revision.slice(0, 12),
-    );
-    option.value = snapshot.id;
-    $("context-snapshot").append(option);
-  }
-  $("context-snapshot").value = project.context.history.some(
-    (s) => s.id === previous,
-  )
-    ? previous
-    : project.context.latest || "";
-  $("context-status").textContent = project.context.latest
-    ? "Latest snapshot: " + project.context.latest.slice(0, 12)
-    : "No project context saved yet.";
-  $("read-context").disabled = !project.context.history.length;
 }
 async function changeProject(path, body) {
   if (submitting || state?.job?.running) return;
@@ -586,10 +574,6 @@ async function changeProject(path, body) {
   try {
     const result = await api(path, body);
     await loadProject();
-    if (path === "/api/context") {
-      $("context-snapshot").value = result.id;
-      showContext(result);
-    }
     await refresh();
     return result;
   } finally {
@@ -597,17 +581,190 @@ async function changeProject(path, body) {
     render();
   }
 }
+function renderMemory(
+  busy = submitting || !!state?.job?.running || !!connectionError,
+) {
+  const historical = !!memorySnapshot && memorySnapshot.id !== memoryCurrent;
+  const locked = busy || memoryLoading || !memoryLoaded;
+  $("context-notes").readOnly = historical || locked;
+  $("context-sources").readOnly = historical || locked;
+  for (const id of ["save-context", "refresh-context"])
+    $(id).disabled = locked || historical;
+  $("read-context").disabled = locked || !memoryHistory.length;
+  $("context-snapshot").disabled = locked;
+  $("restore-context").disabled = locked || !historical || memoryDirty;
+  $("discard-context").disabled = busy || memoryLoading;
+  $("use-context").disabled =
+    locked || memoryDirty || !memorySnapshot || !state?.task?.can_use_context;
+  $("preview-context").disabled = locked || memoryDirty || !memorySnapshot;
+  $("preview-task-context").disabled = locked || !state?.task;
+  $("context-status").textContent = memoryLoading
+    ? "Loading memory…"
+    : !memoryLoaded
+      ? ""
+      : `Current project version: ${memoryCurrent?.slice(0, 12) || "none"}. ` +
+        (historical
+          ? `Viewing earlier version ${memorySnapshot.id.slice(0, 12)} (read only).`
+          : "Viewing current memory.");
+  $("memory-draft").textContent = memoryDirty
+    ? "Unsaved changes. Save before previewing or applying this draft."
+    : historical
+      ? "Make this version current to edit it. Previous versions remain in history."
+      : "Changes create a saved version. Clear the notes and file list to empty current memory; history is retained.";
+  const task = state?.task;
+  $("task-memory-status").textContent = task
+    ? `${task.task_id}: ${task.project_context_id?.slice(0, 12) || "no memory selected"}. ` +
+      (task.can_use_context
+        ? "You can select a saved version now."
+        : "Finish the current phase before changing memory.")
+    : "Select a task to inspect or change its memory.";
+}
 function showContext(snapshot) {
+  memorySnapshot = snapshot;
+  memoryDirty = false;
+  $("context-notes").value = snapshot?.notes || "";
+  $("context-sources").value = (snapshot?.documents || [])
+    .map((doc) => doc.path)
+    .join("\n");
+  $("context-snapshot").value = snapshot?.id || "";
+  memoryPreviewId++;
+  $("context-preview").replaceChildren();
   $("context-documents").replaceChildren();
-  for (const source of snapshot.documents) {
+  for (const source of snapshot?.documents || []) {
     const details = el("details");
     details.append(el("summary", source.path), el("pre", source.content));
     $("context-documents").append(details);
   }
+  if (!snapshot?.documents.length)
+    $("context-documents").append(
+      el("p", "No reference files saved.", "muted"),
+    );
+  renderMemory();
+}
+async function loadMemory(snapshotId = null, discard = false) {
+  if (memoryLoading) return;
+  if (memoryDirty && !discard)
+    throw new Error(
+      "Save your memory draft first, or use Discard draft & load current.",
+    );
+  memoryLoading = true;
+  renderMemory();
+  try {
+    const project = await api("/api/project");
+    const id = snapshotId || project.context.latest;
+    const saved = id
+      ? await api("/api/context?snapshot=" + encodeURIComponent(id))
+      : null;
+    memoryCurrent = project.context.latest;
+    memoryHistory = project.context.history;
+    $("context-snapshot").replaceChildren();
+    for (const version of memoryHistory) {
+      const option = el(
+        "option",
+        `${version.created.slice(0, 16).replace("T", " ")} · ${version.id.slice(0, 12)}${version.id === memoryCurrent ? " · current" : ""}`,
+      );
+      option.value = version.id;
+      $("context-snapshot").append(option);
+    }
+    memoryLoaded = true;
+    showContext(saved);
+  } finally {
+    memoryLoading = false;
+    renderMemory();
+  }
+}
+async function saveMemory(refreshSources = false) {
+  if (submitting || state?.job?.running || memoryLoading || !memoryLoaded)
+    return;
+  if (memorySnapshot && memorySnapshot.id !== memoryCurrent)
+    throw new Error("Make this version current before editing it.");
+  submitting = true;
+  render();
+  try {
+    const saved = await api("/api/context/save", {
+      notes: $("context-notes").value,
+      sources: $("context-sources")
+        .value.split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      expected_current: memoryCurrent,
+      refresh_sources: refreshSources,
+    });
+    // Accept the saved version before reloading metadata, even if that read fails.
+    memoryCurrent = saved.id;
+    showContext(saved);
+    await loadMemory(saved.id);
+  } finally {
+    submitting = false;
+    render();
+  }
+}
+async function previewMemory(forTask) {
+  const requestId = ++memoryPreviewId;
+  const target = $("context-preview");
+  const taskId = forTask ? selected : null;
+  const snapshotId = memorySnapshot?.id;
+  const result = await api(
+    "/api/context/preview?" +
+      (forTask
+        ? "task=" + encodeURIComponent(taskId)
+        : "snapshot=" + encodeURIComponent(snapshotId)),
+  );
+  if (
+    requestId !== memoryPreviewId ||
+    (forTask && selected !== taskId) ||
+    (!forTask && memorySnapshot?.id !== snapshotId)
+  )
+    return;
+  target.replaceChildren(
+    el(
+      "p",
+      `${forTask ? "Task " + taskId : "Project checkout"} · compared with ${result.revision.slice(0, 12)}`,
+      "muted",
+    ),
+  );
+  const context = result.context;
+  if (!context) {
+    target.append(el("p", "No project memory is attached to this task."));
+    return;
+  }
+  target.append(el("p", "Memory version: " + context.id.slice(0, 12), "muted"));
+  section(target, "Notes", context.notes || "No notes saved.");
+  for (const source of context.documents) {
+    const details = el("details");
+    details.append(el("summary", source.path));
+    if (source.excerpt !== undefined) {
+      details.append(el("pre", source.excerpt));
+      if (source.truncated)
+        details.append(
+          el("p", "Excerpt limited to the first 4,000 characters.", "muted"),
+        );
+      section(details, "Symbols", source.symbols?.join(", "));
+    } else
+      details.append(
+        el(
+          "p",
+          "Changed or unavailable in this checkout. Agents receive the path and a changed-source flag, with no excerpt.",
+        ),
+      );
+    details.append(el("small", "SHA-256: " + source.sha256));
+    target.append(details);
+  }
+  section(target, "Missing sources", context.missing_sources?.join("\n"));
+  section(target, "Memory guidance", context.usage);
+  if (!forTask)
+    target.append(
+      el(
+        "p",
+        "A task's base and worktree may differ. Use the task preview to see its memory.",
+        "muted",
+      ),
+    );
 }
 $("project-tools").onclick = () =>
   guard(async () => {
     $("project-panel").hidden = false;
+    $("memory-panel").hidden = true;
     await loadProject();
   });
 $("close-project").onclick = () => {
@@ -617,34 +774,59 @@ $("save-backend").onclick = () =>
   guard(() =>
     changeProject("/api/backend", { backend: $("backend-setting").value }),
   );
-$("save-context").onclick = () =>
-  guard(() =>
-    changeProject("/api/context", {
-      sources: $("context-sources")
-        .value.split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    }),
-  );
-$("read-context").onclick = () =>
+$("project-memory").onclick = () =>
   guard(async () => {
-    showContext(
-      await api(
-        "/api/context?snapshot=" +
-          encodeURIComponent($("context-snapshot").value),
-      ),
-    );
+    $("memory-panel").hidden = false;
+    $("project-panel").hidden = true;
+    if (!memoryDirty) await loadMemory();
+  });
+$("close-memory").onclick = () => {
+  $("memory-panel").hidden = true;
+};
+for (const id of ["context-notes", "context-sources"])
+  $(id).oninput = () => {
+    memoryDirty = true;
+    memoryPreviewId++;
+    $("context-preview").replaceChildren();
+    renderMemory();
+  };
+$("save-context").onclick = () => guard(() => saveMemory());
+$("refresh-context").onclick = () => guard(() => saveMemory(true));
+$("discard-context").onclick = () => guard(() => loadMemory(null, true));
+$("read-context").onclick = () =>
+  guard(() => loadMemory($("context-snapshot").value));
+$("restore-context").onclick = () =>
+  guard(async () => {
+    if (submitting || state?.job?.running || memoryDirty || !memorySnapshot)
+      return;
+    submitting = true;
+    render();
+    try {
+      const restored = await api("/api/context/restore", {
+        snapshot: memorySnapshot.id,
+        expected_current: memoryCurrent,
+      });
+      memoryCurrent = restored.id;
+      showContext(restored);
+      await loadMemory(restored.id);
+    } finally {
+      submitting = false;
+      render();
+    }
   });
 $("use-context").onclick = () =>
   guard(async () => {
-    const result = await changeProject("/api/context/use", {
+    if (memoryDirty)
+      throw new Error("Save your memory draft before applying it to a task.");
+    await changeProject("/api/context/use", {
       task_id: selected,
-      snapshot: $("context-snapshot").value,
+      snapshot: memorySnapshot.id,
     });
-    if (result)
-      $("context-status").textContent =
-        "Snapshot selected for " + result.task_id + ".";
+    memoryPreviewId++;
+    $("context-preview").replaceChildren();
   });
+$("preview-context").onclick = () => guard(() => previewMemory(false));
+$("preview-task-context").onclick = () => guard(() => previewMemory(true));
 function newTaskKind() {
   return document.querySelector('input[name="kind"]:checked').value;
 }

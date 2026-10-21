@@ -1,7 +1,7 @@
 # Lambda Harness user guide
 
 The website is the interface for conversations, approvals, phases, saved work,
-backend selection, and project context. Open **Workflow guide** in the sidebar
+backend selection, and project memory. Open **Workflow guide** in the sidebar
 for an in-app walkthrough.
 
 ## Start the local server
@@ -161,17 +161,39 @@ new worktree from its original pinned base. **Abandon task** permanently deletes
 the selected task's conversation, reports, branch, and worktree after you type
 its name to confirm.
 
-## Project context
+## Project memory
 
-Open **Project settings & context**. Enter committed source/document paths, one
-per line, and choose **Save snapshot**. Use architecture notes, invariants, state
-machine definitions, or other reference material. No model is involved.
+Open **Project memory** in the sidebar to see the current notes and saved source
+files. Add or edit architecture notes, invariants, decisions, and terminology,
+then choose **Save memory**. Notes support plain text or Markdown and are included
+in full (up to 32,000 UTF-8 bytes). No model call or repository edit is involved.
 
-The harness snapshots committed HEAD, excluding working-tree edits. **Read
-snapshot** shows the saved files. New tasks pin the latest snapshot; existing
-tasks retain theirs. **Use for selected task** changes a task's snapshot only
-between completed phases. A source mismatch is reported to agents instead of
-silently presenting stale source as current.
+Reference paths are relative to the selected repository, one per line. Adding a
+path captures **all listed files** from committed HEAD. Editing notes or removing
+a path keeps the retained files' saved contents. **Refresh sources & save** reads
+them again from committed HEAD; uncommitted edits are excluded. Limits are 24
+tracked regular text files, 1 MB each and 3 MB total. Expand **Saved source contents**
+to read the full copies. To clear current memory, empty both fields and save.
+
+**What agents receive** previews the saved notes, source excerpts, and stale-source
+flags. Each matching source contributes up to 4,000 characters and 100 symbols;
+changed or missing sources have no excerpt. The project preview compares against
+the main checkout. **Preview selected task's memory** uses that task's pinned
+version and actual worktree. Repository instructions and conversation history
+are separate from this project memory.
+
+Every edit creates an immutable version. **Version history → View version** reads
+an older one; **Make this current** restores it for future tasks without deleting
+history. The editor preserves drafts across polling and panel changes, and
+rejects a save if another session has changed current memory. Copy any edits you
+want to keep before using **Discard draft & load current** to resolve that conflict.
+Unsaved drafts remain only in the current browser tab and are lost on page reload.
+
+New tasks pin the current version. Existing tasks keep their version until you
+choose **Use viewed version for selected task**. This is allowed between completed
+phases or between general chat messages, never during model work or a pending
+review. Saving or restoring project memory does not change existing task history.
+Memory is local to this project's harness state directory; Git does not sync it.
 
 ## Backends and recovery
 

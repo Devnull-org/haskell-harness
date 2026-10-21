@@ -29,7 +29,7 @@
       <nav class="contents" aria-label="Guide contents">
         <a href="#start">Get started</a>
         <a href="#workflow">The workflow</a>
-        <a href="#context">Project context</a>
+        <a href="#context">Project memory</a>
         <a href="#models">Models</a>
         <a href="#validation">Validation</a>
         <a href="#server">The local server</a>
@@ -155,23 +155,43 @@
         </p>
       </section>
       <section id="context" class="panel">
-        <h2>Project context</h2>
+        <h2>Project memory</h2>
         <p>
-          Open <strong>Project settings &amp; context</strong> in the sidebar.
-          Add paths to architecture notes, invariants, state-machine
-          definitions, or source files—one path per line—and choose
-          <strong>Save snapshot</strong>.
+          Open <strong>Project memory</strong> in the sidebar. Read and edit
+          notes about architecture, invariants, decisions, and terminology, then
+          choose <strong>Save memory</strong>. Notes are included in full, up to
+          32,000 UTF-8 bytes. No model call or repository edit is involved.
         </p>
         <p>
-          Snapshots contain committed files from the checkout's HEAD. They
-          exclude uncommitted edits and require no model call.
-          <strong>Read snapshot</strong> lets you inspect the saved sources.
+          Add repository paths, one per line, to save references. Adding a path
+          reads all listed files from committed HEAD. Editing notes or removing
+          a path keeps the retained source contents.
+          <strong>Refresh sources &amp; save</strong>
+          reads them again; uncommitted edits are excluded. Expand
+          <strong>Saved source contents</strong> to read full copies.
         </p>
         <p>
-          New tasks pin the latest snapshot. Existing tasks keep theirs until
-          you choose <strong>Use for selected task</strong>, which is allowed
-          only between completed phases. Agents are told when referenced sources
-          differ from the task's worktree.
+          <strong>What agents receive</strong> shows notes and excerpts, with up
+          to 4,000 characters and 100 symbols per matching source. Changed
+          sources are flagged with no excerpt. Preview the selected task to
+          compare against its own worktree and pinned memory. Repository
+          instructions and conversation history are separate.
+        </p>
+        <p>
+          <strong>Version history</strong> lets you inspect earlier versions.
+          <strong>Make this current</strong> restores one for new tasks. Clear
+          both notes and paths and save to empty current memory; history is
+          retained. A conflicting save keeps your draft. Copy edits you want to
+          keep before choosing
+          <strong>Discard draft &amp; load current</strong>. Unsaved drafts are
+          lost on page reload.
+        </p>
+        <p>
+          Existing tasks keep their version until you choose
+          <strong>Use viewed version for selected task</strong>, between
+          completed phases or general chat messages. Pending reviews keep their
+          original memory. Memory is local to this project's harness state
+          directory.
         </p>
       </section>
       <section id="models" class="panel">

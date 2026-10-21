@@ -19,9 +19,8 @@
         SAVED WORK <button id="refresh" class="quiet">Refresh</button>
       </div>
       <nav id="tasks" aria-label="Saved tasks"></nav>
-      <button id="project-tools" class="quiet">
-        Project settings &amp; context
-      </button>
+      <button id="project-memory" class="quiet">Project memory</button>
+      <button id="project-tools" class="quiet">Project settings</button>
       <a class="guide-link" href="/guide" target="_blank" rel="noopener"
         >Workflow guide ↗</a
       >
@@ -66,29 +65,93 @@
           Automatic selection checks your existing logins when work starts and
           lets you choose if several backends work.
         </p>
-        <h2>Project context</h2>
+      </section>
+      <section
+        id="memory-panel"
+        class="panel"
+        hidden
+        aria-label="Project memory"
+      >
+        <div class="compose-top">
+          <div>
+            <div class="eyebrow">SHARED KNOWLEDGE</div>
+            <h2>Project memory</h2>
+          </div>
+          <button id="close-memory" class="quiet">Close</button>
+        </div>
         <p class="muted">
-          Save committed documentation and source files as shared knowledge. New
-          tasks use the latest snapshot.
+          Keep architecture, invariants, and decisions close to every
+          conversation. New tasks use the current version. Existing tasks keep
+          their own version until you change it.
         </p>
-        <label for="context-sources">File paths, one per line</label>
+        <p id="context-status" role="status"></p>
+        <div class="memory-versions">
+          <label for="context-snapshot">Version history</label>
+          <div class="button-row">
+            <select id="context-snapshot"></select>
+            <button id="read-context">View version</button>
+            <button id="restore-context">Make this current</button>
+          </div>
+        </div>
+        <label for="context-notes">Project notes</label>
+        <textarea
+          id="context-notes"
+          rows="10"
+          placeholder="# Architecture&#10;Describe the main components, state transitions, and rules that must always hold."
+        ></textarea>
+        <p class="muted">
+          Plain text or Markdown. Up to 32,000 UTF-8 bytes; notes are included
+          in full.
+        </p>
+        <label for="context-sources"
+          >Reference files — one repository path per line</label
+        >
         <textarea
           id="context-sources"
           rows="3"
           placeholder="docs/architecture.md&#10;src/Example/State.hs"
         ></textarea>
-        <button id="save-context">Save snapshot</button>
-        <p id="context-status" class="muted" role="status"></p>
-        <label for="context-snapshot">Saved snapshots</label>
-        <div class="button-row">
-          <select id="context-snapshot"></select>
-          <button id="read-context">Read snapshot</button>
-          <button id="use-context">Use for selected task</button>
-        </div>
         <p class="muted">
-          An existing task can change snapshots only between completed phases.
+          Adding a file reads all listed sources from the project's current
+          committed HEAD. Editing notes or removing a file keeps the saved
+          source contents. Use “Refresh sources &amp; save” to read them again.
+          Uncommitted changes are never imported.
         </p>
-        <div id="context-documents"></div>
+        <div class="button-row">
+          <button id="save-context" class="primary">Save memory</button>
+          <button id="refresh-context">Refresh sources &amp; save</button>
+          <button id="discard-context">Discard draft &amp; load current</button>
+        </div>
+        <p id="memory-draft" class="muted" role="status"></p>
+        <details class="memory-sources">
+          <summary>Saved source contents</summary>
+          <div id="context-documents"></div>
+        </details>
+        <div class="memory-task">
+          <h3>Memory for this task</h3>
+          <p id="task-memory-status" class="muted"></p>
+          <button id="use-context">Use viewed version for selected task</button>
+          <p class="muted">
+            Change a task's memory between completed phases, or between general
+            chat messages. Saving or restoring project memory does not update
+            existing tasks.
+          </p>
+        </div>
+        <div class="memory-preview">
+          <h3>What agents receive</h3>
+          <div class="button-row">
+            <button id="preview-context">Preview viewed version</button>
+            <button id="preview-task-context">
+              Preview selected task's memory
+            </button>
+          </div>
+          <p class="muted">
+            Preview shows saved notes and the source excerpts supplied by
+            memory. Changed sources are flagged instead of included. Task
+            history and repository instructions are supplied separately.
+          </p>
+          <div id="context-preview" aria-live="polite"></div>
+        </div>
       </section>
       <section id="new-panel" class="panel">
         <div class="eyebrow">YOUR NEXT TASK</div>

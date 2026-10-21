@@ -131,7 +131,7 @@
         {
           website = pkgs.runCommand "lambda-harness-website-check" { } ''
             ${self.packages.${system}.default}/bin/lambda-harness-web --help > help.txt
-            ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; root = files("lambda_harness").joinpath("web"); assert "Stop model" in root.joinpath("index.html").read_text(); assert "Project context" in root.joinpath("guide.html").read_text()'
+            ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; root = files("lambda_harness").joinpath("web"); assert "Stop model" in root.joinpath("index.html").read_text(); assert "Project memory" in root.joinpath("guide.html").read_text()'
             ${runtimes.${system}}/bin/python -c 'from importlib.metadata import distribution; assert not distribution("lambda-harness").entry_points'
             ${pkgs.codex}/bin/codex --ask-for-approval never exec --sandbox read-only --color never --ephemeral --ignore-user-config --ignore-rules - --help > codex-help.txt
             touch "$out"

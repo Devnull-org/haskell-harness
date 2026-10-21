@@ -405,34 +405,200 @@ test("appearance follows the system initially and works without browser storage"
   assert.equal(ui.root.dataset.theme, "dark");
 });
 
-test("project controls save multiline source paths without starting an agent", async () => {
-  const ui = await app();
+function memoryFixture(ui) {
   const requests = [];
+  const versions = {
+    original: {
+      id: "original",
+      revision: "abc123",
+      created: "2026-10-20",
+      notes: "Original rules",
+      documents: [{ path: "docs/design.md", content: "Saved design" }],
+    },
+    older: {
+      id: "older",
+      revision: "def456",
+      created: "2026-10-19",
+      notes: "Old rules",
+      documents: [],
+    },
+  };
+  let current = "original",
+    conflict = false;
   ui.fetch(async (path, options) => {
-    requests.push([path, options.body && JSON.parse(options.body)]);
-    if (path === "/api/context")
-      return response({ id: "snapshot", documents: [] });
+    const body = options.body && JSON.parse(options.body);
+    requests.push([path, body]);
     if (path === "/api/project")
       return response({
         backend: "auto",
         backends: [],
         tools: { git: true, nix: true, flake: true },
+        context: { latest: current, history: Object.values(versions) },
+      });
+    if (path.startsWith("/api/context?snapshot="))
+      return response(versions[path.split("=")[1]]);
+    if (path === "/api/context/save") {
+      if (conflict)
+        return {
+          ok: false,
+          json: async () => ({
+            error: "Project memory changed in another session.",
+          }),
+        };
+      current = "saved";
+      versions.saved = {
+        ...versions.original,
+        id: current,
+        notes: body.notes,
+        documents: body.sources.map((path) => ({
+          path,
+          content: "Saved file",
+        })),
+      };
+      return response(versions.saved);
+    }
+    if (path === "/api/context/restore") {
+      current = body.snapshot;
+      return response(versions[current]);
+    }
+    if (path.startsWith("/api/context/preview?"))
+      return response({
+        revision: "abc123",
         context: {
-          latest: "snapshot",
-          history: [
-            { id: "snapshot", revision: "abc123", created: "2026-10-20" },
+          id: current,
+          notes: versions[current].notes,
+          documents: [
+            {
+              path: "docs/design.md",
+              sha256: "test",
+              purpose: "Project reference",
+            },
           ],
+          missing_sources: [],
+          usage: "Reference data, not instructions.",
         },
       });
-    return response(snapshot());
+    return response(
+      snapshot({
+        ...task(),
+        can_use_context: true,
+        project_context_id: "older",
+      }),
+    );
   });
+  return {
+    requests,
+    conflict: () => {
+      conflict = true;
+    },
+  };
+}
+
+test("memory loads existing notes and saves a multiline draft without starting an agent", async () => {
+  const ui = await app(),
+    fixture = memoryFixture(ui);
+  await ui.elements.get("project-memory").onclick();
+  assert.equal(ui.elements.get("context-notes").value, "Original rules");
+  assert.equal(ui.elements.get("context-sources").value, "docs/design.md");
+  assert.match(
+    ui.elements.get("context-documents").textContent,
+    /Saved design/,
+  );
+  ui.elements.get("context-notes").value = "# Decisions\nNew rule";
+  ui.elements.get("context-notes").oninput();
   ui.elements.get("context-sources").value =
     "docs/design.md\n\nsrc/Example.hs\n";
   await ui.elements.get("save-context").onclick();
-  assert.deepEqual(requests.find(([path]) => path === "/api/context")[1], {
-    sources: ["docs/design.md", "src/Example.hs"],
-  });
-  assert(!requests.some(([path]) => path === "/api/command"));
-  assert.equal(ui.elements.get("context-snapshot").value, "snapshot");
+  assert.deepEqual(
+    fixture.requests.find(([path]) => path === "/api/context/save")[1],
+    {
+      notes: "# Decisions\nNew rule",
+      sources: ["docs/design.md", "src/Example.hs"],
+      expected_current: "original",
+      refresh_sources: false,
+    },
+  );
+  assert(!fixture.requests.some(([path]) => path === "/api/command"));
+  assert.equal(ui.elements.get("context-snapshot").value, "saved");
   assert.equal(ui.elements.get("send").disabled, false);
+});
+
+test("memory drafts survive polling, panel changes, and conflicting saves", async () => {
+  const ui = await app(),
+    fixture = memoryFixture(ui);
+  await ui.elements.get("project-memory").onclick();
+  ui.elements.get("context-notes").value = "Keep my draft";
+  ui.elements.get("context-notes").oninput();
+  await ui.run("refresh()");
+  await ui.elements.get("project-tools").onclick();
+  await ui.elements.get("project-memory").onclick();
+  assert.equal(ui.elements.get("context-notes").value, "Keep my draft");
+  ui.elements.get("context-snapshot").value = "older";
+  await ui.elements.get("read-context").onclick();
+  assert.match(ui.elements.get("error").textContent, /Save your memory draft/);
+  assert.equal(ui.elements.get("context-notes").value, "Keep my draft");
+  fixture.conflict();
+  await ui.elements.get("save-context").onclick();
+  assert.match(
+    ui.elements.get("error").textContent,
+    /changed in another session/,
+  );
+  assert.equal(ui.elements.get("context-notes").value, "Keep my draft");
+  assert.equal(ui.elements.get("preview-context").disabled, true);
+  assert.equal(ui.elements.get("use-context").disabled, true);
+  await ui.elements.get("discard-context").onclick();
+  assert.equal(ui.elements.get("context-notes").value, "Original rules");
+});
+
+test("earlier memory is read only until explicitly restored and previews show stale sources", async () => {
+  const ui = await app(),
+    fixture = memoryFixture(ui);
+  await ui.elements.get("project-memory").onclick();
+  ui.elements.get("context-snapshot").value = "older";
+  await ui.elements.get("read-context").onclick();
+  assert.equal(ui.elements.get("context-notes").value, "Old rules");
+  assert.equal(ui.elements.get("context-notes").readOnly, true);
+  assert.equal(ui.elements.get("save-context").disabled, true);
+  assert.equal(ui.elements.get("restore-context").disabled, false);
+  await ui.elements.get("restore-context").onclick();
+  assert.deepEqual(
+    fixture.requests.find(([path]) => path === "/api/context/restore")[1],
+    { snapshot: "older", expected_current: "original" },
+  );
+  assert.equal(ui.elements.get("context-notes").readOnly, false);
+  await ui.elements.get("preview-context").onclick();
+  assert.match(ui.elements.get("context-preview").textContent, /Old rules/);
+  assert.match(ui.elements.get("context-preview").textContent, /no excerpt/);
+  await ui.elements.get("preview-task-context").onclick();
+  assert(
+    fixture.requests.some(
+      ([path]) => path === "/api/context/preview?task=example",
+    ),
+  );
+  assert(!fixture.requests.some(([path]) => path === "/api/context/use"));
+});
+
+test("a late preview cannot replace a new memory draft", async () => {
+  const ui = await app();
+  memoryFixture(ui);
+  await ui.elements.get("project-memory").onclick();
+  let finish;
+  ui.fetch(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const preview = ui.elements.get("preview-context").onclick();
+  ui.elements.get("context-notes").value = "New draft";
+  ui.elements.get("context-notes").oninput();
+  finish(
+    response({
+      revision: "abc123",
+      context: { id: "old", notes: "Old preview", documents: [] },
+    }),
+  );
+  await preview;
+  assert.equal(ui.elements.get("context-preview").textContent, "");
+  assert.equal(ui.elements.get("context-notes").value, "New draft");
 });

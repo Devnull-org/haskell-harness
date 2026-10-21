@@ -626,3 +626,29 @@ dialog {
   gap: 16px;
   margin: 20px 0;
 }
+
+.memory-versions,
+.memory-task,
+.memory-preview {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  margin-top: 24px;
+}
+.memory-versions {
+  margin-bottom: 24px;
+}
+.memory-sources {
+  margin-top: 20px;
+}
+#context-notes {
+  min-height: 200px;
+}
+#context-documents pre,
+#context-preview pre {
+  max-height: 360px;
+  overflow: auto;
+}
+#context-snapshot {
+  min-width: 0;
+  max-width: 100%;
+}

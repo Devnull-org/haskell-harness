@@ -79,6 +79,10 @@ class Finding(Record):
     needs_test: bool
 
 
+class PassingTests(Tests):
+    expected_failures: list[str] = Field(max_length=0)
+
+
 class Review(Record):
     findings: list[Finding]
     summary: str = Field(min_length=1)
@@ -116,7 +120,15 @@ SCHEMAS = {
 
 
 def schema_for(role, context):
-    return Explanation if context.get("intent") == "explain" else SCHEMAS[role]
+    if context.get("intent") == "explain":
+        return Explanation
+    if (
+        role == "test_author"
+        and context.get("task_kind") == "tests"
+        and context.get("test_expectation") == "green"
+    ):
+        return PassingTests
+    return SCHEMAS[role]
 
 
 def validate_response(role, context, value, *, notify=None):

@@ -23,3 +23,11 @@ question without proposing changes or treating the question as approval.
 When messages contain replaces_interrupted_instructions, use that message's text
 instead of the earlier interrupted instructions. This correction does not approve
 tests, change approved tests, or bypass any specification or review gate.
+
+For task_kind=review, review_source pins the requested base and head. The supplied
+diff starts at their merge base. Review this existing change against the developer's
+request, PR description when supplied, and repository guidance. There is no approved
+feature specification or harness-produced patch series; do not invent either.
+Inspect the changed code and relevant surrounding paths at the pinned revision.
+Do not run tests or builds. State inspection limitations plainly. Follow-up questions
+and scope revisions authorize analysis only, never fixes, commits, or publishing.

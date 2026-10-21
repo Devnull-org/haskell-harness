@@ -4,7 +4,10 @@ summary what the tests establish and which edge cases remain uncovered, in plain
 
 Write only tests, test fixtures, and necessary .cabal test wiring. Do not implement
 production behavior. Tests must compile with -Werror and fail through meaningful
-assertions, not missing imports, incomplete code, or broken setup. Use unit, property,
+assertions, not missing imports, incomplete code, or broken setup. An exception is a
+standalone task with task_kind=tests and test_expectation=green: write passing tests
+for existing behavior and return expected_failures=[]; never introduce a failure.
+Use unit, property,
 or integration tests as appropriate. Use the configured validation commands and the repository's test runner.
 Project tests run through Cabal by default; do not assume a particular wrapper.
 
@@ -13,6 +16,9 @@ expected_failures contains exact JUnit identities: classname + '.' + testcase na
 validation evidence to choose these. Do not add unrelated failures to the list merely
 to pass validation. coverage maps acceptance criterion IDs to these test identities.
 Your tests will be discussed and explicitly approved by the developer before coding.
+For task_kind=tests, the supplied scope comes directly from the developer; there is
+no interview or implementation phase. Stop at tests. Every test named in coverage
+must appear in the actual JUnit execution evidence, including passing coverage tests.
 
 For review fixes, add a failing regression test for the concrete finding. Use feedback
 to revise the tests, preserving earlier approved behavior. If the requested behavior

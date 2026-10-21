@@ -66,7 +66,7 @@ class ValidationConfig(Record):
 
 
 def test_evidence(results):
-    failures, errors, executed = [], [], 0
+    failures, errors, executed, identities = [], [], 0, set()
     for name, result in results.items():
         if not name.startswith("test:"):
             continue
@@ -100,6 +100,7 @@ def test_evidence(results):
                 )
                 if not identifier:
                     raise ValueError("JUnit testcase has no identity")
+                identities.add(identifier)
                 if case.find("error") is not None:
                     errors.append(identifier)
                 if case.find("failure") is not None:
@@ -109,7 +110,12 @@ def test_evidence(results):
         if result["exit_code"] != 0 and not command_failures:
             raise ValueError(f"{name} failed without identified assertion failures")
         failures.extend(command_failures)
-    return {"failures": sorted(set(failures)), "errors": errors, "executed": executed}
+    return {
+        "failures": sorted(set(failures)),
+        "errors": errors,
+        "executed": executed,
+        "identities": sorted(identities),
+    }
 
 
 def classify_validation(results, expected_failures, *, phase):

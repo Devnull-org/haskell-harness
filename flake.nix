@@ -80,6 +80,7 @@
             name = "haskell-harness-web";
             runtimeInputs = [
               pkgs.git
+              pkgs.gh
               pkgs.nix
               pkgs.cursor-cli
               pkgs.codex
@@ -106,6 +107,7 @@
             packages = [
               development.${system}
               pkgs.git
+              pkgs.gh
               pkgs.just
               pkgs.nixfmt
               pkgs.nodejs

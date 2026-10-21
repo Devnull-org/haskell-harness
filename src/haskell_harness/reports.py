@@ -19,6 +19,38 @@ def exploration_report(state):
     return "\n".join(lines) + "\n"
 
 
+def standalone_review_report(state):
+    source = state["review_source"]
+    lines = [
+        f"# Review: {state['task_id']}",
+        "",
+        state["request"],
+        "",
+        f"Base: `{source['base_ref']}` (`{source['base']}`)",
+        f"Head: `{source['head_ref']}` (`{source['head']}`)",
+        f"Diff starts at merge base: `{source['merge_base']}`",
+        "",
+        "Read-only code inspection. No builds or tests were run, and no comments were published.",
+    ]
+    for role, review in state["standalone_reviews"].items():
+        lines += ["", f"## {role.replace('_', ' ').capitalize()}", "", review["summary"]]
+        for finding in review["findings"]:
+            lines += [
+                "",
+                f"### {finding['id']}: {finding['title']}",
+                "",
+                f"{finding['severity']} · {finding['confidence']} · {finding['location']}",
+                "",
+                finding["impact"],
+                "",
+                f"Conditions: {finding['conditions']}",
+                f"Sequence: {' → '.join(finding['sequence'])}",
+                f"Evidence: {finding['evidence']}",
+                f"Recommendation: {finding['recommendation']}",
+            ]
+    return "\n".join(lines) + "\n"
+
+
 def pr_description(state):
     spec = state["specification"]
     lines = [spec["problem"], "", spec["expected_behavior"], "", "Acceptance criteria", ""]

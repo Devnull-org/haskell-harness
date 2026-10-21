@@ -16,7 +16,8 @@ from pydantic import ValidationError
 from .cleanup import cleanup_plan, remove_resources
 from .failures import AgentInterrupted, BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
-from .reports import exploration_report, pr_description
+from .reports import exploration_report, pr_description, standalone_review_report
+from .review_source import resolve_review
 from .schemas import validate_response
 from .validation import ValidationConfig, classify_validation, test_evidence
 from .workspace import Workspace, digest, git, is_test_path, resolve_base, save_json
@@ -65,6 +66,7 @@ class Harness:
         nodes = (
             "prepare",
             "explore",
+            "standalone_review",
             "interview",
             "worktree",
             "tests",
@@ -124,6 +126,69 @@ class Harness:
                 task_id, request, base=base, mode=mode, walkthrough=walkthrough, phase=phase
             )
 
+    def start_tests(self, task_id, request, *, packages, criteria, base="HEAD", expectation="red"):
+        """Write and validate tests from a developer's scope, stopping after test approval."""
+        if expectation not in {"red", "green"}:
+            raise ValueError("Choose failing regression tests or passing coverage tests")
+        for name, items in (("packages", packages), ("criteria", criteria)):
+            if (
+                not isinstance(items, list)
+                or not items
+                or not all(isinstance(item, str) and item.strip() for item in items)
+            ):
+                raise ValueError(f"Provide at least one nonempty {name} entry")
+        specification = {
+            "problem": request,
+            "expected_behavior": request,
+            "acceptance_criteria": [
+                {"id": f"A{i}", "description": text.strip()} for i, text in enumerate(criteria, 1)
+            ],
+            "packages": list(dict.fromkeys(package.strip() for package in packages)),
+            "out_of_scope": ["Production implementation and refactoring"],
+            "constraints": ["Write only tests, fixtures, and necessary Cabal test wiring."],
+            "open_questions": [],
+            "assumptions": [],
+        }
+        with self._lock():
+            # Reject misspelled packages before creating a task or invoking a model.
+            revision = resolve_base(self.repository, base)
+            files = git(self.repository, "ls-tree", "-r", "--name-only", revision).splitlines()
+            for package in specification["packages"]:
+                if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9-]*", package) or not any(
+                    Path(path).name == package + ".cabal" for path in files
+                ):
+                    raise ValueError(f"Unknown Cabal package: {package}")
+            return self._start(
+                task_id,
+                request,
+                base=base,
+                phase="worktree",
+                standalone={
+                    "task_kind": "tests",
+                    "specification": specification,
+                    "test_expectation": expectation,
+                },
+            )
+
+    def start_review(self, task_id, request, *, base, head, reviewers="both", source=None):
+        """Inspect a pinned change without running validation, editing code, or publishing."""
+        if reviewers not in {"both", "haskell", "security"}:
+            raise ValueError("Choose Haskell, security, or both reviewers")
+        with self._lock():
+            source = source or resolve_review(self.repository, base, head)
+            return self._start(
+                task_id,
+                request,
+                base=source["merge_base"],
+                phase="standalone_review",
+                standalone={
+                    "task_kind": "review",
+                    "review_source": source,
+                    "reviewers": reviewers,
+                    "starting_revision": source["head"],
+                },
+            )
+
     def _start(
         self,
         task_id,
@@ -134,13 +199,14 @@ class Harness:
         walkthrough=False,
         restarted_from=None,
         phase="interview",
+        standalone=None,
     ):
         config = self._config(task_id)
         if self.graph.get_state(config).values:
             raise ValueError(f"Task already exists: {task_id}; resume it instead")
         if mode not in {"phased", "full", "interview"} or not request.strip():
             raise ValueError("A request and a phased, full, or interview mode are required")
-        if phase not in {"interview", "explore"}:
+        if phase not in {"interview", "explore"} and not standalone:
             raise ValueError("A new task must start with interview or explore")
         base_revision = resolve_base(self.repository, base)
         directory = self.state_dir / task_id
@@ -168,6 +234,10 @@ class Harness:
             "project_context_id": self.context.latest_id(),
             "validation_config": self.validation.model_dump(),
         }
+        if standalone:
+            state.update(copy.deepcopy(standalone))
+            state["standalone_start"] = copy.deepcopy(standalone)
+            state["mode"] = "phased"
         if restarted_from:
             state["restarted_from"] = restarted_from
         self.graph.invoke(state, config)
@@ -177,6 +247,8 @@ class Harness:
         """Start a new attempt without changing the previous task or its worktree."""
         with self._lock():
             original = self._state(task_id)
+            if base is not None and original.get("task_kind") == "review":
+                raise ValueError("Start a new review to choose a different comparison base")
             if new_task_id is None:
                 attempt = 1
                 while True:
@@ -196,6 +268,7 @@ class Harness:
                 walkthrough=original["walkthrough_enabled"],
                 restarted_from=task_id,
                 phase=original.get("initial_phase", "interview"),
+                standalone=original.get("standalone_start"),
             )
 
     def inspect(self, task_id):
@@ -343,6 +416,9 @@ class Harness:
                 "restarted_from",
                 "report_directory",
                 "project_context_id",
+                "task_kind",
+                "test_expectation",
+                "review_source",
             )
             if key in state
         }
@@ -353,12 +429,22 @@ class Harness:
         else:
             # A browser poll reads checkpoints while another thread may remove a worktree.
             commits = state.get("commits", [])
-            view["revision"] = commits[-1]["revision"] if commits else state["base"]
+            view["revision"] = (
+                commits[-1]["revision"]
+                if commits
+                else state.get("starting_revision", state["base"])
+            )
         if state["stage"] == "specification_ready":
             view["prompt"] = {**view["prompt"], "available_phases": self._available_phases(state)}
+        if state.get("task_kind") == "tests":
+            view["test_scope"] = {
+                key: state["specification"][key] for key in ("packages", "acceptance_criteria")
+            }
         return view
 
     def _available_phases(self, state):
+        if state.get("task_kind") in {"tests", "review"}:
+            return []
         following = {
             "specification_ready": ["explore", "tests"],
             "exploration_ready": ["explore", "interview"],
@@ -397,6 +483,13 @@ class Harness:
             state["prompt"].update(
                 exploration=state["exploration"], report=str(reports / "exploration.md")
             )
+        if stage == "review_complete":
+            state["prompt"].update(
+                reviews=state["standalone_reviews"],
+                report=str(reports / "review.md"),
+            )
+        if stage == "tests_complete":
+            state["prompt"].update(validation=state["validation"], coverage=state["coverage"])
         save_json(reports / "patches.json", state["commits"])
         save_json(reports / "dispositions.json", state["dispositions"])
         save_json(reports / "walkthrough.json", state.get("walkthrough_answers", []))
@@ -460,6 +553,9 @@ class Harness:
         workspace = self._workspace(state)
         context = {
             "request": state["request"],
+            "task_kind": state.get("task_kind", "feature"),
+            "test_expectation": state.get("test_expectation", "red"),
+            "review_source": state.get("review_source"),
             "specification": state.get("specification"),
             "messages": state["messages"],
             "revision": workspace.revision,
@@ -608,16 +704,44 @@ class Harness:
     def _create_worktree(self, state):
         path = Path(state["directory"]) / "worktree"
         branch = f"harness/{state['task_id']}-{digest(state['directory'])[:8]}"
+        revision = state.get("starting_revision", state["base"])
         if not path.exists():
-            git(self.repository, "worktree", "add", "-b", branch, str(path), state["base"])
+            git(self.repository, "worktree", "add", "-b", branch, str(path), revision)
         elif (
             Path(git(path, "rev-parse", "--show-toplevel")).resolve() != path.resolve()
             or git(path, "branch", "--show-current") != branch
-            or git(path, "rev-parse", "HEAD") != state["base"]
+            or git(path, "rev-parse", "HEAD") != revision
             or git(path, "status", "--porcelain")
         ):
             raise ValueError("Existing task worktree differs from its saved base; inspect it first")
         state["worktree"], state["branch"] = str(path), branch
+
+    def _assert_review_revision(self, state):
+        workspace = self._workspace(state)
+        if workspace.revision != state["review_source"]["head"] or git(
+            workspace.path, "status", "--porcelain"
+        ):
+            raise ValueError("Review worktree changed; restore the pinned revision before retrying")
+
+    def _standalone_review(self, state):
+        self._assert_review_revision(state)
+        roles = {
+            "haskell": ["haskell_reviewer"],
+            "security": ["security_reviewer"],
+            "both": ["haskell_reviewer", "security_reviewer"],
+        }[state["reviewers"]]
+        reviews = {role: self._ask(state, role) for role in roles}
+        state["standalone_reviews"] = reviews
+        state["messages"].append({"stage": "standalone_review", "reviews": reviews})
+        reports = Path(state["report_directory"])
+        save_json(reports / "review.json", {"source": state["review_source"], "reviews": reviews})
+        (reports / "review.md").write_text(standalone_review_report(state))
+        self._gate(
+            state,
+            "standalone_review",
+            {"summary": "Review ready", "reviews": reviews, "report": str(reports / "review.md")},
+            ["question", "revise", "done"],
+        )
 
     def _prepare(self, state):
         self._create_worktree(state)
@@ -657,7 +781,11 @@ class Harness:
             proposal["expected_failures"],
             proposal["coverage"],
         )
-        state["proposal"], state["role"], state["phase"] = proposal, "test_author", "red"
+        state["proposal"], state["role"], state["phase"] = (
+            proposal,
+            "test_author",
+            state.get("test_expectation", "red"),
+        )
         state["next"] = "validate"
 
     def _assert_tests(self, state):
@@ -767,6 +895,14 @@ class Harness:
         }
         try:
             validation["test_evidence"] = test_evidence(results)
+            if state.get("task_kind") == "tests":
+                covered = {name for names in state["coverage"].values() for name in names}
+                missing = covered - set(validation["test_evidence"]["identities"])
+                if missing:
+                    status = validation["status"] = "blocked"
+                    validation["evidence_error"] = (
+                        "Tests named in coverage did not execute: " + ", ".join(sorted(missing))
+                    )
         except ValueError as error:
             validation["evidence_error"] = str(error)
         state["validation"] = validation
@@ -834,7 +970,11 @@ class Harness:
         if state["role"] == "test_author":
             state["approved_tests"] = workspace.test_manifest(state["test_paths"])
             state["attempts"], state["patch_count"], state["next"] = 0, 0, "implement"
-            if state["mode"] == "phased":
+            if state.get("task_kind") == "tests":
+                self._phase_complete(
+                    state, "tests_complete", "Approved tests committed. Test task complete."
+                )
+            elif state["mode"] == "phased":
                 self._phase_complete(
                     state, "tests_ready", "Approved tests committed. Tests phase complete."
                 )
@@ -966,6 +1106,36 @@ class Harness:
                     }
                 )
             state["next"] = state["retry_node"]
+        elif stage == "standalone_review":
+            self._assert_review_revision(state)
+            if action == "done":
+                self._phase_complete(
+                    state, "review_complete", "Review saved. No code changes made."
+                )
+            elif action == "question":
+                answers = []
+                for role in state["standalone_reviews"]:
+                    answer = self._ask(
+                        state,
+                        role,
+                        intent="explain",
+                        question=response["text"],
+                        review_packet=state["standalone_reviews"][role],
+                    )
+                    answers.append(f"{role.replace('_', ' ').capitalize()}: {answer['answer']}")
+                answer = "\n\n".join(answers)
+                state["messages"].append({"question": response["text"], "answer": answer})
+                self._gate(
+                    state,
+                    stage,
+                    {**state["prompt"], "answer": answer},
+                    ["question", "revise", "done"],
+                )
+            else:
+                state["messages"].append(
+                    {"stage": stage, "action": action, "text": response["text"]}
+                )
+                state["next"] = "standalone_review"
         elif stage == "exploration" and action == "done":
             self._phase_complete(
                 state, "exploration_ready", "Exploration saved. Start any further phase explicitly."

@@ -345,6 +345,11 @@ function render() {
   for (const task of state.tasks.filter(
     (item) => item.task_kind !== "agent_builder",
   )) {
+    const row = el(
+      "div",
+      undefined,
+      "saved-task" + (task.task_id === selected ? " selected" : ""),
+    );
     const item = button(
       task.task_id,
       async () => {
@@ -356,10 +361,18 @@ function render() {
         packetKey = "";
         await refresh();
       },
-      task.task_id === selected ? "selected" : "",
+      "task-open",
     );
     item.append(el("small", task.stage.replaceAll("_", " ")));
-    $("tasks").append(item);
+    const remove = button(
+      "×",
+      () => openDeleteTask(task.task_id),
+      "task-delete",
+    );
+    remove.ariaLabel = remove.title = "Delete task " + task.task_id;
+    remove.disabled = busy;
+    row.append(item, remove);
+    $("tasks").append(row);
   }
   if (!state.tasks.some((item) => item.task_kind !== "agent_builder"))
     $("tasks").append(
@@ -374,6 +387,7 @@ function render() {
   $("save-backend").disabled = busy;
   $("export-project").disabled = busy;
   $("import-project").disabled = busy;
+  $("delete-confirm").disabled = busy;
   renderMemory(busy);
   if (state.task) renderTask(state.task, busy);
   $("activity").hidden = page !== "workspace" || !state.job;
@@ -400,12 +414,15 @@ function render() {
       if (job.result?.stage === "agent_ready") guard(loadAgents);
       if (job.error) error(job.error);
       if (job.result?.stage === "abandoned") {
-        selected = null;
-        packetKey = "";
-        guard(refresh);
-        return;
-      }
-      if (job.result && selected !== job.result.task_id) {
+        if (selected === job.result.task_id) {
+          selected = null;
+          packetKey = "";
+          pendingMessage = null;
+          $("message").value = "";
+          guard(refresh);
+          return;
+        }
+      } else if (job.result && selected !== job.result.task_id) {
         selected = job.result.task_id;
         packetKey = "";
         guard(refresh);
@@ -1390,26 +1407,58 @@ $("choose-backend").onclick = () =>
   );
 $("restart").onclick = () =>
   guard(() => command({ command: "restart", task_id: selected }));
-$("abandon").onclick = () =>
-  guard(async () => {
-    deletePlan = await api(
-      "/api/abandon-plan?task=" + encodeURIComponent(selected),
-    );
-    $("delete-details").textContent = selected + "\n" + deletePlan.worktree;
-    $("delete-name").value = "";
-    $("delete-dialog").showModal();
-  });
-$("delete-dialog").addEventListener("close", () => {
-  if ($("delete-dialog").returnValue === "delete")
-    guard(() =>
-      command({
+async function openDeleteTask(taskId) {
+  if (submitting || handoffBusy || connectionError || state?.job?.running)
+    return;
+  const target = {
+    task_id: taskId,
+    project_id: requestedProject || activeProject?.id || null,
+  };
+  deletePlan = target;
+  const plan = await api(
+    "/api/abandon-plan?task=" + encodeURIComponent(taskId),
+  );
+  if (deletePlan !== target) return;
+  if (target.project_id !== (requestedProject || activeProject?.id || null))
+    throw new Error("The project changed. Open task deletion again.");
+  target.confirmation_token = plan.confirmation_token;
+  $("delete-details").textContent = taskId + "\n" + plan.worktree;
+  $("delete-name").value = "";
+  $("delete-error").textContent = "";
+  $("delete-dialog").showModal();
+}
+$("abandon").onclick = () => guard(() => openDeleteTask(selected));
+$("delete-cancel").onclick = () => {
+  $("delete-dialog").close();
+  deletePlan = null;
+};
+$("delete-form").onsubmit = (event) => {
+  event.preventDefault();
+  return guard(async () => {
+    if (!deletePlan || submitting) return;
+    $("delete-error").textContent = "";
+    try {
+      if (
+        deletePlan.project_id !==
+        (requestedProject || activeProject?.id || null)
+      )
+        throw new Error("The project changed. Open task deletion again.");
+      if ($("delete-name").value !== deletePlan.task_id)
+        throw new Error("Type the task name exactly to confirm deletion.");
+      await command({
         command: "abandon",
-        task_id: selected,
+        task_id: deletePlan.task_id,
         confirmation: $("delete-name").value,
         token: deletePlan.confirmation_token,
-      }),
-    );
-});
+      });
+      $("delete-dialog").close();
+      deletePlan = null;
+    } catch (error) {
+      $("delete-error").textContent = error.message;
+      throw error;
+    }
+  });
+};
 function hasProjectDrafts() {
   return (
     memoryDirty ||

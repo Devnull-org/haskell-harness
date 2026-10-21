@@ -77,6 +77,158 @@ function snapshot(current = task()) {
 const response = (body) => ({ ok: true, json: async () => body });
 const settle = () => new Promise(setImmediate);
 
+const deleteSubmission = () => ({
+  submitter: { value: "delete" },
+  preventDefault() {},
+});
+
+test("sidebar deletion targets a completed review without disturbing the open conversation", async () => {
+  const project = { id: "project-a", name: "Example", repository: "/example" };
+  const current = {
+    ...snapshot(),
+    project,
+    tasks: [
+      { task_id: "example", stage: "chat" },
+      { task_id: "finished-review", stage: "review_complete" },
+    ],
+  };
+  const requests = [];
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path === "/api/abandon-plan?task=finished-review")
+        return response({
+          worktree: "/review/worktree",
+          confirmation_token: "review-token",
+        });
+      if (path === "/api/command") {
+        requests.push(options);
+        current.tasks.pop();
+        current.job = {
+          id: "deleted",
+          running: false,
+          log: ["Task deleted"],
+          result: { task_id: "finished-review", stage: "abandoned" },
+        };
+        return response({});
+      }
+      return response(current);
+    },
+  });
+  ui.elements.get("message").value = "Keep this draft";
+  const remove = ui.elements.get("tasks").children[1].children[1];
+  assert.equal(remove.ariaLabel, "Delete task finished-review");
+  await remove.onclick();
+  assert.equal(ui.run("selected"), "example");
+  assert.equal(ui.elements.get("delete-dialog").open, true);
+  assert.match(
+    ui.elements.get("delete-details").textContent,
+    /finished-review/,
+  );
+  assert.equal(requests.length, 0);
+  ui.elements.get("delete-name").value = "example";
+  await ui.elements.get("delete-form").onsubmit(deleteSubmission());
+  assert.equal(requests.length, 0);
+  assert.match(ui.elements.get("delete-error").textContent, /task name/);
+  assert.equal(ui.elements.get("delete-dialog").open, true);
+  ui.elements.get("delete-name").value = "finished-review";
+  await ui.elements.get("delete-form").onsubmit(deleteSubmission());
+  assert.deepEqual(JSON.parse(requests[0].body), {
+    command: "abandon",
+    task_id: "finished-review",
+    confirmation: "finished-review",
+    token: "review-token",
+  });
+  assert.equal(requests[0].headers["X-Harness-Project"], "project-a");
+  assert.equal(ui.elements.get("delete-dialog").open, false);
+  assert.equal(ui.run("selected"), "example");
+  assert.equal(ui.elements.get("message").value, "Keep this draft");
+  assert.equal(ui.elements.get("work").hidden, false);
+  assert.equal(ui.elements.get("tasks").children.length, 1);
+  await ui.run("refresh()");
+  assert.equal(ui.run("selected"), "example");
+});
+
+test("deleting the open task returns to new work and cancelling never sends a command", async () => {
+  const current = snapshot();
+  const requests = [];
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path.startsWith("/api/abandon-plan"))
+        return response({
+          worktree: "/example/worktree",
+          confirmation_token: "example-token",
+        });
+      if (path === "/api/command") {
+        requests.push(options);
+        current.tasks = [];
+        current.task = null;
+        current.job = {
+          id: "deleted",
+          running: false,
+          log: [],
+          result: { task_id: "example", stage: "abandoned" },
+        };
+        return response({});
+      }
+      return response(current);
+    },
+  });
+  ui.elements.get("message").value = "An unsent question for this task";
+  await ui.elements.get("abandon").onclick();
+  ui.elements.get("delete-cancel").onclick();
+  assert.equal(ui.elements.get("delete-dialog").open, false);
+  assert.equal(requests.length, 0);
+  await ui.elements.get("abandon").onclick();
+  assert.equal(ui.elements.get("delete-name").value, "");
+  ui.elements.get("delete-name").value = "example";
+  await ui.elements.get("delete-form").onsubmit(deleteSubmission());
+  await settle();
+  assert.equal(requests.length, 1);
+  assert.equal(ui.run("selected"), null);
+  assert.equal(ui.elements.get("message").value, "");
+  assert.equal(ui.elements.get("work").hidden, true);
+  assert.equal(ui.elements.get("new-panel").hidden, false);
+  assert.match(
+    ui.elements.get("tasks").textContent,
+    /saved conversations will appear/,
+  );
+});
+
+test("task deletion is unavailable during running work and preserves confirmation on errors", async () => {
+  const ui = await app();
+  ui.run("state.job = {id:'running', running:true, log:[]}; render()");
+  assert.equal(ui.elements.get("tasks").children[0].children[1].disabled, true);
+  assert.equal(ui.elements.get("abandon").disabled, true);
+  ui.run("state.job = null; render()");
+  let commands = 0;
+  ui.fetch(async (path) => {
+    if (path.startsWith("/api/abandon-plan"))
+      return response({
+        worktree: "/example/worktree",
+        confirmation_token: "old",
+      });
+    if (path === "/api/command") {
+      commands++;
+      return {
+        ok: false,
+        json: async () => ({ error: "Task changed; open deletion again" }),
+      };
+    }
+    return response(snapshot());
+  });
+  await ui.elements.get("abandon").onclick();
+  ui.elements.get("delete-name").value = "example";
+  await ui.elements.get("delete-form").onsubmit(deleteSubmission());
+  assert.equal(commands, 1);
+  assert.equal(ui.elements.get("delete-dialog").open, true);
+  assert.match(ui.elements.get("delete-error").textContent, /Task changed/);
+  assert.equal(ui.run("selected"), "example");
+  ui.run("requestedProject = 'different-project'");
+  await ui.elements.get("delete-form").onsubmit(deleteSubmission());
+  assert.equal(commands, 1);
+  assert.match(ui.elements.get("delete-error").textContent, /project changed/);
+});
+
 test("export downloads only selected tasks and keeps the browser project scope", async () => {
   const requests = [];
   const current = {
@@ -1291,7 +1443,7 @@ test("project pages replace chat and remain separate while work polls in the bac
   assert.equal(ui.elements.get("memory-panel").hidden, true);
   assert.equal(ui.elements.get("message").value, "Keep my unsent question");
   await ui.elements.get("project-tools").onclick();
-  await ui.elements.get("tasks").children[0].onclick();
+  await ui.elements.get("tasks").children[0].children[0].onclick();
   assert.equal(ui.elements.get("project-panel").hidden, true);
   assert.equal(ui.elements.get("work").hidden, false);
   assert.equal(ui.elements.get("message").value, "Keep my unsent question");

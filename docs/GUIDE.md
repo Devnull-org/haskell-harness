@@ -286,9 +286,14 @@ model** to interrupt generation, **Edit previous message** to revise it, or
 
 Saved tasks appear in the sidebar. **Resume** returns to an unfinished phase or
 its pending gate. **Start a fresh attempt** preserves the old task and creates a
-new worktree from its original pinned base. **Abandon task** permanently deletes
-the selected task's conversation, reports, branch, and worktree after you type
-its name to confirm.
+new worktree from its original pinned base.
+
+To remove a task, use the **×** beside its name in **Saved work**, or **Delete task**
+at the bottom of its conversation. This works for completed reviews and other
+saved tasks. Type the task name to confirm permanent deletion of its conversation,
+reports, local branch, and worktree, including uncommitted work. Export a handoff
+first if you want a copy. The source checkout, project memory, other tasks, and
+published GitHub comments are kept. Stop running work before deleting a task.
 
 ## Share work with another developer
 

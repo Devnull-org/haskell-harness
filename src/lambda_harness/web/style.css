@@ -150,6 +150,37 @@ nav small {
   font-size: 11px;
   color: var(--muted);
 }
+.saved-task {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 4px 0;
+  border-radius: 7px;
+}
+.saved-task.selected {
+  background: var(--panel);
+  box-shadow: 0 1px 4px var(--shadow);
+}
+.saved-task button {
+  margin: 0;
+}
+.saved-task .task-open {
+  flex: 1;
+  min-width: 0;
+}
+.saved-task .task-delete {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  text-align: center;
+  font-size: 22px;
+  color: var(--muted);
+}
+.task-delete:hover:not(:disabled) {
+  color: var(--red);
+  background: var(--danger-bg);
+}
 .sidebar-footer {
   font-size: 11px;
   color: var(--muted);

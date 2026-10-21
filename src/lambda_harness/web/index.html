@@ -509,7 +509,7 @@
           <button id="resume" class="quiet">Resume</button
           ><button id="restart" class="quiet">Start a fresh attempt</button
           ><button id="export-task" class="quiet">Export handoff</button
-          ><button id="abandon" class="quiet danger">Abandon task</button>
+          ><button id="abandon" class="quiet danger">Delete task</button>
         </div>
         <section id="exploration-notes" class="panel" hidden></section>
       </section>
@@ -595,11 +595,16 @@
       </form>
     </dialog>
     <dialog id="delete-dialog">
-      <form method="dialog">
-        <h2>Abandon this task?</h2>
+      <form id="delete-form" method="dialog">
+        <h2>Delete this task?</h2>
         <p>
-          This deletes its conversation, reports, local branch, and worktree,
-          including uncommitted work.
+          This permanently removes the task from Saved work and deletes its
+          conversation, reports, local branch, and worktree, including
+          uncommitted work. Export a handoff first if you want to keep a copy.
+        </p>
+        <p>
+          Your source checkout, project memory, other tasks, and anything
+          already posted on GitHub are kept.
         </p>
         <pre id="delete-details"></pre>
         <label
@@ -607,8 +612,9 @@
             id="delete-name"
             autocomplete="off"
         /></label>
+        <p id="delete-error" class="danger" role="alert"></p>
         <div class="form-footer">
-          <button value="cancel">Keep task</button
+          <button id="delete-cancel" type="button">Keep task</button
           ><button id="delete-confirm" value="delete" class="danger">
             Delete task
           </button>

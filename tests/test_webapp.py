@@ -468,6 +468,50 @@ def test_browser_abandon_requires_task_name_and_current_confirmation_token(brows
     assert call("/api/state")[1]["tasks"] == []
 
 
+@pytest.mark.parametrize("finished", [False, True])
+def test_browser_deletes_saved_reviews_without_a_model(browser_app, monkeypatch, finished):
+    app, call, calls, _ = browser_app
+    harness = app.harness(ScriptedAgent())
+    try:
+        repository = harness.repository
+        base = git(repository, "rev-parse", "HEAD")
+        (repository / "README.md").write_text("# Documentation\n")
+        git(repository, "add", ".")
+        git(repository, "commit", "-m", "Docs to review")
+        head = git(repository, "rev-parse", "HEAD")
+        harness.start("keep", "Keep this conversation")
+        view = harness.start_review("discard-review", "Check docs", base=base, head="HEAD")
+        if finished:
+            view = harness.respond("discard-review", "done")
+            assert view["stage"] == "review_complete"
+        worktree = Path(view["worktree"])
+    finally:
+        harness.close()
+    monkeypatch.setattr(
+        "lambda_harness.webapp.select_backend", lambda *a: pytest.fail("Model selected")
+    )
+    plan = call("/api/abandon-plan?task=discard-review")[1]
+    code, _ = call(
+        "/api/command",
+        {
+            "command": "abandon",
+            "task_id": "discard-review",
+            "confirmation": "discard-review",
+            "token": plan["confirmation_token"],
+        },
+    )
+    assert code == 202
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    state = call("/api/state?task=discard-review")[1]
+    assert not state["job"].get("error")
+    assert state["task"] is None
+    assert [task["task_id"] for task in state["tasks"]] == ["keep"]
+    assert not worktree.parent.exists()
+    assert not git(repository, "branch", "--list", plan["branch"])
+    assert git(repository, "rev-parse", "HEAD") == head
+    assert not calls.exists()
+
+
 def test_browser_manages_project_context_without_a_model(browser_app):
     app, call, calls, _ = browser_app
     assert call("/api/project")[1]["context"]["history"] == []

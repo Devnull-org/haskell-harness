@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from haskell_harness.process import run_process
-from haskell_harness.review_source import resolve_review
+from lambda_harness.process import run_process
+from lambda_harness.review_source import resolve_review
 
 from .conftest import IMPLEMENTED, SOURCE, git
 
@@ -28,7 +28,7 @@ def test_github_pr_uses_metadata_and_fetches_without_moving_branches(repository,
         calls.append(argv)
         return 0, json.dumps(metadata) if argv[0] == "gh" else "", ""
 
-    monkeypatch.setattr("haskell_harness.review_source.run_process", run)
+    monkeypatch.setattr("lambda_harness.review_source.run_process", run)
     source = resolve_review(repository, "unused", metadata["url"])
     assert source["base"] == base and source["head"] == head
     assert source["pull_request"]["body"] == "Original request"
@@ -62,7 +62,7 @@ def test_github_pr_uses_metadata_and_fetches_without_moving_branches(repository,
 )
 def test_wrong_pr_repository_is_rejected_before_network_access(repository, monkeypatch, head):
     monkeypatch.setattr(
-        "haskell_harness.review_source.run_process", lambda *a, **kw: pytest.fail("Network access")
+        "lambda_harness.review_source.run_process", lambda *a, **kw: pytest.fail("Network access")
     )
     with pytest.raises(ValueError):
         resolve_review(repository, "main", head)
@@ -93,7 +93,7 @@ def test_pr_fetch_keeps_local_refs_and_fetch_head_unchanged(repository, tmp_path
         argv = [str(remote) if arg == "origin" else arg for arg in argv]
         return run_process(argv, cwd, **kwargs)
 
-    monkeypatch.setattr("haskell_harness.review_source.run_process", run)
+    monkeypatch.setattr("lambda_harness.review_source.run_process", run)
     source = resolve_review(repository, "ignored", "https://github.com/example/project/pull/12")
     assert source["head"] == head
     assert git(repository, "show-ref") == refs

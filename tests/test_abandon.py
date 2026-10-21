@@ -105,7 +105,7 @@ def test_abandon_refuses_saved_paths_outside_task_directory(rig, repository):
 
 @pytest.mark.parametrize("failure", ["branch", "database", "interrupt"])
 def test_interrupted_abandon_can_be_finished_without_resuming_agents(rig, monkeypatch, failure):
-    from haskell_harness import cleanup
+    from lambda_harness import cleanup
 
     harness, agent, _ = rig
     harness.start("discard", "An idea")

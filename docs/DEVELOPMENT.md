@@ -1,4 +1,4 @@
-# Developing Haskell Harness
+# Developing Lambda Harness
 
 From a clone, Nix supplies the development tools:
 
@@ -18,7 +18,7 @@ contacting models or running a target project's build.
 Launch the development source with:
 
 ```sh
-python -m haskell_harness --repo "/path/to/project"
+python -m lambda_harness --repo "/path/to/project"
 ```
 
 Without Nix, use `uv run --locked pytest` and `uv run --locked ruff check .` for

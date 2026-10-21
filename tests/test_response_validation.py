@@ -6,8 +6,8 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from haskell_harness.backends import Backend, BackendResponseError, CommandAgent, decode_response
-from haskell_harness.schemas import validate_response
+from lambda_harness.backends import Backend, BackendResponseError, CommandAgent, decode_response
+from lambda_harness.schemas import validate_response
 
 from .conftest import SPECIFICATION
 from .helpers import executable

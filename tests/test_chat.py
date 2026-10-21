@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from haskell_harness.failures import AgentInterrupted, BackendError
-from haskell_harness.workflow import Harness
+from lambda_harness.failures import AgentInterrupted, BackendError
+from lambda_harness.workflow import Harness
 
 from .conftest import SOURCE, git
 

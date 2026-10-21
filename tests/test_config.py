@@ -2,8 +2,8 @@
 
 import pytest
 
-from haskell_harness.backends import Backend
-from haskell_harness.config import Route, RoutedAgent, Settings, load_settings
+from lambda_harness.backends import Backend
+from lambda_harness.config import Route, RoutedAgent, Settings, load_settings
 
 
 def test_custom_profile_requires_no_provider_code(tmp_path):

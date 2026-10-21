@@ -1,4 +1,4 @@
-# Haskell Harness user guide
+# Lambda Harness user guide
 
 The website is the interface for conversations, approvals, phases, saved work,
 backend selection, and project context. Open **Workflow guide** in the sidebar
@@ -9,7 +9,7 @@ for an in-app walkthrough.
 From any directory, with Nix and Git installed:
 
 ```sh
-nix run --refresh github:Devnull-org/haskell-harness -- --repo "/path/to/project"
+nix run --refresh github:Devnull-org/lambda-harness -- --repo "/path/to/project"
 ```
 
 Replace the path with the root of your existing Git checkout. Open the printed URL,
@@ -21,15 +21,15 @@ If an assistant started the server for you, it can be running in the assistant's
 background session even when your terminal is idle. The browser connects to that
 local process; it cannot operate on the repository without the server.
 
-There is no terminal workflow client or separately installed `haskell-harness`
+There is no terminal workflow client or separately installed `lambda-harness`
 command. Nix supplies a small website launcher. Task names and responses belong
 in the page, with no `serve`, `start`, or `resume` subcommand in the launch line.
 
 ### From a clone
 
 ```sh
-git clone git@github.com:Devnull-org/haskell-harness.git
-cd haskell-harness
+git clone git@github.com:Devnull-org/lambda-harness.git
+cd lambda-harness
 nix run . -- --repo "/path/to/project"
 ```
 
@@ -43,7 +43,7 @@ Install Git and [uv](https://docs.astral.sh/uv/getting-started/installation/), c
 the repository, and run:
 
 ```sh
-uv run --locked --no-dev python -m haskell_harness --repo "/path/to/project"
+uv run --locked --no-dev python -m lambda_harness --repo "/path/to/project"
 ```
 
 uv installs the pinned Python dependencies and starts the same local website.
@@ -59,7 +59,7 @@ All options go after `--` with `nix run`. There are no workflow subcommands.
 | --- | --- |
 | `--repo PATH` | Required target Git checkout; no project path is assumed. |
 | `--port PORT` | Loopback port, default 8765; 0 chooses a free port. |
-| `--state-dir PATH` | Saved tasks, logs, and worktrees; outside the checkout. Default: `$XDG_STATE_HOME/haskell-harness` or `~/.local/state/haskell-harness`. |
+| `--state-dir PATH` | Saved tasks, logs, and worktrees; outside the checkout. Default: `$XDG_STATE_HOME/lambda-harness` or `~/.local/state/lambda-harness`. |
 | `--config FILE` | User-owned backend and validation configuration. |
 | `--nix-flake PATH` | Dependency flake override; otherwise use each task's worktree. |
 | `--backend NAME` | Initial backend choice; also selectable on the page. |
@@ -69,10 +69,15 @@ All options go after `--` with `nix run`. There are no workflow subcommands.
 | `--unsigned-commits` | Disable signing for harness commits only. |
 | `--help` | Describe server startup options. |
 
-Existing tasks keep their worktrees and checkpoints. When upgrading from a release
-with a different state directory, pass `--state-dir /path/to/existing/state-root`
-and any existing `--config` override. Keep the same target checkout path. Do not
-move registered worktrees. Restart the server to load an updated version.
+Existing tasks keep their worktrees and checkpoints. The previous product's default
+state directory is detected for this checkout when it has no state in the new
+directory. Nothing is moved or merged. The previous default configuration and
+browser theme are also reused when no new setting exists.
+
+For a custom or older state location, keep passing
+`--state-dir /path/to/existing/state-root` and any existing `--config` override.
+Keep the same target checkout path; do not move registered worktrees. Restart the
+server to load an updated version.
 
 ## Choose a starting point
 

@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from haskell_harness.__main__ import parser
-from haskell_harness.discovery import SelectionRequired
-from haskell_harness.webapp import LocalApp, create_server
+from lambda_harness.__main__ import parser
+from lambda_harness.discovery import SelectionRequired
+from lambda_harness.webapp import LocalApp, create_server
 
 from .conftest import IMPLEMENTED, SOURCE, SPECIFICATION, ScriptedAgent, ScriptedExecutor, git
 from .helpers import executable
@@ -97,9 +97,9 @@ def wait_for(test):
 def test_browser_standalone_tasks_start_directly_and_finish_locally(browser_app, monkeypatch, kind):
     app, call, _, _ = browser_app
     agent, executor = ScriptedAgent(), ScriptedExecutor()
-    monkeypatch.setattr("haskell_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
-    monkeypatch.setattr("haskell_harness.webapp.select_backend", lambda *a: "test")
-    monkeypatch.setattr("haskell_harness.webapp.LocalExecutor", lambda **kw: executor)
+    monkeypatch.setattr("lambda_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", lambda *a: "test")
+    monkeypatch.setattr("lambda_harness.webapp.LocalExecutor", lambda **kw: executor)
     command = {"command": kind, "task_id": kind, "base": "main", "request": "Check increment"}
     if kind == "review":
         git(app.args.repo, "checkout", "-b", "feature")
@@ -288,7 +288,7 @@ def test_browser_asks_for_backend_without_losing_the_pending_request(browser_app
             )
         return agent.backend
 
-    monkeypatch.setattr("haskell_harness.webapp.select_backend", choose)
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", choose)
     request = {"command": "start", "task_id": "choice", "request": "Keep my idea", "base": "main"}
     call("/api/command", request)
     wait_for(lambda: not call("/api/state")[1]["job"]["running"])

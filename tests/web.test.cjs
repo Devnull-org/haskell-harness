@@ -69,7 +69,7 @@ const settle = () => new Promise(setImmediate);
 
 async function app() {
   const elements = new Map();
-  const html = readFileSync("src/haskell_harness/web/index.html", "utf8");
+  const html = readFileSync("src/lambda_harness/web/index.html", "utf8");
   for (const [, id] of html.matchAll(/id="([^"]+)"/g))
     elements.set(id, new Element());
   elements.get("new-form").append(new Element("button"));
@@ -98,7 +98,7 @@ async function app() {
     clearTimeout: (id) => timers.delete(id),
   });
   vm.runInContext(
-    readFileSync("src/haskell_harness/web/app.js", "utf8"),
+    readFileSync("src/lambda_harness/web/app.js", "utf8"),
     context,
   );
   await settle();
@@ -346,7 +346,7 @@ test("an unsuccessful submission leaves the question available for correction", 
   assert.equal(ui.elements.get("send").disabled, false);
 });
 
-function theme(saved, blocked = false) {
+function theme(saved, blocked = false, legacy = null) {
   const picker = {
     value: "",
     addEventListener: (_, fn) => {
@@ -355,21 +355,32 @@ function theme(saved, blocked = false) {
   };
   const root = { dataset: {} };
   let stored = saved;
-  vm.runInNewContext(readFileSync("src/haskell_harness/web/theme.js", "utf8"), {
+  let writtenKey = null;
+  vm.runInNewContext(readFileSync("src/lambda_harness/web/theme.js", "utf8"), {
     document: { documentElement: root, querySelectorAll: () => [picker] },
     localStorage: {
-      getItem() {
+      getItem(key) {
         if (blocked) throw new Error("Storage unavailable");
-        return stored;
+        return key === "haskell-harness-theme" ? legacy : stored;
       },
-      setItem(_, value) {
+      setItem(key, value) {
         if (blocked) throw new Error("Storage unavailable");
+        writtenKey = key;
         stored = value;
       },
     },
   });
-  return { root, picker, saved: () => stored };
+  return { root, picker, saved: () => stored, writtenKey: () => writtenKey };
 }
+
+test("appearance survives the product rename and saves under the new name", () => {
+  const ui = theme(null, false, "dark");
+  assert.equal(ui.root.dataset.theme, "dark");
+  assert.equal(theme("light", false, "dark").root.dataset.theme, "light");
+  ui.picker.value = "light";
+  ui.picker.change();
+  assert.equal(ui.writtenKey(), "lambda-harness-theme");
+});
 
 test("appearance restores the saved choice and remembers changes", () => {
   const ui = theme("dark");

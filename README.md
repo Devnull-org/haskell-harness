@@ -1,10 +1,10 @@
 <div align="center">
 
-# λ Haskell Harness
+# λ Lambda Harness
 
-### Build Haskell with agents. Keep the decisions yours.
+### Build with agents. Keep the decisions yours.
 
-A local workspace for turning ideas into tested, reviewed patches.
+A local workspace for functional programming teams, from conversation to reviewed patches.
 
 [Get started](#open-your-workspace) · [User guide](docs/GUIDE.md) · [Model backends](BACKENDS.md) · [Contribute](docs/DEVELOPMENT.md)
 
@@ -12,7 +12,7 @@ A local workspace for turning ideas into tested, reviewed patches.
 
 ---
 
-Good software starts with a clear conversation. Haskell Harness helps you explore
+Good software starts with a clear conversation. Lambda Harness helps you explore
 an idea, sharpen the requirements, and work through the change with specialist
 agents—all from a local website.
 
@@ -29,8 +29,8 @@ agents—all from a local website.
 - **Own every patch.** Work stays in isolated local worktrees, with saved conversations
   and small commits. Prepare a handoff when you're ready to publish.
 
-Start where you need help: have a chat, explore an idea, write tests, review a PR, or take a feature
-through the full workflow. Every phase is a choice.
+Start where you need help: have a chat, explore an idea, write tests, review a PR,
+or take a feature through the full workflow. Every phase is a choice.
 
 ```mermaid
 flowchart LR
@@ -49,13 +49,14 @@ flowchart LR
 With Nix, run this from any directory:
 
 ```sh
-nix run --refresh github:Devnull-org/haskell-harness -- --repo "/path/to/project"
+nix run --refresh github:Devnull-org/lambda-harness -- --repo "/path/to/project"
 ```
 
 Replace the path with your Git checkout, then open the printed local URL.
 The command starts the local server; keep it running while using the website.
 
-Choose **General chat**, **Explore**, **Plan a feature or fix**, **Review a PR or branch**, or **Write tests**.
+Choose **General chat**, **Explore**, **Plan a feature or fix**,
+**Review a PR or branch**, or **Write tests**.
 Describe what you need. The harness checks your existing model logins and lets you
 choose when more than one backend is available.
 
@@ -66,8 +67,9 @@ Prefer running without Nix? See the [user guide](docs/GUIDE.md#without-nix).
 
 ## Your project. Your tools.
 
-Built for Haskell projects, powered by LangGraph, and independent of any one model
-provider. Use existing agent logins or connect your own backend. Save architecture
+Powered by LangGraph and independent of any one model provider. The coding workflow
+currently supports Haskell and Nix; more functional languages are planned.
+Use existing agent logins or connect your own backend. Save architecture
 notes and invariants as shared project context for the team’s workflow.
 
 The website runs locally. Model requests use your chosen provider. The harness

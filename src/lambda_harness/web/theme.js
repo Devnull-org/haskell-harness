@@ -3,7 +3,10 @@
   const choices = ["system", "light", "dark"];
   let selected = "system";
   try {
-    const saved = localStorage.getItem("haskell-harness-theme");
+    // Keep the appearance selected before the product was renamed.
+    const saved =
+      localStorage.getItem("lambda-harness-theme") ??
+      localStorage.getItem("haskell-harness-theme");
     if (choices.includes(saved)) selected = saved;
   } catch {
     // The theme still works when browser storage is unavailable.
@@ -19,7 +22,7 @@
     picker.addEventListener("change", () => {
       apply(picker.value);
       try {
-        localStorage.setItem("haskell-harness-theme", selected);
+        localStorage.setItem("lambda-harness-theme", selected);
       } catch {
         // Keep the selection for this page even if it cannot be saved.
       }

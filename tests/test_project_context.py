@@ -2,8 +2,8 @@
 
 import pytest
 
-from haskell_harness.project_context import ContextStore
-from haskell_harness.workspace import Workspace
+from lambda_harness.project_context import ContextStore
+from lambda_harness.workspace import Workspace
 
 from .conftest import SOURCE, git
 

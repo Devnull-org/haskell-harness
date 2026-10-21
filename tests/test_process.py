@@ -1,6 +1,6 @@
 """Long-running backends report elapsed time without losing their response."""
 
-from haskell_harness.process import run_process
+from lambda_harness.process import run_process
 
 from .helpers import executable
 

@@ -5,9 +5,9 @@ import time
 
 import pytest
 
-from haskell_harness.config import load_settings
-from haskell_harness.validation import LocalExecutor, ValidationConfig, classify_validation
-from haskell_harness.workflow import Harness
+from lambda_harness.config import load_settings
+from lambda_harness.validation import LocalExecutor, ValidationConfig, classify_validation
+from lambda_harness.workflow import Harness
 
 from .conftest import FAILURE_ID, ScriptedAgent, command_result, junit
 
@@ -89,7 +89,7 @@ def test_executor_reads_only_fresh_reports_inside_worktree(tmp_path, monkeypatch
         os.utime(outside / "escape.xml", ns=(now, now))
         return 1, "", ""
 
-    monkeypatch.setattr("haskell_harness.validation.run_process", run)
+    monkeypatch.setattr("lambda_harness.validation.run_process", run)
     result = LocalExecutor()(
         ["cabal", "test", "example-app"], checkout, report_glob="reports/**/*.xml"
     )

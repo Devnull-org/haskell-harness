@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from haskell_harness.workflow import Harness
+from lambda_harness.workflow import Harness
 
 from .conftest import BROKEN, FAILURE_ID, IMPLEMENTED, SOURCE, TEST, TEST_CONTENT, git
 

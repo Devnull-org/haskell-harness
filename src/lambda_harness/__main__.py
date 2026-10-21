@@ -1,10 +1,10 @@
 """Start the local website; workflows are controlled in the browser."""
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
+from .paths import default_state_root
 from .project_context import state_directory
 from .webapp import serve
 from .workspace import git
@@ -12,16 +12,15 @@ from .workspace import git
 
 def parser():
     result = argparse.ArgumentParser(
-        description="Start the Haskell Harness local website.",
+        description="Start the Lambda Harness local website.",
         epilog="Open the printed URL to explore, plan, review, and manage saved work.",
     )
     result.add_argument("--repo", type=Path, required=True, help="Target Git checkout")
     result.add_argument(
         "--state-dir",
         type=Path,
-        default=Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
-        / "haskell-harness",
-        help="Saved tasks and worktrees, outside the target checkout",
+        help="Saved tasks and worktrees; defaults to the user state directory, "
+        "reusing existing project data",
     )
     result.add_argument("--port", type=int, default=8765, help="Loopback port (default: 8765)")
     result.add_argument("--config", type=Path, help="User-owned backend and validation TOML")
@@ -46,6 +45,8 @@ def main(argv=None):
             raise ValueError(f"Target checkout does not exist: {args.repo}")
         if Path(git(args.repo, "rev-parse", "--show-toplevel")).resolve() != args.repo:
             raise ValueError("Repository must be the root of a Git checkout")
+        if args.state_dir is None:
+            args.state_dir = default_state_root(args.repo)
         state_directory(args.repo, args.state_dir)
         if not 0 <= args.port <= 65535:
             raise ValueError("Port must be between 0 and 65535")
@@ -55,7 +56,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         return 0
     except (ValueError, RuntimeError, OSError) as error:
-        print(f"Haskell Harness: {error}", file=sys.stderr)
+        print(f"Lambda Harness: {error}", file=sys.stderr)
         return 1
     return 0
 

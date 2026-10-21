@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from haskell_harness.__main__ import main, parser
+from lambda_harness.__main__ import main, parser
 
 
 def test_server_requires_an_explicit_project():
@@ -23,7 +23,7 @@ def test_terminal_commands_are_not_exposed(repository, command):
 
 def test_help_does_not_load_a_backend_or_start_the_server(monkeypatch, capsys):
     monkeypatch.setattr(
-        "haskell_harness.__main__.serve", lambda _: pytest.fail("Help must not start a server")
+        "lambda_harness.__main__.serve", lambda _: pytest.fail("Help must not start a server")
     )
     with pytest.raises(SystemExit) as error:
         main(["--help"])
@@ -33,7 +33,7 @@ def test_help_does_not_load_a_backend_or_start_the_server(monkeypatch, capsys):
 
 def test_invalid_project_fails_before_starting_the_server(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
-        "haskell_harness.__main__.serve", lambda _: pytest.fail("Invalid project was accepted")
+        "lambda_harness.__main__.serve", lambda _: pytest.fail("Invalid project was accepted")
     )
     assert main(["--repo", str(tmp_path / "missing")]) == 1
     assert "does not exist" in capsys.readouterr().err
@@ -43,7 +43,7 @@ def test_invalid_project_fails_before_starting_the_server(tmp_path, monkeypatch,
 
 def test_server_receives_resolved_options(repository, tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr("haskell_harness.__main__.serve", calls.append)
+    monkeypatch.setattr("lambda_harness.__main__.serve", calls.append)
     assert main(["--repo", str(repository), "--port", "0", "--state-dir", str(tmp_path)]) == 0
     assert calls[0].repo == repository.resolve()
     assert calls[0].port == 0
@@ -51,7 +51,7 @@ def test_server_receives_resolved_options(repository, tmp_path, monkeypatch):
 
 def test_module_is_runnable_without_a_console_script():
     result = subprocess.run(
-        [sys.executable, "-m", "haskell_harness", "--help"],
+        [sys.executable, "-m", "lambda_harness", "--help"],
         capture_output=True,
         text=True,
         check=True,

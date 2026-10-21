@@ -87,8 +87,8 @@ def prompt_for(role, context):
     schema = schema_for(role, context).model_json_schema()
     prompt = "\n\n".join(
         [
-            files("haskell_harness").joinpath("prompts", "common.md").read_text(),
-            files("haskell_harness").joinpath("prompts", f"{role}.md").read_text(),
+            files("lambda_harness").joinpath("prompts", "common.md").read_text(),
+            files("lambda_harness").joinpath("prompts", f"{role}.md").read_text(),
             "Return only one JSON object matching this schema:",
             json.dumps(schema),
             "Use only declared fields. Do not add aliases, notes, or empty placeholder fields.",

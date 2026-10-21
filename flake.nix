@@ -63,10 +63,10 @@
         )
       );
       runtimes = forAllSystems (
-        system: pythonSets.${system}.mkVirtualEnv "haskell-harness-runtime" workspace.deps.default
+        system: pythonSets.${system}.mkVirtualEnv "lambda-harness-runtime" workspace.deps.default
       );
       development = forAllSystems (
-        system: pythonSets.${system}.mkVirtualEnv "haskell-harness-development" workspace.deps.all
+        system: pythonSets.${system}.mkVirtualEnv "lambda-harness-development" workspace.deps.all
       );
     in
     {
@@ -77,7 +77,7 @@
         in
         {
           default = pkgs.writeShellApplication {
-            name = "haskell-harness-web";
+            name = "lambda-harness-web";
             runtimeInputs = [
               pkgs.git
               pkgs.gh
@@ -86,15 +86,15 @@
               pkgs.codex
               pkgs.claude-code
             ];
-            text = ''exec ${runtimes.${system}}/bin/python -m haskell_harness "$@"'';
+            text = ''exec ${runtimes.${system}}/bin/python -m lambda_harness "$@"'';
           };
         }
       );
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/haskell-harness-web";
-          meta.description = "Start the Haskell Harness local website";
+          program = "${self.packages.${system}.default}/bin/lambda-harness-web";
+          meta.description = "Start the Lambda Harness local website";
         };
       });
       devShells = forAllSystems (
@@ -129,15 +129,15 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          website = pkgs.runCommand "haskell-harness-website-check" { } ''
-            ${self.packages.${system}.default}/bin/haskell-harness-web --help > help.txt
-            ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; root = files("haskell_harness").joinpath("web"); assert "Stop model" in root.joinpath("index.html").read_text(); assert "Project context" in root.joinpath("guide.html").read_text()'
-            ${runtimes.${system}}/bin/python -c 'from importlib.metadata import distribution; assert not distribution("haskell-harness").entry_points'
+          website = pkgs.runCommand "lambda-harness-website-check" { } ''
+            ${self.packages.${system}.default}/bin/lambda-harness-web --help > help.txt
+            ${runtimes.${system}}/bin/python -c 'from importlib.resources import files; root = files("lambda_harness").joinpath("web"); assert "Stop model" in root.joinpath("index.html").read_text(); assert "Project context" in root.joinpath("guide.html").read_text()'
+            ${runtimes.${system}}/bin/python -c 'from importlib.metadata import distribution; assert not distribution("lambda-harness").entry_points'
             ${pkgs.codex}/bin/codex --ask-for-approval never exec --sandbox read-only --color never --ephemeral --ignore-user-config --ignore-rules - --help > codex-help.txt
             touch "$out"
           '';
           harness =
-            pkgs.runCommand "haskell-harness-check"
+            pkgs.runCommand "lambda-harness-check"
               {
                 nativeBuildInputs = [
                   development.${system}
@@ -157,9 +157,9 @@
                 ruff check .
                 ruff format --check .
                 nixfmt --check flake.nix
-                prettier --check src/haskell_harness/web tests/web.test.cjs
-                node --check src/haskell_harness/web/app.js
-                node --check src/haskell_harness/web/theme.js
+                prettier --check src/lambda_harness/web tests/web.test.cjs
+                node --check src/lambda_harness/web/app.js
+                node --check src/lambda_harness/web/theme.js
                 node --test tests/web.test.cjs
                 pytest -q
                 touch "$out"

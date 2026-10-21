@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from haskell_harness.workflow import Harness
+from lambda_harness.workflow import Harness
 
 from .conftest import BROKEN, SOURCE, TEST, git
 
@@ -114,7 +114,7 @@ def test_distinct_tasks_get_distinct_worktrees_and_branches(rig):
 
 
 def test_interrupted_worktree_creation_reuses_saved_base(rig, repository, tmp_path, monkeypatch):
-    from haskell_harness import workflow
+    from lambda_harness import workflow
 
     harness, agent, executor = rig
     original = workflow.git

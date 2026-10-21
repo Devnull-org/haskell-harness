@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from haskell_harness.failures import BackendError
-from haskell_harness.workflow import Harness
+from lambda_harness.failures import BackendError
+from lambda_harness.workflow import Harness
 
 from .conftest import SOURCE, SPECIFICATION, git
 

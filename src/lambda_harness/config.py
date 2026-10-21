@@ -1,6 +1,5 @@
 """Explicit, user-owned backend selection with optional routing by agent role."""
 
-import os
 import tomllib
 from importlib.resources import files
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from .backends import Backend, CommandAgent
+from .paths import default_config_path
 from .schemas import SCHEMAS, Record
 from .validation import ValidationConfig
 
@@ -41,10 +41,9 @@ class Settings(Record):
 
 def load_settings(path=None):
     """Read built-in profiles and one user file; never auto-load target-repo configuration."""
-    data = tomllib.loads(files("haskell_harness").joinpath("backends.toml").read_text())
+    data = tomllib.loads(files("lambda_harness").joinpath("backends.toml").read_text())
     if path is None:
-        root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
-        path = root / "haskell-harness" / "config.toml"
+        path = default_config_path()
         if not path.exists():
             return Settings.model_validate(data)
     path = Path(path).expanduser().resolve()

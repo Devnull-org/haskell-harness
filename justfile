@@ -6,14 +6,14 @@ lint:
   ruff check .
   ruff format --check .
   nixfmt --check flake.nix
-  prettier --check src/haskell_harness/web tests/web.test.cjs
-  node --check src/haskell_harness/web/app.js
-  node --check src/haskell_harness/web/theme.js
+  prettier --check src/lambda_harness/web tests/web.test.cjs
+  node --check src/lambda_harness/web/app.js
+  node --check src/lambda_harness/web/theme.js
 
 format:
   ruff format .
   nixfmt flake.nix
-  prettier --write src/haskell_harness/web tests/web.test.cjs
+  prettier --write src/lambda_harness/web tests/web.test.cjs
 
 test:
   node --test tests/web.test.cjs

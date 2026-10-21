@@ -65,7 +65,7 @@ def discover(agent, cwd):
                     update={"command": [executable, *backend.command[1:]]}
                 )
                 candidate.progress = None if agent.activity else agent.progress
-                with TemporaryDirectory(prefix="haskell-harness-backend-") as temporary:
+                with TemporaryDirectory(prefix="lambda-harness-backend-") as temporary:
                     scratch = Path(temporary)
                     git(scratch, "-c", "init.templateDir=", "init", "--quiet")
                     candidate.check(scratch)

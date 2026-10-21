@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from haskell_harness.backends import Backend
-from haskell_harness.config import RoutedAgent, Settings
-from haskell_harness.discovery import SelectionRequired, discover, select_backend
+from lambda_harness.backends import Backend
+from lambda_harness.config import RoutedAgent, Settings
+from lambda_harness.discovery import SelectionRequired, discover, select_backend
 
 from .helpers import executable
 

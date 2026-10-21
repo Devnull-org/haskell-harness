@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from haskell_harness.backends import Backend, CommandAgent
-from haskell_harness.failures import AgentInterrupted
-from haskell_harness.process import ProcessError, run_process
-from haskell_harness.workflow import Harness
+from lambda_harness.backends import Backend, CommandAgent
+from lambda_harness.failures import AgentInterrupted
+from lambda_harness.process import ProcessError, run_process
+from lambda_harness.workflow import Harness
 
 from .conftest import SOURCE, SPECIFICATION, git, reach_test_review
 from .helpers import executable
@@ -119,7 +119,7 @@ def test_cancellation_stops_a_process_without_waiting_for_backend_timeout(tmp_pa
 
 
 def test_cancelled_backend_never_returns_its_partial_proposal(tmp_path):
-    from haskell_harness.cancellation import ModelCancellation
+    from lambda_harness.cancellation import ModelCancellation
 
     script = executable(
         tmp_path,

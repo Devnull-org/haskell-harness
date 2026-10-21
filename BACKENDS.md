@@ -59,8 +59,9 @@ workflow state, so switching backend does not require migrating provider session
 ## User configuration
 
 Pass a file with `--config FILE`, or create
-`$XDG_CONFIG_HOME/haskell-harness/config.toml` (falling back to the current user's
-`~/.config/haskell-harness/config.toml`). The file is optional; its parent directory
+`$XDG_CONFIG_HOME/lambda-harness/config.toml` (falling back to the current user's
+`~/.config/lambda-harness/config.toml`). When this file is absent, an existing
+configuration from the previous product name is reused. The file is optional; its parent directory
 does not need to exist. A missing file explicitly selected with `--config` is an
 error. Configuration is never automatically read from the target repository.
 
@@ -80,7 +81,7 @@ model = "opus"
 ```
 
 Choose a different backend for a role by adding `backend = "profile-name"` to that
-role's table. Names are the prompt names under `src/haskell_harness/prompts`, excluding
+role's table. Names are the prompt names under `src/lambda_harness/prompts`, excluding
 `common`. Model IDs are passed to the selected backend without a hard-coded model
 catalogue or a silent fallback.
 

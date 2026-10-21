@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from haskell_harness.contracts import Harness
-from haskell_harness.workspace import Workspace
+from lambda_harness.contracts import Harness
+from lambda_harness.workspace import Workspace
 
 from .conftest import SOURCE, TEST, TEST_CONTENT
 

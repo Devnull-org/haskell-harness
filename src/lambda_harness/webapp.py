@@ -371,7 +371,7 @@ def create_server(app, port=8765):
                     self.send(200, app.context_snapshot(query.get("snapshot", [None])[0]))
                 elif path.path in {"/", "/guide", "/app.js", "/theme.js", "/style.css"}:
                     name = {"/": "index.html", "/guide": "guide.html"}.get(path.path, path.path[1:])
-                    content = files("haskell_harness").joinpath("web", name).read_text()
+                    content = files("lambda_harness").joinpath("web", name).read_text()
                     if name == "index.html":
                         content = content.replace("HARNESS_SESSION_TOKEN", app.token)
                     types = {
@@ -419,7 +419,7 @@ def create_server(app, port=8765):
 def serve(args):
     app = LocalApp(args)
     server = create_server(app, args.port)
-    print(f"Haskell Harness: http://127.0.0.1:{server.server_port}", flush=True)
+    print(f"Lambda Harness: http://127.0.0.1:{server.server_port}", flush=True)
     print(f"Project: {args.repo}\nKeep this process running while using the page.", flush=True)
     try:
         server.serve_forever(poll_interval=0.2)

@@ -5,9 +5,9 @@ import os
 
 import pytest
 
-from haskell_harness.backends import CommandAgent
-from haskell_harness.config import load_settings
-from haskell_harness.contracts import Harness
+from lambda_harness.backends import CommandAgent
+from lambda_harness.config import load_settings
+from lambda_harness.contracts import Harness
 
 from .conftest import SPECIFICATION, ScriptedAgent
 from .helpers import executable

@@ -106,7 +106,14 @@ class Explanation(Record):
     answer: str = Field(min_length=1)
 
 
+class ChatReply(Explanation):
+    references: list[str] = Field(
+        description="Repository references when relevant, otherwise empty."
+    )
+
+
 SCHEMAS = {
+    "chat": ChatReply,
     "interviewer": Interview,
     "explorer": Exploration,
     "test_author": Tests,

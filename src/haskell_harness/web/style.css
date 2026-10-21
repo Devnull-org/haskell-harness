@@ -304,6 +304,9 @@ select:focus {
   border-color: var(--accent);
   background: var(--human);
 }
+.chat-choice {
+  grid-column: 1 / -1;
+}
 .choice input {
   margin-top: 5px;
   accent-color: var(--accent);

@@ -99,6 +99,16 @@
         </p>
         <form id="new-form">
           <div class="choices">
+            <label class="choice chat-choice"
+              ><input type="radio" name="kind" value="chat" />
+              <span
+                ><strong>General chat</strong
+                ><small
+                  >An ongoing conversation, with project context when you need
+                  it.</small
+                ></span
+              >
+            </label>
             <label class="choice"
               ><input type="radio" name="kind" value="explore" checked />
               <span
@@ -239,7 +249,7 @@
         </section>
         <section id="composer" class="panel" hidden>
           <div class="compose-top">
-            <label for="message">Your instructions</label
+            <label id="composer-label" for="message">Your instructions</label
             ><button id="edit-previous" class="quiet" hidden>
               Edit previous message
             </button>

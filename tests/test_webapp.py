@@ -150,6 +150,59 @@ def test_standalone_form_rejects_invalid_field_types(browser_app, field, value):
     assert not calls.exists()
 
 
+def test_browser_chat_can_stop_revise_and_continue_without_workflow_gates(browser_app):
+    app, call, calls, ready = browser_app
+    assert (
+        call(
+            "/api/command",
+            {
+                "command": "chat",
+                "task_id": "chat",
+                "base": "main",
+                "request": "Explain pure functions",
+            },
+        )[0]
+        == 202
+    )
+    wait_for(ready.exists)
+    assert call("/api/stop", {})[1]["stopping"]
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    assert call("/api/state?task=chat")[1]["task"]["stage"] == "agent_paused"
+    executable(
+        calls.parent,
+        "import json, sys\nrequest = json.load(sys.stdin)\n"
+        "print(json.dumps({'answer': 'We can discuss that.', 'references': []}))\n",
+    )
+    call(
+        "/api/command",
+        {
+            "command": "respond",
+            "task_id": "chat",
+            "action": "revise",
+            "text": "Actually, explain recursion",
+        },
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    task = call("/api/state?task=chat")[1]["task"]
+    assert task["stage"] == "chat", task
+    assert task["prompt"]["actions"] == ["answer"]
+    assert task["messages"][-1]["answer"] == "We can discuss that."
+    call(
+        "/api/command",
+        {
+            "command": "respond",
+            "task_id": "chat",
+            "action": "answer",
+            "text": "And tail recursion?",
+        },
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    task = call("/api/state?task=chat")[1]["task"]
+    assert task["stage"] == "chat"
+    assert task["messages"][-2]["text"] == "And tail recursion?"
+    assert len([message for message in task["messages"] if message.get("role") == "chat"]) == 2
+
+
 def test_browser_stop_edit_resume_and_approval_use_existing_workflow(browser_app):
     app, call, calls, ready = browser_app
     assert call("/api/state")[1]["tasks"] == []

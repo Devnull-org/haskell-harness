@@ -76,6 +76,13 @@ move registered worktrees. Restart the server to load an updated version.
 
 ## Choose a starting point
 
+**General chat** is an ongoing conversation for questions, explanations, or brainstorming.
+It uses the selected repository revision and saved project context when relevant,
+without an interview, specification, or approval step. Send follow-up messages,
+leave, and return to the saved chat whenever you like. **Stop model** and revised
+instructions work here too. Chat does not edit files or start a coding workflow.
+Its transcript is also saved as `chat.md` in the report directory.
+
 **Explore** reads code and delivers findings, options, references, and follow-up
 answers. It does not start coding. **Finish exploration** saves the result; you
 can stop there or start a requirements interview later.

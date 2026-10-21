@@ -146,6 +146,7 @@ class LocalApp:
     def start(self, command):
         allowed = {
             "start",
+            "chat",
             "explore",
             "review",
             "tests",
@@ -237,14 +238,14 @@ class LocalApp:
             if self.shutdown.is_set():
                 raise SelectionCancelled
             harness = self.harness(agent)
-            if action in {"start", "explore"}:
+            if action in {"start", "explore", "chat"}:
                 if not command.get("base"):
                     raise ValueError("Choose a base branch or commit")
                 result = harness.start(
                     task_id,
                     command.get("request", ""),
                     base=command["base"],
-                    phase="explore" if action == "explore" else "interview",
+                    phase="interview" if action == "start" else action,
                     walkthrough=command.get("walkthrough", False),
                 )
             elif action == "review":

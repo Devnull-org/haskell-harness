@@ -169,6 +169,47 @@ test("standalone forms submit their own scope without feature-only options", asy
   assert(!("walkthrough" in submitted[1]));
 });
 
+test("general chat submits a chat task and renders plain conversation without approval controls", async () => {
+  const ui = await app();
+  let posted;
+  ui.fetch(async (path, options) => {
+    if (path === "/api/command") {
+      posted = JSON.parse(options.body);
+      return response({ accepted: true });
+    }
+    return response(snapshot());
+  });
+  ui.kind.value = "chat";
+  ui.elements.get("new-form").onchange();
+  assert.equal(ui.elements.get("review-options").hidden, true);
+  assert.equal(ui.elements.get("test-options").hidden, true);
+  assert.equal(ui.elements.get("walkthrough-option").hidden, true);
+  assert.equal(ui.elements.get("start-task").textContent, "Start chat →");
+  ui.elements.get("task-name").value = "conversation";
+  ui.elements.get("request").value = "Explain pure functions";
+  ui.elements.get("new-form").onsubmit({ preventDefault() {} });
+  await settle();
+  assert.equal(posted.command, "chat");
+  assert.equal(posted.request, "Explain pure functions");
+  assert(!("walkthrough" in posted));
+  ui.run(`state.task.stage = "chat"; state.task.task_kind = "chat";
+    state.task.messages = [{role: "chat", answer: "A pure function has no effects", references: []}, {text: "Tell me more"}, {role: "chat", answer: "Results depend on inputs", references: ["Example.hs:3"]}];
+    state.task.prompt = {actions: ["answer"], references: ["Example.hs:3"]}; render();`);
+  assert.match(
+    ui.elements.get("history").textContent,
+    /A pure function has no effects.*Tell me more.*Results depend on inputs/s,
+  );
+  assert.equal(ui.elements.get("packet").hidden, true);
+  assert.equal(ui.elements.get("composer").hidden, false);
+  assert.equal(ui.elements.get("message-action").hidden, true);
+  assert.equal(ui.elements.get("composer-label").textContent, "Message");
+  assert.equal(ui.elements.get("actions").children.length, 0);
+  assert.match(
+    ui.elements.get("exploration-notes").textContent,
+    /Example.hs:3/,
+  );
+});
+
 test("standalone review history shows findings once and keeps the finish action clear", async () => {
   const ui = await app();
   ui.run(`state.task.task_kind = "review";

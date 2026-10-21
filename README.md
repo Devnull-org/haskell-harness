@@ -29,7 +29,7 @@ agents—all from a local website.
 - **Own every patch.** Work stays in isolated local worktrees, with saved conversations
   and small commits. Prepare a handoff when you're ready to publish.
 
-Start where you need help: explore an idea, write tests, review a PR, or take a feature
+Start where you need help: have a chat, explore an idea, write tests, review a PR, or take a feature
 through the full workflow. Every phase is a choice.
 
 ```mermaid
@@ -55,7 +55,7 @@ nix run --refresh github:Devnull-org/haskell-harness -- --repo "/path/to/project
 Replace the path with your Git checkout, then open the printed local URL.
 The command starts the local server; keep it running while using the website.
 
-Choose **Explore**, **Plan a feature or fix**, **Review a PR or branch**, or **Write tests**.
+Choose **General chat**, **Explore**, **Plan a feature or fix**, **Review a PR or branch**, or **Write tests**.
 Describe what you need. The harness checks your existing model logins and lets you
 choose when more than one backend is available.
 

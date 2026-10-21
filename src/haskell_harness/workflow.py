@@ -16,7 +16,7 @@ from pydantic import ValidationError
 from .cleanup import cleanup_plan, remove_resources
 from .failures import AgentInterrupted, BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
-from .reports import exploration_report, pr_description, standalone_review_report
+from .reports import chat_report, exploration_report, pr_description, standalone_review_report
 from .review_source import resolve_review
 from .schemas import validate_response
 from .validation import ValidationConfig, classify_validation, test_evidence
@@ -65,6 +65,7 @@ class Harness:
         builder = StateGraph(dict)
         nodes = (
             "prepare",
+            "chat",
             "explore",
             "standalone_review",
             "interview",
@@ -206,8 +207,8 @@ class Harness:
             raise ValueError(f"Task already exists: {task_id}; resume it instead")
         if mode not in {"phased", "full", "interview"} or not request.strip():
             raise ValueError("A request and a phased, full, or interview mode are required")
-        if phase not in {"interview", "explore"} and not standalone:
-            raise ValueError("A new task must start with interview or explore")
+        if phase not in {"interview", "explore", "chat"} and not standalone:
+            raise ValueError("A new task must start with interview, explore, or chat")
         base_revision = resolve_base(self.repository, base)
         directory = self.state_dir / task_id
         directory.mkdir(mode=0o700)
@@ -234,6 +235,8 @@ class Harness:
             "project_context_id": self.context.latest_id(),
             "validation_config": self.validation.model_dump(),
         }
+        if phase == "chat":
+            state["task_kind"], state["mode"] = "chat", "phased"
         if standalone:
             state.update(copy.deepcopy(standalone))
             state["standalone_start"] = copy.deepcopy(standalone)
@@ -443,7 +446,7 @@ class Harness:
         return view
 
     def _available_phases(self, state):
-        if state.get("task_kind") in {"tests", "review"}:
+        if state.get("task_kind") in {"tests", "review", "chat"}:
             return []
         following = {
             "specification_ready": ["explore", "tests"],
@@ -686,6 +689,24 @@ class Harness:
                 {"specification": state["specification"]},
                 ["approve", "question", "revise"],
             )
+
+    def _chat(self, state):
+        result = self._ask(state, "chat")
+        state["messages"].append({"stage": "chat", "role": "chat", **result})
+        reports = Path(state["report_directory"])
+        save_json(
+            reports / "chat.json", {"request": state["request"], "messages": state["messages"]}
+        )
+        (reports / "chat.md").write_text(chat_report(state))
+        references = list(
+            dict.fromkeys(
+                reference
+                for message in state["messages"]
+                if message.get("role") == "chat"
+                for reference in message["references"]
+            )
+        )
+        self._gate(state, "chat", {"references": references}, ["answer"])
 
     def _explore(self, state):
         result = self._ask(state, "explorer", intent="explore")
@@ -1106,6 +1127,9 @@ class Harness:
                     }
                 )
             state["next"] = state["retry_node"]
+        elif stage == "chat" and action == "answer":
+            state["messages"].append({"stage": stage, "action": action, "text": response["text"]})
+            state["next"] = "chat"
         elif stage == "standalone_review":
             self._assert_review_revision(state)
             if action == "done":

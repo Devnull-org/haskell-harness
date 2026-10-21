@@ -1,6 +1,28 @@
 """Write local reports from recorded analysis and workflow evidence."""
 
 
+def chat_report(state):
+    lines = [
+        f"# Chat: {state['task_id']}",
+        "",
+        f"Repository revision: `{state['base']}`",
+        "",
+        "## You",
+        "",
+        state["request"],
+    ]
+    references = []
+    for item in state["messages"]:
+        if item.get("text"):
+            lines += ["", "## You", "", item["text"]]
+        elif item.get("role") == "chat":
+            lines += ["", "## Assistant", "", item["answer"]]
+            references.extend(item["references"])
+    if references:
+        lines += ["", "## References", "", *[f"- {ref}" for ref in dict.fromkeys(references)]]
+    return "\n".join(lines) + "\n"
+
+
 def exploration_report(state):
     result = state["exploration"]
     lines = [

@@ -167,7 +167,9 @@ async function command(body) {
   if (state) render();
   try {
     await api("/api/command", body);
-    if (["start", "explore", "review", "tests"].includes(body.command)) {
+    if (
+      ["start", "explore", "review", "tests", "chat"].includes(body.command)
+    ) {
       selected = body.task_id;
       packetKey = "";
     }
@@ -325,7 +327,8 @@ function renderHistory(task) {
       const entry = el("div", undefined, "message");
       renderReviews(entry, item.reviews);
       history.append(entry);
-    }
+    } else if (item.role === "chat")
+      history.append(message("Assistant", item.answer));
   }
   if (pending) {
     const entry = message("You", pending.text, true);
@@ -388,6 +391,8 @@ function renderTask(task, running) {
       section(notes, "References", a.references.join("\n"));
       section(notes, "Open questions", a.open_questions.join("\n"));
     }
+    if (prompt.references)
+      section(notes, "References", prompt.references.join("\n"));
     notes.hidden = !notes.children.length;
     if (prompt.specification) {
       const spec = prompt.specification;
@@ -451,6 +456,12 @@ function renderTask(task, running) {
     }
   }
   $("composer").hidden = !actions.length && !running;
+  const chatting = task.stage === "chat";
+  $("composer-label").textContent = chatting ? "Message" : "Your instructions";
+  $("message").placeholder = chatting
+    ? "Ask a question or continue the conversation."
+    : "Ask a follow-up or describe what should change.";
+  $("message-action").hidden = chatting;
   $("message").disabled = false;
   $("send").disabled = running || !actions.some((a) => textActions.includes(a));
   $("message-action").disabled = running;
@@ -659,17 +670,22 @@ function updateNewTask() {
     ? "Review focus (optional)"
     : tests
       ? "Test scope and context"
-      : "Your question or idea";
+      : kind === "chat"
+        ? "Your message"
+        : "Your question or idea";
   $("request").placeholder = review
     ? "Anything the reviewer should pay particular attention to?"
     : tests
       ? "Describe the behavior, relevant code, and edge cases. Production code stays unchanged."
-      : "Describe what you want to understand or build. Paste an issue, add context, and take as many lines as you need.";
+      : kind === "chat"
+        ? "What would you like to talk about? Ask a general question, discuss code, or brainstorm an idea."
+        : "Describe what you want to understand or build. Paste an issue, add context, and take as many lines as you need.";
   $("start-task").textContent = {
     explore: "Start exploration →",
     start: "Start interview →",
     review: "Start review →",
     tests: "Write tests →",
+    chat: "Start chat →",
   }[kind];
 }
 $("new-form").onchange = updateNewTask;

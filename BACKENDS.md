@@ -164,6 +164,10 @@ if its underlying model has no file tools: it runs in the selected worktree and 
 read the files there. The harness does not automatically upload a repository to an
 API or grant a plain language model file access.
 
+General chat uses the `chat` role, configurable through `[roles.chat]`. Its response
+contains `answer` (natural prose or Markdown) and `references` (repository paths
+when relevant, otherwise an empty list). It has no specification or code changes.
+
 Exploration uses the `explorer` role, configurable through `[roles.explorer]` like
 other roles. Its response contains `summary`, `analysis` (completed Markdown
 analysis), `references` (repository paths and lines), and `open_questions`.

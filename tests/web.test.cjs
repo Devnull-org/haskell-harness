@@ -723,6 +723,44 @@ test("Agents is a separate catalog page with portraits, search, and full instruc
   assert.match(ui.elements.get("agent-grid").textContent, /No agents match/);
 });
 
+test("agent portraits are distinct by ID and stable across renames, reloads, and views", async () => {
+  const ui = await app();
+  const profiles = [agentProfile, { ...agentProfile, id: "second-reviewer" }];
+  ui.fetch(async (path) =>
+    response(
+      path === "/api/agents" ? { ...agentCatalog(), profiles } : snapshot(),
+    ),
+  );
+  await ui.run("openAgents()");
+  const cards = ui.elements.get("agent-grid").children;
+  const first = cards[0].children[0].children[0].src;
+  const second = cards[1].children[0].children[0].src;
+  assert.notEqual(first, second);
+  await cards[0].children.at(-1).children[0].onclick();
+  assert.equal(
+    ui.elements.get("agent-details").children[1].children[0].src,
+    first,
+  );
+  profiles[0] = {
+    ...agentProfile,
+    definition: { ...agentProfile.definition, name: "Renamed reviewer" },
+  };
+  profiles.reverse();
+  await ui.run("loadAgents()");
+  const reloaded = ui.elements.get("agent-grid").children;
+  assert.equal(reloaded[0].children[0].children[0].src, second);
+  assert.equal(reloaded[1].children[0].children[0].src, first);
+  const draft = {
+    ...task(),
+    task_kind: "agent_builder",
+    agent_id: agentProfile.id,
+    prompt: { actions: ["answer"], definition: profiles[1].definition },
+  };
+  ui.fetch(async () => response(snapshot(draft)));
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("packet").children[0].children[0].src, first);
+});
+
 test("Add and Edit start guided chat and preserve instructions during polling", async () => {
   const ui = await app(),
     commands = [];

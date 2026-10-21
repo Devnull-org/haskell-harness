@@ -462,7 +462,7 @@ function renderTask(task, running) {
     packet.replaceChildren();
     notes.replaceChildren();
     if (prompt.definition) {
-      renderAgentDefinition(packet, prompt.definition);
+      renderAgentDefinition(packet, prompt.definition, task.agent_id);
       packet.append(
         el(
           "p",
@@ -1169,38 +1169,53 @@ function agentControls(busy = submitting || !!state?.job?.running) {
   ))
     control.disabled = locked || control.dataset.unavailable === "true";
 }
-function agentAvatar(kind, name) {
+function agentAvatar(kind, name, agentId = name) {
   // Local vector portraits have no remote image requests or user-supplied markup.
-  const faces = {
-    lambda: ["#c9c4ed", "#423864", "λ"],
-    robot: ["#b9d7dc", "#254c57", "⌁"],
-    fox: ["#efc6a4", "#704327", "◆"],
-    owl: ["#d3cbb4", "#574d35", "◉"],
-    crab: ["#edb9b6", "#742e39", "≋"],
-    shield: ["#b9d9c6", "#2e5746", "+"],
-  };
-  const [background, ink, mark] = faces[kind] || faces.robot;
+  let seed = 2166136261;
+  for (const character of agentId)
+    seed = Math.imul(seed ^ character.codePointAt(0), 16777619) >>> 0;
+  const hue = seed % 360,
+    background = `hsl(${hue} 55% 86%)`,
+    ink = `hsl(${hue} 38% 25%)`,
+    accent = `hsl(${(hue + 45 + ((seed >>> 8) % 90)) % 360} 50% 56%)`,
+    mark =
+      { lambda: "λ", robot: "⌁", fox: "◆", owl: "◉", crab: "≋", shield: "+" }[
+        kind
+      ] || "⌁",
+    eyeGap = 8 + ((seed >>> 12) % 5),
+    eyeSize = 4 + ((seed >>> 16) % 3),
+    radius = 9 + ((seed >>> 20) % 12),
+    tilt = ((seed >>> 24) % 7) - 3;
   const ears =
     kind === "fox" || kind === "owl"
       ? '<path d="M19 31 17 14 32 24M64 31 67 14 51 24" fill="' + ink + '"/>'
-      : '<path d="M42 16v8M12 37v13M72 37v13" stroke="' +
-        ink +
-        '" stroke-width="4" stroke-linecap="round"/>';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 84"><rect width="84" height="84" rx="22" fill="${background}"/>${ears}<rect x="19" y="24" width="46" height="39" rx="15" fill="${ink}"/><circle cx="33" cy="39" r="5" fill="${background}"/><circle cx="51" cy="39" r="5" fill="${background}"/><path d="M36 52q6 5 12 0" stroke="${background}" fill="none" stroke-width="2.5" stroke-linecap="round"/><text x="68" y="76" text-anchor="middle" font-family="sans-serif" font-size="19" font-weight="bold" fill="${ink}">${mark}</text></svg>`;
+      : kind === "crab"
+        ? `<path d="M21 42 11 31 7 20M11 31 18 22M63 42 73 31 77 20M73 31 66 22" fill="none" stroke="${ink}" stroke-width="5" stroke-linecap="round"/>`
+        : `<path d="M${34 + ((seed >>> 4) % 17)} 16v8M12 37v13M72 37v13" stroke="${ink}" stroke-width="4" stroke-linecap="round"/>`;
+  const mouths = ["M35 52q7 6 14 0", "M36 53h12", "M36 52q6 7 12-2"];
+  const pattern = Array.from({ length: 6 }, (_, i) => {
+    const x = 8 + i * 13,
+      y = 8 + ((seed >>> (i * 4)) % 3) * 7;
+    return `<circle cx="${x}" cy="${y}" r="${3 + ((seed >>> (i * 3)) % 3)}" fill="${accent}" opacity=".45"/>`;
+  }).join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 84"><rect width="84" height="84" rx="22" fill="${background}"/>${pattern}<path d="M13 84q3-23 29-23t29 23" fill="${accent}"/><g transform="rotate(${tilt} 42 42)">${ears}<rect x="19" y="24" width="46" height="39" rx="${radius}" fill="${ink}"/><circle cx="${42 - eyeGap}" cy="39" r="${eyeSize}" fill="${background}"/><circle cx="${42 + eyeGap}" cy="39" r="${eyeSize}" fill="${background}"/><path d="${mouths[(seed >>> 18) % mouths.length]}" stroke="${background}" fill="none" stroke-width="2.5" stroke-linecap="round"/></g><circle cx="69" cy="69" r="12" fill="${background}"/><text x="69" y="76" text-anchor="middle" font-family="sans-serif" font-size="19" font-weight="bold" fill="${ink}">${mark}</text></svg>`;
   const image = el("img", undefined, "agent-avatar");
   image.src = "data:image/svg+xml," + encodeURIComponent(svg);
   image.alt = name + " avatar";
   image.width = image.height = 64;
   return image;
 }
-function renderAgentDefinition(parent, definition) {
+function renderAgentDefinition(parent, definition, agentId) {
   const identity = el("div", undefined, "agent-identity"),
     title = el("div");
   title.append(
     el("h3", definition.name),
     el("p", catalog?.roles[definition.role] || definition.role, "muted"),
   );
-  identity.append(agentAvatar(definition.avatar, definition.name), title);
+  identity.append(
+    agentAvatar(definition.avatar, definition.name, agentId),
+    title,
+  );
   parent.append(identity);
   section(
     parent,
@@ -1273,7 +1288,7 @@ function showAgent(profile) {
     ),
   );
   details.append(top);
-  renderAgentDefinition(details, profile.definition);
+  renderAgentDefinition(details, profile.definition, profile.id);
   details.append(
     el(
       "p",
@@ -1331,7 +1346,10 @@ function renderCatalog() {
       el("div", catalog.roles[definition.role], "eyebrow"),
       el("h3", definition.name),
     );
-    identity.append(agentAvatar(definition.avatar, definition.name), heading);
+    identity.append(
+      agentAvatar(definition.avatar, definition.name, profile.id),
+      heading,
+    );
     const tags = el("div", undefined, "agent-tags");
     for (const name of definition.languages.length
       ? definition.languages

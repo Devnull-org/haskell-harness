@@ -10,6 +10,8 @@ and **Settings** belong to that project, with separate pages at
 uses the resolved checkout path, so repositories with the same name remain distinct.
 Old `/project-memory` and `/project-settings` links still open the active project's
 page. A bookmark for a different project is not silently opened against the active one.
+Click the project name to collapse or expand the sidebar menu, including saved
+work and the shared Agents link.
 
 **Agents** is a shared catalog at `/agents`. Definitions can be reused across
 projects; agent assignments, conversations, and memory remain project-specific.
@@ -109,6 +111,8 @@ server to load an updated version.
 Open **Agents** in the sidebar, or visit `/agents`. Browse portraits, roles,
 languages, and expertise. **View agent** shows the full instructions. Search by
 name, language, or expertise, and filter by role.
+Each agent gets a distinct portrait from its saved ID and chosen avatar style.
+It stays consistent across projects, repository clones, and name changes.
 
 **Add agent** starts a guided chat. Describe the help you need; you do not need to
 know the language's best practices. The builder proposes suitable expertise,

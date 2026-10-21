@@ -53,6 +53,8 @@ def test_builder_discusses_practices_and_only_saves_after_explicit_review(rig):
         "builder", "Help me create a Rust reviewer; I do not know the best practices."
     )
     assert view["stage"] == "agent_builder"
+    agent_id = view["agent_id"]
+    assert agent_id == harness._state("builder")["agent_origin"]["id"]
     assert view["prompt"]["definition"] == DEFINITION
     assert view["prompt"]["actions"] == ["answer", "save_agent"]
     assert harness.agents.list() == []
@@ -64,6 +66,7 @@ def test_builder_discusses_practices_and_only_saves_after_explicit_review(rig):
     assert view["stage"] == "agent_ready"
     assert len(agent.calls) == 1 and not executor.calls
     saved = harness.agents.list()[0]
+    assert saved["id"] == view["agent_id"] == agent_id
     assert saved["definition"] == DEFINITION
     assert harness.agents.selected(harness.repository) == {}
     assert view["saved_agent"]["version"] == saved["version"]
@@ -163,6 +166,7 @@ def test_revising_a_definition_requires_a_fresh_review(rig):
         {"answer": "Here is the revised agent.", "definition": revised}
     )
     view = harness.start_agent_builder("edit", "Improve async guidance", agent_id=original["id"])
+    assert view["agent_id"] == original["id"]
     assert agent.calls[-1][1]["definition"] == DEFINITION
     assert harness.agents.get(original["id"]) == original
     harness.respond("edit", "save_agent", approval_token=view["prompt"]["approval_token"])

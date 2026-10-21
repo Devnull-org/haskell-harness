@@ -465,6 +465,8 @@ class Harness:
             )
             if key in state
         }
+        if state.get("agent_origin"):
+            view["agent_id"] = state["agent_origin"]["id"]
         if state["stage"] == "abandoning":
             view["revision"] = state.get("cleanup_revision")
         elif inspect_worktree:

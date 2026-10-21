@@ -227,6 +227,10 @@ and ensure Git can read the project's remote. URL support is currently for
 `github.com`; for other hosts, fetch the branch yourself and use its local ref.
 
 Read the findings, ask follow-up questions, or revise the review's focus.
+For large reviews, the harness keeps the complete diff and an index of per-file
+patches in the task's reports. The prompt includes a compact preview; agents read
+the remaining patches as needed. Large diagrams are not silently dropped. The
+review summary must state any files or visual details the reviewer could not inspect.
 **Finish review** saves the result; it does not fix code, run builds, post comments,
 or approve the PR on GitHub. Reports include `review.md` and `review.json`.
 **Start a fresh attempt** reviews the same pinned revision. To review newer commits,

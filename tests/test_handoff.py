@@ -13,6 +13,7 @@ from lambda_harness.workspace import Workspace
 
 from .conftest import SOURCE, TEST, ScriptedAgent, ScriptedExecutor, git, reach_test_review
 from .test_exploration import ANALYSIS
+from .test_review_context import large_change
 
 
 @pytest.fixture
@@ -64,6 +65,29 @@ def test_documentation_reviews_can_be_handed_off_and_resumed(rig, recipient, rev
     assert view["stage"] == "standalone_review"
     assert agent.calls[-1][0] == "documentation_reviewer"
     assert not executor.calls
+
+
+def test_large_review_artifacts_follow_the_imported_task(rig, recipient):
+    source, _, _ = rig
+    target, agent, _ = recipient
+    # The recipient needs this test's added comparison commit.
+    large_change(source.repository)
+    git(target.repository, "fetch", str(source.repository), "review-base")
+    source.start_review(
+        "large-review",
+        "Review docs",
+        base="review-base",
+        head="large-docs",
+        reviewers="documentation",
+    )
+    transfer(source, target, ["large-review"])
+    accept(target, "large-review")
+    view = target.respond("large-review", "question", text="What about the diagram?")
+    assert view["stage"] == "standalone_review"
+    changes = agent.calls[-1][1]["review_changes"]
+    assert str(source.state_dir) not in json.dumps(changes)
+    assert Path(changes["index"]).is_relative_to(target.state_dir)
+    assert "END_OF_DIAGRAM" in Path(changes["full_diff"]).read_text()
 
 
 def test_roundtrip_specification_memory_and_pinned_agents(rig, recipient):

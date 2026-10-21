@@ -19,6 +19,7 @@ from .cleanup import cleanup_plan, remove_resources
 from .failures import AgentInterrupted, BackendError, BackendResponseError
 from .project_context import ContextStore, state_directory
 from .reports import chat_report, exploration_report, pr_description, standalone_review_report
+from .review_context import review_diff
 from .review_source import resolve_review
 from .schemas import REVIEWERS, validate_response
 from .validation import ValidationConfig, classify_validation, test_evidence
@@ -618,7 +619,6 @@ class Harness:
             "messages": state["messages"],
             "revision": workspace.revision,
             "base_revision": state["base"],
-            "diff": workspace.diff(state["base"]),
             "approved_tests": state.get("approved_tests", {}),
             "selected_findings": state.get("selected_findings", []),
             "validation_config": state.get("validation_config", self.validation.model_dump()),
@@ -627,6 +627,12 @@ class Harness:
                 for patch in state["commits"]
             ],
         }
+        if state.get("task_kind") == "review":
+            context.update(
+                review_diff(workspace, state["review_source"], state["report_directory"])
+            )
+        else:
+            context["diff"] = workspace.diff(state["base"])
         if state.get("project_context_id"):
             context["project_context"] = self.context.for_agent(
                 state["project_context_id"], workspace

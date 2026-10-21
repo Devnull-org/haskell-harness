@@ -9,6 +9,12 @@ The command transport supports agent CLIs and small bridges to hosted model APIs
 Prompts, response schemas, validation, process timeouts, and workflow persistence
 remain in the harness. Adding a command profile does not require changing Python.
 
+Large standalone reviews include a `review_changes` index alongside a partial inline
+diff. Backends must provide read access to the local patch files named in that index
+(under the task's report directory), as well as the worktree. A bridge to a hosted
+model needs file-reading tools for this. The prompt explicitly requires reporting
+unread changes; a partial preview is not a complete review. Small diffs stay inline.
+
 ## Choose on the website
 
 The default is `default_backend = "auto"`. When work starts, the website checks

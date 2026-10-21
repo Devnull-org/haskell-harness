@@ -13,7 +13,7 @@ from haskell_harness.__main__ import parser
 from haskell_harness.discovery import SelectionRequired
 from haskell_harness.webapp import LocalApp, create_server
 
-from .conftest import SPECIFICATION
+from .conftest import IMPLEMENTED, SOURCE, SPECIFICATION, ScriptedAgent, ScriptedExecutor, git
 from .helpers import executable
 from .test_exploration import ANALYSIS
 
@@ -91,6 +91,63 @@ def wait_for(test):
             return result
         time.sleep(0.02)
     raise AssertionError("Operation did not finish")
+
+
+@pytest.mark.parametrize("kind", ["tests", "review"])
+def test_browser_standalone_tasks_start_directly_and_finish_locally(browser_app, monkeypatch, kind):
+    app, call, _, _ = browser_app
+    agent, executor = ScriptedAgent(), ScriptedExecutor()
+    monkeypatch.setattr("haskell_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
+    monkeypatch.setattr("haskell_harness.webapp.select_backend", lambda *a: "test")
+    monkeypatch.setattr("haskell_harness.webapp.LocalExecutor", lambda **kw: executor)
+    command = {"command": kind, "task_id": kind, "base": "main", "request": "Check increment"}
+    if kind == "review":
+        git(app.args.repo, "checkout", "-b", "feature")
+        (app.args.repo / SOURCE).write_text(IMPLEMENTED)
+        git(app.args.repo, "commit", "-am", "Change")
+        command.update(head="feature", reviewers="haskell")
+    else:
+        command.update(packages=["example-app"], criteria=["Increment by one"], expectation="red")
+    assert call("/api/command", command)[0] == 202
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    state = call(f"/api/state?task={kind}")[1]
+    assert state["job"]["error"] is None, state["job"]
+    task = state["task"]
+    assert task["task_kind"] == kind
+    assert task["stage"] == ("standalone_review" if kind == "review" else "test_review")
+    assert [role for role, _, _ in agent.calls] == [
+        "haskell_reviewer" if kind == "review" else "test_author"
+    ]
+    call(
+        "/api/command",
+        {
+            "command": "respond",
+            "task_id": kind,
+            "action": "done" if kind == "review" else "approve",
+            "token": task["prompt"]["approval_token"],
+        },
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    task = call(f"/api/state?task={kind}")[1]["task"]
+    assert task["stage"] == f"{kind}_complete", task
+    assert task["prompt"]["available_phases"] == []
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("head", []),
+        ("reviewers", {}),
+        ("expectation", False),
+        ("criteria", "not a list"),
+        ("packages", [7]),
+    ],
+)
+def test_standalone_form_rejects_invalid_field_types(browser_app, field, value):
+    _, call, calls, _ = browser_app
+    code, result = call("/api/command", {"command": "tests", "task_id": "bad", field: value})
+    assert code == 400 and field in result["error"]
+    assert not calls.exists()
 
 
 def test_browser_stop_edit_resume_and_approval_use_existing_workflow(browser_app):

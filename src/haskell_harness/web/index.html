@@ -91,8 +91,8 @@
         <div id="context-documents"></div>
       </section>
       <section id="new-panel" class="panel">
-        <div class="eyebrow">START A CONVERSATION</div>
-        <h2>Explore an idea. Or plan a change.</h2>
+        <div class="eyebrow">YOUR NEXT TASK</div>
+        <h2>Choose where to start.</h2>
         <p class="muted">
           Choose a starting point. You can pause, change direction, and come
           back later.
@@ -105,6 +105,26 @@
                 ><strong>Explore</strong
                 ><small
                   >Understand code and compare options. No code changes.</small
+                ></span
+              >
+            </label>
+            <label class="choice"
+              ><input type="radio" name="kind" value="review" />
+              <span
+                ><strong>Review a PR or branch</strong
+                ><small
+                  >Get a Haskell or security review of an existing
+                  change.</small
+                ></span
+              >
+            </label>
+            <label class="choice"
+              ><input type="radio" name="kind" value="tests" />
+              <span
+                ><strong>Write tests</strong
+                ><small
+                  >Regression tests or coverage, with your approval before
+                  committing.</small
                 ></span
               >
             </label>
@@ -126,23 +146,76 @@
                 pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
                 placeholder="validation-options"
             /></label>
-            <label>Base branch or commit<input id="base" required /></label>
+            <label
+              ><span id="base-label">Base branch or commit</span
+              ><input id="base" required
+            /></label>
+          </div>
+          <div id="review-options" hidden>
+            <label
+              >Branch, commit, or GitHub PR URL<input
+                id="review-head"
+                placeholder="feature/my-change or https://github.com/owner/repo/pull/123"
+            /></label>
+            <p class="muted">
+              Local refs use the base above. A GitHub PR uses its own target
+              branch. The review saves a fixed revision and publishes nothing.
+            </p>
+            <label
+              >Reviewers<select id="reviewers">
+                <option value="both">Haskell + security</option>
+                <option value="haskell">Haskell</option>
+                <option value="security">Security</option>
+              </select></label
+            >
+          </div>
+          <div id="test-options" hidden>
+            <div class="fields">
+              <label
+                >Cabal packages<input
+                  id="test-packages"
+                  placeholder="my-library, my-app"
+              /></label>
+              <label
+                >Expected outcome<select id="test-expectation">
+                  <option value="red">Failing regression test (TDD)</option>
+                  <option value="green">
+                    Passing coverage for existing behavior
+                  </option>
+                </select></label
+              >
+            </div>
+            <label
+              >Behaviors to test, one per line<textarea
+                id="test-criteria"
+                rows="3"
+                placeholder="Accept a valid request&#10;Reject an empty identifier"
+              ></textarea>
+            </label>
+            <p class="muted">
+              Tests, fixtures, and Cabal test wiring only. Lint, build, Nix, and
+              Cabal checks run before your review. Implementation never starts
+              from this task.
+            </p>
           </div>
           <label
-            >Your question or idea<textarea
+            ><span id="request-label">Your question or idea</span
+            ><textarea
               id="request"
               rows="7"
               required
               placeholder="Describe what you want to understand or build. Paste an issue, add context, and take as many lines as you need."
             ></textarea>
           </label>
-          <label class="walkthrough-choice">
+          <label id="walkthrough-option" class="walkthrough-choice" hidden>
             <input id="require-walkthrough" type="checkbox" />
             Include a code walkthrough before handoff
           </label>
           <div class="form-footer">
             <span class="muted">Each task gets its own worktree.</span
-            ><button class="primary" type="submit">Start conversation →</button>
+            ><button id="start-task" class="primary" type="submit">
+              Start exploration →
+            </button>
           </div>
         </form>
       </section>

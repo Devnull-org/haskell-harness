@@ -129,6 +129,34 @@ function message(who, text, human = false) {
   node.append(el("div", who, "eyebrow"), prose(text));
   return node;
 }
+function renderReviews(parent, reviews) {
+  for (const [role, review] of Object.entries(reviews)) {
+    parent.append(
+      el(
+        "h3",
+        role === "security_reviewer" ? "Security review" : "Haskell review",
+      ),
+      prose(review.summary),
+    );
+    for (const finding of review.findings) {
+      const card = el("article", undefined, "review-finding");
+      card.append(
+        el("strong", `${finding.severity.toUpperCase()} · ${finding.title}`),
+        el("p", finding.location, "muted"),
+        prose(finding.impact),
+      );
+      const details = el("details");
+      details.append(el("summary", "Evidence and recommendation"));
+      section(details, "Conditions", finding.conditions);
+      section(details, "Sequence", finding.sequence.join(" → "));
+      section(details, "Evidence", finding.evidence);
+      section(details, "Recommendation", finding.recommendation);
+      details.append(el("small", `${finding.id} · ${finding.confidence}`));
+      card.append(details);
+      parent.append(card);
+    }
+  }
+}
 async function command(body) {
   if (submitting) return;
   if (state?.job?.running)
@@ -139,7 +167,7 @@ async function command(body) {
   if (state) render();
   try {
     await api("/api/command", body);
-    if (body.command === "start" || body.command === "explore") {
+    if (["start", "explore", "review", "tests"].includes(body.command)) {
       selected = body.task_id;
       packetKey = "";
     }
@@ -293,6 +321,11 @@ function renderHistory(task) {
       history.append(
         message("Explorer", item.summary + "\n\n" + item.analysis),
       );
+    else if (item.reviews) {
+      const entry = el("div", undefined, "message");
+      renderReviews(entry, item.reviews);
+      history.append(entry);
+    }
   }
   if (pending) {
     const entry = message("You", pending.text, true);
@@ -305,13 +338,26 @@ function renderHistory(task) {
 function renderTask(task, running) {
   const prompt = task.prompt || {},
     actions = prompt.actions || [],
-    key = JSON.stringify([task.task_id, task.stage, prompt]);
+    key = JSON.stringify([task.task_id, task.stage, prompt, task.test_scope]);
   $("task-meta").replaceChildren(
     el("strong", task.stage.replaceAll("_", " ")),
     el("div", "Base: " + task.base_ref + " · " + task.base.slice(0, 12)),
     el("div", "Worktree: " + (task.worktree || "Preparing")),
     el("div", "Reports: " + task.report_directory),
   );
+  if (task.review_source) {
+    const source = task.review_source;
+    $("task-meta").replaceChildren(
+      el("strong", task.stage.replaceAll("_", " ")),
+      el("div", `Review: ${source.head_ref} → ${source.base_ref}`),
+      el(
+        "div",
+        `Pinned head: ${source.head.slice(0, 12)} · Merge base: ${source.merge_base.slice(0, 12)}`,
+      ),
+      el("div", "Worktree: " + (task.worktree || "Preparing")),
+      el("div", "Reports: " + task.report_directory),
+    );
+  }
   renderHistory(task);
   if (key !== packetKey) {
     packetKey = key;
@@ -327,6 +373,14 @@ function renderTask(task, running) {
         packet.append(prose(typeof q === "string" ? q : q.question));
     if (prompt.question) packet.append(prose(prompt.question));
     if (prompt.answer) packet.append(prose(prompt.answer));
+    if (
+      prompt.reviews &&
+      !(task.messages || []).some(
+        (item) =>
+          JSON.stringify(item.reviews) === JSON.stringify(prompt.reviews),
+      )
+    )
+      renderReviews(packet, prompt.reviews);
     if (prompt.exploration) {
       const a = prompt.exploration;
       if (!(task.messages || []).some((item) => item.analysis === a.analysis))
@@ -348,6 +402,30 @@ function renderTask(task, running) {
       section(packet, "Out of scope", spec.out_of_scope.join("\n"));
       section(packet, "Constraints", spec.constraints.join("\n"));
     }
+    if (task.test_scope) {
+      section(
+        packet,
+        "Test scope",
+        task.test_scope.acceptance_criteria
+          .map((item) => `${item.id}: ${item.description}`)
+          .join("\n"),
+      );
+      packet.append(
+        el(
+          "p",
+          `${task.test_scope.packages.join(", ")} · ${task.test_expectation === "green" ? "Passing coverage" : "Failing regression tests"}`,
+          "muted",
+        ),
+      );
+    }
+    if (prompt.coverage)
+      section(
+        packet,
+        "Coverage",
+        Object.entries(prompt.coverage)
+          .map(([id, tests]) => `${id}: ${tests.join(", ")}`)
+          .join("\n"),
+      );
     section(packet, "Test / code diff", prompt.diff);
     section(packet, "Validation", prompt.validation);
     section(packet, "Findings", prompt.findings);
@@ -385,7 +463,9 @@ function renderTask(task, running) {
         ? task.stage === "test_review"
           ? "Approve tests"
           : "Approve specification"
-        : labels[action] || action;
+        : action === "done" && task.task_kind === "review"
+          ? "Finish review"
+          : labels[action] || action;
     const control = button(
       label,
       () => respond(action),
@@ -554,17 +634,77 @@ $("use-context").onclick = () =>
       $("context-status").textContent =
         "Snapshot selected for " + result.task_id + ".";
   });
+function newTaskKind() {
+  return document.querySelector('input[name="kind"]:checked').value;
+}
+function updateNewTask() {
+  const kind = newTaskKind(),
+    review = kind === "review",
+    tests = kind === "tests";
+  $("review-options").hidden = !review;
+  $("test-options").hidden = !tests;
+  $("walkthrough-option").hidden = kind !== "start";
+  $("review-head").required = review;
+  $("test-packages").required = tests;
+  $("test-criteria").required = tests;
+  const github =
+    review && $("review-head").value.startsWith("https://github.com/");
+  $("base").required = !github;
+  $("base").disabled = github;
+  $("base-label").textContent = github
+    ? "Base comes from the PR"
+    : "Base branch or commit";
+  $("request").required = !review;
+  $("request-label").textContent = review
+    ? "Review focus (optional)"
+    : tests
+      ? "Test scope and context"
+      : "Your question or idea";
+  $("request").placeholder = review
+    ? "Anything the reviewer should pay particular attention to?"
+    : tests
+      ? "Describe the behavior, relevant code, and edge cases. Production code stays unchanged."
+      : "Describe what you want to understand or build. Paste an issue, add context, and take as many lines as you need.";
+  $("start-task").textContent = {
+    explore: "Start exploration →",
+    start: "Start interview →",
+    review: "Start review →",
+    tests: "Write tests →",
+  }[kind];
+}
+$("new-form").onchange = updateNewTask;
+$("review-head").oninput = updateNewTask;
+updateNewTask();
 $("new-form").onsubmit = (e) => {
   e.preventDefault();
-  guard(() =>
-    command({
-      command: document.querySelector('input[name="kind"]:checked').value,
-      task_id: $("task-name").value,
-      request: $("request").value,
-      base: $("base").value,
-      walkthrough: $("require-walkthrough").checked,
-    }),
-  );
+  const kind = newTaskKind();
+  const body = {
+    command: kind,
+    task_id: $("task-name").value,
+    request: $("request").value,
+    base: $("base").value,
+  };
+  if (kind === "start") body.walkthrough = $("require-walkthrough").checked;
+  if (kind === "review")
+    Object.assign(body, {
+      head: $("review-head").value,
+      reviewers: $("reviewers").value,
+      request:
+        body.request.trim() ||
+        "Review this change for correctness, risks, and repository conventions.",
+    });
+  if (kind === "tests")
+    Object.assign(body, {
+      packages: $("test-packages")
+        .value.split(/[,\s]+/)
+        .filter(Boolean),
+      criteria: $("test-criteria")
+        .value.split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+      expectation: $("test-expectation").value,
+    });
+  guard(() => command(body));
 };
 $("new-task").onclick = () =>
   guard(async () => {

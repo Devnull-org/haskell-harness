@@ -285,7 +285,8 @@ select:focus {
   outline-offset: 2px;
 }
 .choices {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
   margin: 25px 0;
 }
@@ -477,7 +478,7 @@ dialog::backdrop {
     padding: 26px 22px;
   }
   .choices {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
   header {
     align-items: flex-start;
@@ -486,6 +487,12 @@ dialog::backdrop {
     max-width: 160px;
     white-space: normal;
   }
+}
+.review-finding {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 @media (max-width: 650px) {
   body {

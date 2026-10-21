@@ -10,7 +10,8 @@ nix flake check
 cabal test PACKAGE_NAME --test-show-details=direct
 ```
 
-The test command runs for each Cabal package in the accepted specification.
+The test command runs for each Cabal package in the accepted specification or
+the developer's standalone test scope.
 `PACKAGE_NAME` is your actual package name. The project's development shell must
 provide its GHC, Cabal, HLint, and other required tools. No `justfile` is assumed.
 The harness's own Nix environment does not supply project dependencies.
@@ -60,6 +61,13 @@ If a Nix check fails during the red phase, progress stops at `red_failure_review
 Inspect the full logs. **Accept expected test failure** requires a written explanation establishing
 that only the expected red tests caused that failure. It then returns to test
 review, where **Approve tests** is still required. Green phases require every check to pass.
+
+Standalone **Write tests** follows the same approval and commit checks. Failing
+regression tests use the red rules above; passing coverage tests require every
+check to pass and declare no expected failures. Every named coverage test must
+appear in the execution evidence. Approval commits tests and finishes the task;
+it never starts implementation. Standalone reviews inspect code only and do not
+run these commands or claim validation results.
 
 Implementation cannot silently edit approved tests or Cabal wiring. Such proposals
 stop at `test_change_review`; **Revise instructions** offers the tests phase for discussion. **Reject changes**

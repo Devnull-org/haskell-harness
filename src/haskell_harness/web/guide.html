@@ -52,8 +52,44 @@
           Uncommitted changes in your original checkout stay there.
         </p>
         <p>
-          Use an existing local branch or an already fetched remote branch. The
-          harness does not fetch branches for you.
+          Use an existing local branch or an already fetched remote branch.
+          GitHub PR URLs in the review option are fetched for you.
+        </p>
+        <h3>Review a PR or branch</h3>
+        <p>
+          Choose this option to inspect an existing change with the Haskell
+          reviewer, security reviewer, or both. Enter a branch, commit, or
+          GitHub PR URL. Add an optional focus. No interview or implementation
+          is required.
+        </p>
+        <p>
+          For local refs, choose the comparison base. The review uses the diff
+          from the common ancestor to the selected head. A GitHub PR uses its
+          target branch and must belong to a remote configured in this project.
+          The Nix launcher includes the GitHub CLI; sign in with
+          <code>gh auth login</code> if needed.
+        </p>
+        <p>
+          Ask follow-up questions or revise the focus, then choose
+          <strong>Finish review</strong>. Findings stay in the conversation and
+          in <code>review.md</code> in the report directory. No code is changed,
+          no builds run, and no comments are published. Revisions are pinned;
+          start a new task to review newer commits.
+        </p>
+        <h3>Write tests</h3>
+        <p>
+          Choose a base, name the Cabal packages, describe the scope, and list
+          behaviors to test, one per line. Select a
+          <strong>Failing regression test (TDD)</strong> or
+          <strong>Passing coverage for existing behavior</strong>.
+        </p>
+        <p>
+          The agent writes tests, fixtures, and necessary Cabal test wiring. The
+          harness runs lint, strict compilation, Nix checks, and Cabal tests.
+          Inspect the diff, ask questions, or request revisions.
+          <strong>Approve tests</strong> commits the validated tests and
+          finishes the task. Implementation never starts from this option. Use
+          your normal Git process to take the commit from its worktree.
         </p>
       </section>
       <section id="workflow" class="panel">

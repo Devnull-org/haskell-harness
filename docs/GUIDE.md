@@ -48,7 +48,7 @@ uv run --locked --no-dev python -m haskell_harness --repo "/path/to/project"
 
 uv installs the pinned Python dependencies and starts the same local website.
 Install your chosen model provider's CLI separately and sign in using its normal
-login flow. Nix is optional for exploration and interviews; code validation needs
+login flow. Nix is optional for exploration, interviews, and reviews; code validation needs
 the target project's Nix environment.
 
 ### Server options
@@ -85,7 +85,49 @@ specification until you are satisfied, then explicitly approve it.
 
 Choose a unique task name and a base branch, tag, or commit before starting.
 Each task gets its own worktree from that exact commit. Uncommitted changes in
-your original checkout stay there. Remote branches must already be fetched.
+your original checkout stay there. Local and remote-tracking branch names must
+already exist in your checkout; GitHub PR URLs are fetched as described below.
+
+### Review an existing change
+
+Choose **Review a PR or branch**. Enter a branch, commit, or GitHub PR URL and
+choose **Haskell**, **Security**, or both reviewers. Add a focus if you want to
+direct their attention. No requirements interview or code-writing phase is needed.
+
+For a local branch or commit, select its comparison base (usually the target
+branch). The review uses the diff from their merge base to the selected head,
+excluding unrelated changes made later on the base branch. Both revisions are
+pinned when the task starts; the review worktree contains the head revision.
+
+A GitHub PR URL uses the PR's target branch and includes its title and description.
+It must belong to a GitHub remote configured in the selected project. The harness
+reads metadata through `gh` and fetches the base and PR head without changing
+branches or working files. The Nix launcher includes `gh`; without Nix, install
+the GitHub CLI separately. Use its existing login (`gh auth login` if needed),
+and ensure Git can read the project's remote. URL support is currently for
+`github.com`; for other hosts, fetch the branch yourself and use its local ref.
+
+Read the findings, ask follow-up questions, or revise the review's focus.
+**Finish review** saves the result; it does not fix code, run builds, post comments,
+or approve the PR on GitHub. Reports include `review.md` and `review.json`.
+**Start a fresh attempt** reviews the same pinned revision. To review newer commits,
+create a new task with the updated branch or PR URL.
+
+### Write tests without implementation
+
+Choose **Write tests**. Select a base, name the Cabal packages (comma-separated),
+describe the test scope, and list behaviors to test, one per line. Choose:
+
+- **Failing regression test (TDD)** for a bug or behavior that is not implemented yet.
+- **Passing coverage for existing behavior** to cover code that already works.
+
+The test author writes tests, fixtures, and necessary Cabal test wiring. Lint,
+strict compilation, Nix checks, and Cabal tests run before your review. Named tests
+must appear in fresh JUnit evidence; passing unrelated tests is not enough.
+Use **Ask a question**, **Revise instructions**, or **Run checks again**, then
+**Approve tests** to commit the validated patch. Approval finishes this task.
+There is no implementation phase attached to it. Inspect the worktree and use your
+normal Git process to take the commit into your project.
 
 ## Continue at your pace
 

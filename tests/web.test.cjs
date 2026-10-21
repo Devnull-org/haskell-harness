@@ -74,12 +74,14 @@ async function app() {
     elements.set(id, new Element());
   elements.get("new-form").append(new Element("button"));
   let fetcher = async () => response(snapshot());
+  const kind = { value: "explore" };
   let timerId = 0;
   const timers = new Map();
   const context = vm.createContext({
     document: {
       getElementById: (id) => elements.get(id),
-      querySelector: () => ({ content: "test-token", value: "explore" }),
+      querySelector: (selector) =>
+        selector.startsWith("meta") ? { content: "test-token" } : kind,
       createElement: (tag) => new Element(tag),
       createTextNode: (text) => {
         const node = new Element("#text");
@@ -103,6 +105,7 @@ async function app() {
   vm.runInContext("selected = 'example'", context);
   return {
     elements,
+    kind,
     timers,
     run: (code) => vm.runInContext(code, context),
     fetch: (fn) => {
@@ -110,6 +113,80 @@ async function app() {
     },
   };
 }
+
+test("standalone forms submit their own scope without feature-only options", async () => {
+  const ui = await app();
+  const submitted = [];
+  ui.fetch(async (path, options) => {
+    if (path === "/api/command") {
+      submitted.push(JSON.parse(options.body));
+      return response({ accepted: true });
+    }
+    return response(snapshot());
+  });
+  ui.kind.value = "review";
+  ui.elements.get("new-form").onchange();
+  assert.equal(ui.elements.get("review-options").hidden, false);
+  assert.equal(ui.elements.get("test-options").hidden, true);
+  assert.equal(ui.elements.get("test-criteria").required, false);
+  ui.elements.get("task-name").value = "review-parser";
+  ui.elements.get("reviewers").value = "both";
+  ui.elements.get("review-head").value =
+    "https://github.com/example/project/pull/12";
+  ui.elements.get("review-head").oninput();
+  assert.equal(ui.elements.get("base").disabled, true);
+  assert.equal(ui.elements.get("base").required, false);
+  ui.elements.get("new-form").onsubmit({ preventDefault() {} });
+  await settle();
+  assert.equal(submitted[0].command, "review");
+  assert.equal(submitted[0].head, "https://github.com/example/project/pull/12");
+  assert.equal(submitted[0].reviewers, "both");
+  assert(!("walkthrough" in submitted[0]));
+  assert(!("criteria" in submitted[0]));
+  assert.match(submitted[0].request, /Review this change/);
+
+  ui.kind.value = "tests";
+  ui.elements.get("new-form").onchange();
+  assert.equal(ui.elements.get("base").disabled, false);
+  assert.equal(ui.elements.get("base").required, true);
+  assert.equal(ui.elements.get("test-options").hidden, false);
+  assert.equal(ui.elements.get("review-head").required, false);
+  ui.elements.get("test-packages").value = "library, app";
+  ui.elements.get("test-criteria").value =
+    "Accept valid input\n\nReject empty input";
+  ui.elements.get("test-expectation").value = "green";
+  ui.elements.get("request").value = "Cover the parser";
+  ui.elements.get("new-form").onsubmit({ preventDefault() {} });
+  await settle();
+  assert.equal(submitted[1].command, "tests");
+  assert.deepEqual(submitted[1].criteria, [
+    "Accept valid input",
+    "Reject empty input",
+  ]);
+  assert.deepEqual(submitted[1].packages, ["library", "app"]);
+  assert.equal(submitted[1].expectation, "green");
+  assert(!("head" in submitted[1]));
+  assert(!("walkthrough" in submitted[1]));
+});
+
+test("standalone review history shows findings once and keeps the finish action clear", async () => {
+  const ui = await app();
+  ui.run(`state.task.task_kind = "review";
+    state.task.stage = "standalone_review";
+    state.task.prompt.reviews = {haskell_reviewer: {summary: "Checked parser boundaries", findings: [{title: "Empty input crashes", severity: "high", location: "Parser.hs:12", impact: "Requests fail", sequence: [], evidence: "Uses head", recommendation: "Handle []", conditions: "Empty input", id: "HASKELL-1", confidence: "confirmed"}]}};
+    state.task.messages = [{reviews: state.task.prompt.reviews}];
+    render();`);
+  assert.match(ui.elements.get("history").textContent, /Empty input crashes/);
+  assert.doesNotMatch(
+    ui.elements.get("packet").textContent,
+    /Empty input crashes/,
+  );
+  assert.match(ui.elements.get("actions").textContent, /Finish review/);
+  assert.doesNotMatch(
+    ui.elements.get("actions").textContent,
+    /Approve|Fix selected/,
+  );
+});
 
 test("history is visible and updates when only saved messages change", async () => {
   const ui = await app();

@@ -13,6 +13,7 @@ from .cancellation import ModelCancellation
 from .config import RoutedAgent, load_settings
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
 from .project_context import ContextStore, state_directory
+from .review_source import resolve_review
 from .validation import LocalExecutor
 from .workflow import Harness
 from .workspace import git
@@ -143,7 +144,17 @@ class LocalApp:
         }
 
     def start(self, command):
-        allowed = {"start", "explore", "resume", "run", "respond", "restart", "abandon"}
+        allowed = {
+            "start",
+            "explore",
+            "review",
+            "tests",
+            "resume",
+            "run",
+            "respond",
+            "restart",
+            "abandon",
+        }
         if command.get("command") not in allowed:
             raise ValueError("Unknown workflow command")
         if not isinstance(command.get("task_id"), str):
@@ -157,6 +168,9 @@ class LocalApp:
             "token",
             "confirmation",
             "backend",
+            "head",
+            "reviewers",
+            "expectation",
         ):
             if command.get(field) is not None and not isinstance(command[field], str):
                 raise ValueError(f"{field} must be text")
@@ -165,6 +179,12 @@ class LocalApp:
             raise ValueError("Finding IDs must be a list of names")
         if not isinstance(command.get("walkthrough", False), bool):
             raise ValueError("Walkthrough must be enabled or disabled")
+        for field in ("packages", "criteria"):
+            if field in command and (
+                not isinstance(command[field], list)
+                or not all(isinstance(item, str) for item in command[field])
+            ):
+                raise ValueError(f"{field} must be a list of text entries")
         backend = command.get("backend", self.selected_backend)
         if backend is not None and backend != "auto" and backend not in self.settings.backends:
             raise ValueError("Unknown backend")
@@ -200,6 +220,16 @@ class LocalApp:
             action, task_id = command["command"], command["task_id"]
             if self.shutdown.is_set():
                 raise SelectionCancelled
+            source = None
+            if action == "review":
+                with self.cancellation.request() as cancel:
+                    source = resolve_review(
+                        self.args.repo,
+                        command.get("base", ""),
+                        command.get("head", ""),
+                        cancel=cancel,
+                        progress=self.progress,
+                    )
             if action != "abandon":
                 selected = select_backend(agent, self.args.repo)
                 self.selected_backend = selected
@@ -216,6 +246,24 @@ class LocalApp:
                     base=command["base"],
                     phase="explore" if action == "explore" else "interview",
                     walkthrough=command.get("walkthrough", False),
+                )
+            elif action == "review":
+                result = harness.start_review(
+                    task_id,
+                    command.get("request", ""),
+                    base=command.get("base", ""),
+                    head=command.get("head", ""),
+                    reviewers=command.get("reviewers", "both"),
+                    source=source,
+                )
+            elif action == "tests":
+                result = harness.start_tests(
+                    task_id,
+                    command.get("request", ""),
+                    base=command.get("base", ""),
+                    packages=command.get("packages", []),
+                    criteria=command.get("criteria", []),
+                    expectation=command.get("expectation", "red"),
                 )
             elif action == "resume":
                 result = harness.resume(task_id, retry_backend=True)

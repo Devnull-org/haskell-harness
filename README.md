@@ -25,12 +25,12 @@ agents—all from a local website.
 - **Tests lead the way.** Review failing Cabal tests before implementation begins.
   Strict builds, lint, and Nix checks accompany code changes.
 - **Get a second opinion.** Dedicated Haskell and security reviewers examine the
-  implementation after refactoring. An optional walkthrough helps you retain context.
+  implementation, or review an existing PR. An optional walkthrough helps you retain context.
 - **Own every patch.** Work stays in isolated local worktrees, with saved conversations
   and small commits. Prepare a handoff when you're ready to publish.
 
-Every phase is a choice. Stop after research, come back tomorrow, or take an idea
-through the full workflow.
+Start where you need help: explore an idea, write tests, review a PR, or take a feature
+through the full workflow. Every phase is a choice.
 
 ```mermaid
 flowchart LR
@@ -55,8 +55,8 @@ nix run --refresh github:Devnull-org/haskell-harness -- --repo "/path/to/project
 Replace the path with your Git checkout, then open the printed local URL.
 The command starts the local server; keep it running while using the website.
 
-Choose **Explore** or **Plan a feature or fix**, select a base branch, and describe
-what you have in mind. The harness checks your existing model logins and lets you
+Choose **Explore**, **Plan a feature or fix**, **Review a PR or branch**, or **Write tests**.
+Describe what you need. The harness checks your existing model logins and lets you
 choose when more than one backend is available.
 
 **Light, dark, or your system theme.** A familiar editor, visible conversation

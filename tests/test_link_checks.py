@@ -44,10 +44,13 @@ def test_real_markdown_links_anchors_and_scope(repository, tmp_path):
     assert result["unique_links"] == 3
     assert result["successful"] == 1
     broken = [issue for issue in result["issues"] if issue["status"] == "broken"]
-    assert len(broken) == 2
-    assert any("absent.md" in issue["url"] for issue in broken)
+    assert len(broken) == 1
+    assert any(
+        "absent.md" in issue["url"] and issue["status"] == "unverified"
+        for issue in result["issues"]
+    )
     assert any("#missing" in issue["url"] for issue in broken)
-    assert sum(i["status"] == "unverified" for i in result["issues"]) == 4
+    assert sum(i["status"] == "unverified" for i in result["issues"]) == 5
     assert (tmp_path / "reports/documentation-links.json").is_file()
     assert git(repository, "status", "--porcelain") == ""
 

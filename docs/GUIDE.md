@@ -242,8 +242,10 @@ retry. It does not submit an approval or a request-changes review.
 **Check documentation links** checks links and anchors in changed Markdown, MDX,
 and HTML files at the pinned revision. It uses lychee, included in the Nix launcher
 (install it separately without Nix). Results appear in task history and
-`documentation-links.json`. Missing files and HTTP 404/410 responses are distinguished
+`documentation-links.json`. HTTP 404/410 responses and missing anchors are distinguished
 from access restrictions, timeouts, and site routes that need a rendered-site check.
+Missing source files need verification because a docs build may generate them. A
+GitHub link to a new file in this PR may also start working only after merging.
 This does not build the site, execute repository scripts, or use repository lychee
 configuration. Private addresses, credentials in URLs, and paths outside the worktree
 are excluded. It checks source links, so it cannot establish that generated routes

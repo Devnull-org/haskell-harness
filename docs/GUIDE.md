@@ -4,6 +4,12 @@ The website is the interface for conversations, approvals, phases, saved work,
 backend selection, and project memory. Open **Workflow guide** in the sidebar
 for an in-app walkthrough.
 
+**Agents**, **Project memory**, and **Project settings** each have their own page,
+with no conversation underneath. Their URLs are `/agents`, `/project-memory`, and
+`/project-settings`. Use **Workspace**, a saved task, or your browser's Back button
+to return. Switching pages keeps your unsent chat message and memory draft in the
+open browser tab; refresh or closing the tab still discards unsaved text.
+
 ## Start the local server
 
 From any directory, with Nix and Git installed:

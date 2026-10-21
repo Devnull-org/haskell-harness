@@ -733,3 +733,15 @@ def test_missing_agent_checkout_does_not_break_status_or_repository_selection(
     assert code == 200 and catalog["error"] and not catalog["writable"]
     assert call("/api/agents/source", {"repository": str(tmp_path / "moved-catalog")})[0] == 200
     assert call("/api/agents")[1]["error"] is None
+
+
+@pytest.mark.parametrize("path", ["/agents", "/project-memory", "/project-settings"])
+def test_project_pages_are_available_by_direct_url(browser_app, path):
+    app, call, calls, _ = browser_app
+    status, content = call(path)
+    assert status == 200
+    assert app.token in content
+    assert 'id="agents-page"' in content
+    assert 'id="memory-panel"' in content
+    assert 'id="project-panel"' in content
+    assert not calls.exists()

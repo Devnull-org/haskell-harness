@@ -68,17 +68,30 @@ function snapshot(current = task()) {
 const response = (body) => ({ ok: true, json: async () => body });
 const settle = () => new Promise(setImmediate);
 
-async function app() {
+async function app({ pathname = "/", fetcher: initialFetch } = {}) {
   const elements = new Map();
   const html = readFileSync("src/lambda_harness/web/index.html", "utf8");
   for (const [, id] of html.matchAll(/id="([^"]+)"/g))
     elements.set(id, new Element());
   elements.get("new-form").append(new Element("button"));
-  let fetcher = async () => response(snapshot());
+  let fetcher = initialFetch || (async () => response(snapshot()));
+  const location = { pathname };
+  const navigation = [];
+  const listeners = {};
   const kind = { value: "explore" };
   let timerId = 0;
   const timers = new Map();
   const context = vm.createContext({
+    location,
+    history: {
+      pushState: (_, __, path) => {
+        location.pathname = path;
+        navigation.push(path);
+      },
+    },
+    addEventListener: (name, callback) => {
+      listeners[name] = callback;
+    },
     document: {
       getElementById: (id) => elements.get(id),
       querySelector: (selector) =>
@@ -108,6 +121,12 @@ async function app() {
     elements,
     kind,
     timers,
+    location,
+    navigation,
+    back: async (path) => {
+      location.pathname = path;
+      await listeners.popstate();
+    },
     run: (code) => vm.runInContext(code, context),
     fetch: (fn) => {
       fetcher = fn;
@@ -429,6 +448,7 @@ function memoryFixture(ui) {
   ui.fetch(async (path, options) => {
     const body = options.body && JSON.parse(options.body);
     requests.push([path, body]);
+    if (path === "/api/agents") return response(agentCatalog());
     if (path === "/api/project")
       return response({
         backend: "auto",
@@ -830,4 +850,96 @@ test("a removed agent stays visible as unavailable so its assignment can be rese
   select.value = "";
   await select.onchange();
   assert.deepEqual(changes, [{ role: "reviewer", agent_id: null }]);
+});
+
+function assertOnlyPage(ui, visible, title) {
+  for (const id of [
+    "agents-page",
+    "memory-panel",
+    "project-panel",
+    "work",
+    "new-panel",
+  ])
+    assert.equal(
+      ui.elements.get(id).hidden,
+      id !== visible,
+      `${id} on ${title}`,
+    );
+  assert.equal(ui.elements.get("title").textContent, title);
+  for (const id of ["activity", "selection", "choose-backend"])
+    assert.equal(
+      ui.elements.get(id).hidden,
+      true,
+      `${id} should not appear on ${title}`,
+    );
+}
+
+test("project pages replace chat and remain separate while work polls in the background", async () => {
+  const ui = await app();
+  memoryFixture(ui);
+  ui.elements.get("message").value = "Keep my unsent question";
+  ui.run(
+    "state.job = {id:'running', task_id:'example', running:true, log:['Working…'], selection:{available_backends:[], backend_checks:[]}}; render()",
+  );
+  await ui.elements.get("project-memory").onclick();
+  assertOnlyPage(ui, "memory-panel", "Project memory");
+  assert.equal(ui.location.pathname, "/project-memory");
+  ui.elements.get("context-notes").value = "Unsaved project notes";
+  ui.elements.get("context-notes").oninput();
+  await ui.run("refresh()");
+  assertOnlyPage(ui, "memory-panel", "Project memory");
+  await ui.elements.get("project-tools").onclick();
+  assertOnlyPage(ui, "project-panel", "Project settings");
+  assert.equal(ui.location.pathname, "/project-settings");
+  await ui.run("openAgents()");
+  assertOnlyPage(ui, "agents-page", "Agents");
+  await ui.run("refresh()");
+  assertOnlyPage(ui, "agents-page", "Agents");
+  await ui.back("/project-memory");
+  assertOnlyPage(ui, "memory-panel", "Project memory");
+  assert.equal(ui.elements.get("context-notes").value, "Unsaved project notes");
+  await ui.elements.get("close-memory").onclick();
+  assert.equal(ui.location.pathname, "/");
+  assert.equal(ui.elements.get("work").hidden, false);
+  assert.equal(ui.elements.get("memory-panel").hidden, true);
+  assert.equal(ui.elements.get("message").value, "Keep my unsent question");
+  await ui.elements.get("project-tools").onclick();
+  await ui.elements.get("tasks").children[0].onclick();
+  assert.equal(ui.elements.get("project-panel").hidden, true);
+  assert.equal(ui.elements.get("work").hidden, false);
+  assert.equal(ui.elements.get("message").value, "Keep my unsent question");
+});
+
+test("all project page URLs load directly and browser history loads the matching page", async () => {
+  const project = {
+    backend: "auto",
+    backends: [],
+    tools: { git: true, nix: true, flake: true },
+    context: { latest: null, history: [] },
+  };
+  const fetcher = async (path) =>
+    response(
+      path === "/api/agents"
+        ? agentCatalog()
+        : path === "/api/project"
+          ? project
+          : { ...snapshot(), tasks: [], task: null },
+    );
+  for (const [path, id, title] of [
+    ["/agents", "agents-page", "Agents"],
+    ["/project-memory", "memory-panel", "Project memory"],
+    ["/project-settings", "project-panel", "Project settings"],
+  ]) {
+    const ui = await app({ pathname: path, fetcher });
+    assertOnlyPage(ui, id, title);
+    assert.equal(ui.elements.get("error").hidden, true);
+    await ui.back("/project-settings");
+    assertOnlyPage(ui, "project-panel", "Project settings");
+    await ui.back("/agents");
+    assertOnlyPage(ui, "agents-page", "Agents");
+    assert.equal(ui.elements.get("agent-grid").children.length, 1);
+    await ui.back("/project-memory");
+    assertOnlyPage(ui, "memory-panel", "Project memory");
+    assert.equal(ui.elements.get("context-notes").value, "");
+  }
 });

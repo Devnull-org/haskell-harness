@@ -19,11 +19,16 @@
         SAVED WORK <button id="refresh" class="quiet">Refresh</button>
       </div>
       <nav id="tasks" aria-label="Saved tasks"></nav>
+      <a id="workspace-link" class="workspace-link" href="/">Workspace</a>
       <a id="agents-link" class="workspace-link" href="/agents"
         >Agents <span>↗</span></a
       >
-      <button id="project-memory" class="quiet">Project memory</button>
-      <button id="project-tools" class="quiet">Project settings</button>
+      <a id="project-memory" class="workspace-link" href="/project-memory"
+        >Project memory</a
+      >
+      <a id="project-tools" class="workspace-link" href="/project-settings"
+        >Project settings</a
+      >
       <a class="guide-link" href="/guide" target="_blank" rel="noopener"
         >Workflow guide ↗</a
       >
@@ -150,7 +155,7 @@
       <section id="project-panel" class="panel" hidden>
         <div class="compose-top">
           <h2>Project settings</h2>
-          <button id="close-project" class="quiet">Close</button>
+          <button id="close-project" class="quiet">Back to workspace</button>
         </div>
         <p id="setup-status" class="muted"></p>
         <label for="backend-setting">Model backend</label>
@@ -174,7 +179,7 @@
             <div class="eyebrow">SHARED KNOWLEDGE</div>
             <h2>Project memory</h2>
           </div>
-          <button id="close-memory" class="quiet">Close</button>
+          <button id="close-memory" class="quiet">Back to workspace</button>
         </div>
         <p class="muted">
           Keep architecture, invariants, and decisions close to every
@@ -254,7 +259,7 @@
           <div id="context-preview" aria-live="polite"></div>
         </div>
       </section>
-      <section id="new-panel" class="panel">
+      <section id="new-panel" class="panel" hidden>
         <div class="eyebrow">YOUR NEXT TASK</div>
         <h2>Choose where to start.</h2>
         <p class="muted">

@@ -20,7 +20,28 @@ let memoryLoaded = false,
   memorySnapshot = null,
   memoryHistory = [],
   memoryPreviewId = 0;
-let page = globalThis.location?.pathname === "/agents" ? "agents" : "workspace",
+const pages = {
+  workspace: { path: "/", title: "Workspace", link: "workspace-link" },
+  agents: { path: "/agents", title: "Agents", link: "agents-link" },
+  memory: {
+    path: "/project-memory",
+    title: "Project memory",
+    link: "project-memory",
+  },
+  settings: {
+    path: "/project-settings",
+    title: "Project settings",
+    link: "project-tools",
+  },
+};
+function pageFromLocation() {
+  return (
+    Object.keys(pages).find(
+      (name) => pages[name].path === globalThis.location?.pathname,
+    ) || "workspace"
+  );
+}
+let page = pageFromLocation(),
   catalog = null,
   editingAgent = null,
   viewedAgent = null,
@@ -234,12 +255,12 @@ function render() {
     const item = button(
       task.task_id,
       async () => {
+        if (selected !== task.task_id) $("message").value = "";
         selected = task.task_id;
         showPage("workspace");
         memoryPreviewId++;
         $("context-preview").replaceChildren();
         packetKey = "";
-        $("message").value = "";
         await refresh();
       },
       task.task_id === selected ? "selected" : "",
@@ -251,27 +272,16 @@ function render() {
     $("tasks").append(
       el("small", "Your saved conversations will appear here.", "muted"),
     );
-  $("agents-page").hidden = page !== "agents";
-  $("new-panel").hidden = page === "agents" || !!selected;
-  $("work").hidden = page === "agents" || !state.task;
-  $("agents-link").className =
-    "workspace-link" + (page === "agents" ? " selected" : "");
+  renderPage();
   renderAgentDrafts();
   agentControls(busy);
   $("new-task").disabled = busy;
-  $("choose-backend").hidden = !state.task;
   $("choose-backend").disabled = busy;
   $("new-form").querySelector("button").disabled = busy;
   $("save-backend").disabled = busy;
   renderMemory(busy);
-  $("title").textContent =
-    page === "agents"
-      ? "Agents"
-      : state.task?.task_kind === "agent_builder"
-        ? "Agent workshop"
-        : selected || "What would you like to work on?";
   if (state.task) renderTask(state.task, busy);
-  $("activity").hidden = !state.job;
+  $("activity").hidden = page !== "workspace" || !state.job;
   if (state.job) {
     const job = state.job;
     $("activity-label").textContent = running
@@ -307,7 +317,7 @@ function render() {
     }
   }
   const selection = state.job?.selection;
-  $("selection").hidden = !selection;
+  $("selection").hidden = page !== "workspace" || !selection;
   if (selection) {
     $("selection-description").textContent = selection.available_backends.length
       ? "More than one backend is ready. Choose one to continue."
@@ -845,32 +855,28 @@ async function previewMemory(forTask) {
       ),
     );
 }
-$("project-tools").onclick = () =>
-  guard(async () => {
-    showPage("workspace");
-    if (state) render();
-    $("project-panel").hidden = false;
-    $("memory-panel").hidden = true;
-    await loadProject();
-  });
-$("close-project").onclick = () => {
-  $("project-panel").hidden = true;
+async function openSettings() {
+  showPage("settings");
+  await loadProject();
+}
+$("project-tools").onclick = (event) => {
+  event?.preventDefault();
+  return guard(openSettings);
 };
+$("close-project").onclick = () => showPage("workspace");
 $("save-backend").onclick = () =>
   guard(() =>
     changeProject("/api/backend", { backend: $("backend-setting").value }),
   );
 async function openMemory(snapshotId = null) {
-  showPage("workspace");
-  if (state) render();
-  $("memory-panel").hidden = false;
-  $("project-panel").hidden = true;
+  showPage("memory");
   if (snapshotId || !memoryDirty) await loadMemory(snapshotId);
 }
-$("project-memory").onclick = () => guard(() => openMemory());
-$("close-memory").onclick = () => {
-  $("memory-panel").hidden = true;
+$("project-memory").onclick = (event) => {
+  event?.preventDefault();
+  return guard(() => openMemory());
 };
+$("close-memory").onclick = () => showPage("workspace");
 for (const id of ["context-notes", "context-sources"])
   $(id).oninput = () => {
     memoryDirty = true;
@@ -1049,16 +1055,45 @@ $("delete-dialog").addEventListener("close", () => {
       }),
     );
 });
+function renderPage() {
+  const workspace = page === "workspace";
+  $("agents-page").hidden = page !== "agents";
+  $("memory-panel").hidden = page !== "memory";
+  $("project-panel").hidden = page !== "settings";
+  $("new-panel").hidden = !workspace || !!selected;
+  $("work").hidden =
+    !workspace || !selected || state?.task?.task_id !== selected;
+  $("activity").hidden = !workspace || !state?.job;
+  $("selection").hidden = !workspace || !state?.job?.selection;
+  $("choose-backend").hidden = !workspace || !state?.task;
+  for (const [name, info] of Object.entries(pages)) {
+    $(info.link).className =
+      "workspace-link" + (name === page ? " selected" : "");
+    $(info.link).ariaCurrent = name === page ? "page" : null;
+  }
+  $("title").textContent = workspace
+    ? state?.task?.task_kind === "agent_builder"
+      ? "Agent workshop"
+      : selected || "What would you like to work on?"
+    : pages[page].title;
+  document.title = pages[page].title + " · Lambda Harness";
+}
 function showPage(next) {
   page = next;
-  const url = next === "agents" ? "/agents" : "/";
+  const url = pages[next].path;
   if (globalThis.location?.pathname !== url)
     globalThis.history?.pushState({}, "", url);
-  if (next === "agents") {
-    $("memory-panel").hidden = true;
-    $("project-panel").hidden = true;
-  }
+  renderPage();
 }
+async function loadPage() {
+  if (page === "agents") await loadAgents();
+  else if (page === "memory" && !memoryDirty) await loadMemory();
+  else if (page === "settings") await loadProject();
+}
+$("workspace-link").onclick = (event) => {
+  event?.preventDefault();
+  showPage("workspace");
+};
 async function openAgents() {
   showPage("agents");
   if (state) render();
@@ -1354,10 +1389,10 @@ function renderAgentDrafts() {
     const control = button(
       draft.display_name || "Agent conversation",
       async () => {
+        if (selected !== draft.task_id) $("message").value = "";
         selected = draft.task_id;
         showPage("workspace");
         packetKey = "";
-        $("message").value = "";
         await refresh();
       },
     );
@@ -1410,10 +1445,11 @@ $("agent-form").onsubmit = (event) => {
 };
 globalThis.addEventListener?.("popstate", () =>
   guard(async () => {
-    page = globalThis.location?.pathname === "/agents" ? "agents" : "workspace";
-    if (state) render();
-    if (page === "agents") await loadAgents();
+    page = pageFromLocation();
+    renderPage();
+    await loadPage();
   }),
 );
+renderPage();
 guard(refresh);
-if (page === "agents") guard(loadAgents);
+guard(loadPage);

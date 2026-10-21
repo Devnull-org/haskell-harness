@@ -483,10 +483,23 @@ def create_server(app, port=8765):
                     self.send(200, app.context_preview(query.get("snapshot", [None])[0], task_id))
                 elif path.path == "/api/context":
                     self.send(200, app.context_snapshot(query.get("snapshot", [None])[0]))
-                elif path.path in {"/", "/agents", "/guide", "/app.js", "/theme.js", "/style.css"}:
-                    name = {"/": "index.html", "/agents": "index.html", "/guide": "guide.html"}.get(
-                        path.path, path.path[1:]
-                    )
+                elif path.path in {
+                    "/",
+                    "/agents",
+                    "/project-memory",
+                    "/project-settings",
+                    "/guide",
+                    "/app.js",
+                    "/theme.js",
+                    "/style.css",
+                }:
+                    name = {
+                        "/": "index.html",
+                        "/agents": "index.html",
+                        "/project-memory": "index.html",
+                        "/project-settings": "index.html",
+                        "/guide": "guide.html",
+                    }.get(path.path, path.path[1:])
                     content = files("lambda_harness").joinpath("web", name).read_text()
                     if name == "index.html":
                         content = content.replace("HARNESS_SESSION_TOKEN", app.token)

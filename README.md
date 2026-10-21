@@ -24,6 +24,8 @@ agents—all from a local website.
   interviewer challenge your assumptions until the requirements are clear.
 - **Tests lead the way.** Review failing Cabal tests before implementation begins.
   Strict builds, lint, and Nix checks accompany code changes.
+- **Build your team.** Browse agents with their own avatars, shape new specialists
+  through chat, and share their definitions in Git.
 - **Get a second opinion.** Dedicated Haskell and security reviewers examine the
   implementation, or review an existing PR. An optional walkthrough helps you retain context.
 - **Keep project knowledge close.** Save notes straight from chat, edit shared memory,

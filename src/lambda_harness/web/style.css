@@ -665,3 +665,141 @@ dialog {
   margin-top: 10px;
   color: var(--muted);
 }
+
+.workspace-link {
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 13px;
+  color: var(--ink);
+  text-decoration: none;
+  border-radius: 8px;
+}
+.workspace-link:hover,
+.workspace-link.selected {
+  background: var(--panel);
+}
+.agents-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.agents-intro h2 {
+  font-size: 28px;
+  margin-bottom: 8px;
+}
+.agents-intro p {
+  max-width: 580px;
+}
+.agents-intro button {
+  flex-shrink: 0;
+}
+.agents-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 16px;
+}
+.agents-toolbar .search-label {
+  flex: 1;
+}
+.agents-toolbar label {
+  margin: 0;
+}
+.agents-toolbar button {
+  margin-bottom: 7px;
+}
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
+  gap: 16px;
+  margin: 18px 0 28px;
+}
+.agent-card {
+  padding: 22px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.agent-card h3 {
+  margin: 0;
+}
+.agent-card p {
+  margin: 0;
+}
+.agent-card .agent-card-actions {
+  margin-top: auto;
+  padding-top: 10px;
+}
+.agent-identity {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.agent-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  flex-shrink: 0;
+  background: var(--soft);
+  display: block;
+}
+.agent-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.agent-tags span {
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  padding: 2px 9px;
+  color: var(--muted);
+}
+.agent-card .badge {
+  font-size: 10px;
+}
+.agent-assignments {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px 22px;
+}
+.agent-drafts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.agent-drafts small {
+  display: block;
+  color: var(--muted);
+}
+#agent-details {
+  scroll-margin-top: 24px;
+}
+#agent-source summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+#agent-repository {
+  flex: 1;
+  min-width: 160px;
+}
+.agent-save-note {
+  border-left: 3px solid var(--accent);
+  padding-left: 16px;
+}
+@media (max-width: 700px) {
+  .agents-intro,
+  .agents-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .agent-grid {
+    grid-template-columns: 1fr;
+  }
+}

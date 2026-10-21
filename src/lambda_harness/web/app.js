@@ -20,7 +20,13 @@ let memoryLoaded = false,
   memorySnapshot = null,
   memoryHistory = [],
   memoryPreviewId = 0;
+let page = globalThis.location?.pathname === "/agents" ? "agents" : "workspace",
+  catalog = null,
+  editingAgent = null,
+  viewedAgent = null,
+  catalogLoading = false;
 const labels = {
+  save_agent: "Save to repository",
   answer: "Answer",
   question: "Ask a question",
   revise: "Revise instructions",
@@ -40,7 +46,7 @@ const phaseLabels = {
   tests: "Write failing tests",
   implement: "Implement",
   refactor: "Refactor",
-  "review-haskell": "Haskell review",
+  "review-haskell": "Code review",
   "review-security": "Security review",
   walkthrough: "Code walkthrough",
   handoff: "Prepare local handoff",
@@ -141,7 +147,7 @@ function renderReviews(parent, reviews) {
     parent.append(
       el(
         "h3",
-        role === "security_reviewer" ? "Security review" : "Haskell review",
+        role === "security_reviewer" ? "Security review" : "Code review",
       ),
       prose(review.summary),
     );
@@ -175,9 +181,12 @@ async function command(body) {
   try {
     await api("/api/command", body);
     if (
-      ["start", "explore", "review", "tests", "chat"].includes(body.command)
+      ["start", "explore", "review", "tests", "chat", "agent_builder"].includes(
+        body.command,
+      )
     ) {
       selected = body.task_id;
+      showPage("workspace");
       packetKey = "";
     }
     await refresh();
@@ -219,11 +228,14 @@ function render() {
   const running = !!state.job?.running;
   const busy = running || submitting || !!connectionError;
   $("tasks").replaceChildren();
-  for (const task of state.tasks) {
+  for (const task of state.tasks.filter(
+    (item) => item.task_kind !== "agent_builder",
+  )) {
     const item = button(
       task.task_id,
       async () => {
         selected = task.task_id;
+        showPage("workspace");
         memoryPreviewId++;
         $("context-preview").replaceChildren();
         packetKey = "";
@@ -235,19 +247,29 @@ function render() {
     item.append(el("small", task.stage.replaceAll("_", " ")));
     $("tasks").append(item);
   }
-  if (!state.tasks.length)
+  if (!state.tasks.some((item) => item.task_kind !== "agent_builder"))
     $("tasks").append(
       el("small", "Your saved conversations will appear here.", "muted"),
     );
-  $("new-panel").hidden = !!selected;
-  $("work").hidden = !state.task;
+  $("agents-page").hidden = page !== "agents";
+  $("new-panel").hidden = page === "agents" || !!selected;
+  $("work").hidden = page === "agents" || !state.task;
+  $("agents-link").className =
+    "workspace-link" + (page === "agents" ? " selected" : "");
+  renderAgentDrafts();
+  agentControls(busy);
   $("new-task").disabled = busy;
   $("choose-backend").hidden = !state.task;
   $("choose-backend").disabled = busy;
   $("new-form").querySelector("button").disabled = busy;
   $("save-backend").disabled = busy;
   renderMemory(busy);
-  $("title").textContent = selected || "What would you like to work on?";
+  $("title").textContent =
+    page === "agents"
+      ? "Agents"
+      : state.task?.task_kind === "agent_builder"
+        ? "Agent workshop"
+        : selected || "What would you like to work on?";
   if (state.task) renderTask(state.task, busy);
   $("activity").hidden = !state.job;
   if (state.job) {
@@ -268,6 +290,7 @@ function render() {
         : "Preparing / checking";
     if (!running && seenJob !== job.id) {
       seenJob = job.id;
+      if (job.result?.stage === "agent_ready") guard(loadAgents);
       if (job.error) error(job.error);
       if (job.result?.stage === "abandoned") {
         selected = null;
@@ -336,6 +359,8 @@ function renderHistory(task) {
       const entry = el("div", undefined, "message");
       renderReviews(entry, item.reviews);
       history.append(entry);
+    } else if (item.role === "agent_builder") {
+      history.append(message("Agent builder", item.answer));
     } else if (item.role === "chat") {
       const entry = message("Assistant", item.answer);
       if (item.memory_save) {
@@ -396,6 +421,23 @@ function renderTask(task, running) {
       el("div", "Reports: " + task.report_directory),
     );
   }
+  if (task.task_kind === "agent_builder") {
+    $("task-meta").replaceChildren(
+      el("strong", task.stage.replaceAll("_", " ")),
+      button("← All agents", openAgents, "quiet"),
+    );
+  } else if (Object.keys(task.agent_profiles || {}).length) {
+    $("task-meta").append(
+      el(
+        "div",
+        "Agents: " +
+          Object.values(task.agent_profiles)
+            .map((profile) => profile.definition.name)
+            .join(" · "),
+      ),
+    );
+  }
+  $("restart").hidden = task.task_kind === "agent_builder";
   renderHistory(task);
   if (key !== packetKey) {
     packetKey = key;
@@ -403,6 +445,22 @@ function renderTask(task, running) {
       notes = $("exploration-notes");
     packet.replaceChildren();
     notes.replaceChildren();
+    if (prompt.definition) {
+      renderAgentDefinition(packet, prompt.definition);
+      packet.append(
+        el(
+          "p",
+          "Ask for changes below, or save this definition to the agent repository.",
+          "muted",
+        ),
+      );
+    }
+    if (task.saved_agent) {
+      packet.append(
+        el("p", task.saved_agent.path, "agent-save-note"),
+        button("View agent catalog", openAgents),
+      );
+    }
     if (prompt.summary) packet.append(el("h2", prompt.summary));
     if (prompt.error) packet.append(prose(prompt.error));
     if (prompt.guidance) packet.append(prose(prompt.guidance));
@@ -515,7 +573,7 @@ function renderTask(task, running) {
     const control = button(
       label,
       () => respond(action),
-      action === "approve" ? "primary" : "",
+      ["approve", "save_agent"].includes(action) ? "primary" : "",
     );
     control.disabled = running;
     $("actions").append(control);
@@ -789,6 +847,8 @@ async function previewMemory(forTask) {
 }
 $("project-tools").onclick = () =>
   guard(async () => {
+    showPage("workspace");
+    if (state) render();
     $("project-panel").hidden = false;
     $("memory-panel").hidden = true;
     await loadProject();
@@ -801,6 +861,8 @@ $("save-backend").onclick = () =>
     changeProject("/api/backend", { backend: $("backend-setting").value }),
   );
 async function openMemory(snapshotId = null) {
+  showPage("workspace");
+  if (state) render();
   $("memory-panel").hidden = false;
   $("project-panel").hidden = true;
   if (snapshotId || !memoryDirty) await loadMemory(snapshotId);
@@ -933,6 +995,7 @@ $("new-form").onsubmit = (e) => {
 $("new-task").onclick = () =>
   guard(async () => {
     selected = null;
+    showPage("workspace");
     packetKey = "";
     $("message").value = "";
     await refresh();
@@ -986,4 +1049,371 @@ $("delete-dialog").addEventListener("close", () => {
       }),
     );
 });
+function showPage(next) {
+  page = next;
+  const url = next === "agents" ? "/agents" : "/";
+  if (globalThis.location?.pathname !== url)
+    globalThis.history?.pushState({}, "", url);
+  if (next === "agents") {
+    $("memory-panel").hidden = true;
+    $("project-panel").hidden = true;
+  }
+}
+async function openAgents() {
+  showPage("agents");
+  if (state) render();
+  await loadAgents();
+}
+function agentControls(busy = submitting || !!state?.job?.running) {
+  const locked = busy || catalogLoading;
+  $("add-agent").disabled = locked || !catalog?.writable;
+  $("start-agent-chat").disabled = locked || !catalog?.writable;
+  $("use-agent-repository").disabled = locked;
+  $("refresh-agents").disabled = catalogLoading;
+  for (const control of $("agents-page").querySelectorAll(
+    "[data-agent-mutation]",
+  ))
+    control.disabled = locked || control.dataset.unavailable === "true";
+}
+function agentAvatar(kind, name) {
+  // Local vector portraits have no remote image requests or user-supplied markup.
+  const faces = {
+    lambda: ["#c9c4ed", "#423864", "λ"],
+    robot: ["#b9d7dc", "#254c57", "⌁"],
+    fox: ["#efc6a4", "#704327", "◆"],
+    owl: ["#d3cbb4", "#574d35", "◉"],
+    crab: ["#edb9b6", "#742e39", "≋"],
+    shield: ["#b9d9c6", "#2e5746", "+"],
+  };
+  const [background, ink, mark] = faces[kind] || faces.robot;
+  const ears =
+    kind === "fox" || kind === "owl"
+      ? '<path d="M19 31 17 14 32 24M64 31 67 14 51 24" fill="' + ink + '"/>'
+      : '<path d="M42 16v8M12 37v13M72 37v13" stroke="' +
+        ink +
+        '" stroke-width="4" stroke-linecap="round"/>';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 84"><rect width="84" height="84" rx="22" fill="${background}"/>${ears}<rect x="19" y="24" width="46" height="39" rx="15" fill="${ink}"/><circle cx="33" cy="39" r="5" fill="${background}"/><circle cx="51" cy="39" r="5" fill="${background}"/><path d="M36 52q6 5 12 0" stroke="${background}" fill="none" stroke-width="2.5" stroke-linecap="round"/><text x="68" y="76" text-anchor="middle" font-family="sans-serif" font-size="19" font-weight="bold" fill="${ink}">${mark}</text></svg>`;
+  const image = el("img", undefined, "agent-avatar");
+  image.src = "data:image/svg+xml," + encodeURIComponent(svg);
+  image.alt = name + " avatar";
+  image.width = image.height = 64;
+  return image;
+}
+function renderAgentDefinition(parent, definition) {
+  const identity = el("div", undefined, "agent-identity"),
+    title = el("div");
+  title.append(
+    el("h3", definition.name),
+    el("p", catalog?.roles[definition.role] || definition.role, "muted"),
+  );
+  identity.append(agentAvatar(definition.avatar, definition.name), title);
+  parent.append(identity);
+  section(
+    parent,
+    "Languages",
+    definition.languages.join(", ") || "Language neutral",
+  );
+  section(parent, "Expertise", definition.expertise.join(" · "));
+  const instructions = el("details");
+  instructions.append(
+    el("summary", "Full instructions"),
+    prose(definition.instructions),
+  );
+  parent.append(instructions);
+}
+async function loadAgents() {
+  if (catalogLoading) return;
+  catalogLoading = true;
+  agentControls();
+  try {
+    catalog = await api("/api/agents");
+    $("agent-source-summary").textContent = catalog.repository
+      ? "Repository · " + catalog.repository
+      : "Choose a repository to add or edit agents";
+    $("agent-source-status").textContent = catalog.error
+      ? "Catalog needs attention: " + catalog.error
+      : catalog.writable
+        ? "Definitions and avatars are saved in agents/*.json. Conversations and project selections stay on this machine."
+        : "You are viewing the bundled catalog. Select a writable Git checkout to add or edit agents.";
+    $("agent-source").open = !catalog.writable;
+    if (document.activeElement !== $("agent-repository"))
+      $("agent-repository").value = catalog.repository || "";
+    const role = $("agent-role-filter").value;
+    $("agent-role-filter").replaceChildren(el("option", "All roles"));
+    $("agent-role-filter").children[0].value = "";
+    for (const [key, name] of Object.entries(catalog.roles)) {
+      const option = el("option", name);
+      option.value = key;
+      $("agent-role-filter").append(option);
+    }
+    $("agent-role-filter").value = role;
+    renderCatalog();
+  } finally {
+    catalogLoading = false;
+    agentControls();
+  }
+}
+function mutationButton(text, action, unavailable = false) {
+  const control = button(text, action);
+  control.dataset.agentMutation = "true";
+  control.dataset.unavailable = String(unavailable);
+  control.disabled = submitting || !!state?.job?.running || unavailable;
+  return control;
+}
+function showAgent(profile) {
+  viewedAgent = profile.id;
+  const details = $("agent-details");
+  details.hidden = false;
+  details.replaceChildren();
+  const top = el("div", undefined, "compose-top");
+  top.append(
+    el("div", "AGENT PROFILE", "eyebrow"),
+    button(
+      "Close",
+      () => {
+        viewedAgent = null;
+        details.hidden = true;
+      },
+      "quiet",
+    ),
+  );
+  details.append(top);
+  renderAgentDefinition(details, profile.definition);
+  details.append(
+    el(
+      "p",
+      profile.path + " · version " + profile.version.slice(0, 12),
+      "muted",
+    ),
+  );
+  if (profile.assignment_problem)
+    details.append(el("p", profile.assignment_problem, "muted"));
+  const row = el("div", undefined, "button-row");
+  row.append(
+    mutationButton(
+      "Edit through chat",
+      () => beginAgent(profile),
+      !catalog.writable,
+    ),
+  );
+  row.append(
+    mutationButton(
+      catalog.selected[profile.definition.role] === profile.id
+        ? "Selected for this project"
+        : "Use for this project",
+      () => assignAgent(profile.definition.role, profile.id),
+      !!profile.assignment_problem ||
+        catalog.selected[profile.definition.role] === profile.id,
+    ),
+  );
+  details.append(row);
+}
+function renderCatalog() {
+  if (!catalog) return;
+  const search = $("agent-search").value.toLowerCase().trim(),
+    role = $("agent-role-filter").value;
+  const profiles = catalog.profiles.filter(
+    (profile) =>
+      (!role || profile.definition.role === role) &&
+      [
+        profile.definition.name,
+        ...profile.definition.languages,
+        ...profile.definition.expertise,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(search),
+  );
+  $("agent-count").textContent =
+    `${profiles.length} of ${catalog.profiles.length} agents`;
+  $("agent-grid").replaceChildren();
+  for (const profile of profiles) {
+    const definition = profile.definition,
+      card = el("article", undefined, "agent-card");
+    const identity = el("div", undefined, "agent-identity"),
+      heading = el("div");
+    heading.append(
+      el("div", catalog.roles[definition.role], "eyebrow"),
+      el("h3", definition.name),
+    );
+    identity.append(agentAvatar(definition.avatar, definition.name), heading);
+    const tags = el("div", undefined, "agent-tags");
+    for (const name of definition.languages.length
+      ? definition.languages
+      : ["Language neutral"])
+      tags.append(el("span", name));
+    card.append(
+      identity,
+      tags,
+      el("p", definition.expertise.join(" · "), "muted"),
+    );
+    if (catalog.selected[definition.role] === profile.id)
+      card.append(el("span", "Selected for this project", "badge"));
+    if (profile.assignment_problem)
+      card.append(el("span", "Toolchain support needed", "badge"));
+    const actions = el("div", undefined, "button-row agent-card-actions");
+    actions.append(
+      button("View agent", () => {
+        showAgent(profile);
+        $("agent-details").scrollIntoView?.({
+          behavior: "smooth",
+          block: "start",
+        });
+      }),
+      mutationButton("Edit", () => beginAgent(profile), !catalog.writable),
+    );
+    card.append(actions);
+    $("agent-grid").append(card);
+  }
+  if (!profiles.length)
+    $("agent-grid").append(
+      el(
+        "p",
+        catalog.profiles.length
+          ? "No agents match this search."
+          : "No agents yet. Add your first specialist through chat.",
+        "muted",
+      ),
+    );
+  if (viewedAgent) {
+    const profile = catalog.profiles.find((item) => item.id === viewedAgent);
+    if (profile) showAgent(profile);
+    else $("agent-details").hidden = true;
+  }
+  $("agent-assignments").replaceChildren();
+  for (const [role, name] of Object.entries(catalog.roles)) {
+    const label = el("label", name),
+      select = el("select");
+    const fallback = el("option", "Built-in role behavior");
+    fallback.value = "";
+    select.append(fallback);
+    for (const profile of catalog.profiles.filter(
+      (item) => item.definition.role === role,
+    )) {
+      const option = el("option", profile.definition.name);
+      option.value = profile.id;
+      option.disabled = !!profile.assignment_problem;
+      select.append(option);
+    }
+    const assigned = catalog.selected[role];
+    if (
+      assigned &&
+      !catalog.profiles.some(
+        (profile) =>
+          profile.id === assigned && profile.definition.role === role,
+      )
+    ) {
+      const unavailable = el(
+        "option",
+        "Unavailable agent — choose a replacement",
+      );
+      unavailable.value = assigned;
+      unavailable.disabled = true;
+      select.append(unavailable);
+    }
+    select.value = assigned || "";
+    select.dataset.agentMutation = "true";
+    select.onchange = () =>
+      guard(() => assignAgent(role, select.value || null));
+    label.append(select);
+    $("agent-assignments").append(label);
+  }
+  agentControls();
+}
+async function assignAgent(role, agentId) {
+  if (submitting || state?.job?.running) return;
+  submitting = true;
+  agentControls();
+  try {
+    await api("/api/agents/assign", { role, agent_id: agentId });
+  } finally {
+    submitting = false;
+    await loadAgents();
+  }
+}
+function beginAgent(profile = null) {
+  editingAgent = profile?.id || null;
+  $("agent-create-title").textContent = profile
+    ? "Edit " + profile.definition.name
+    : "Create an agent through chat";
+  $("agent-create").hidden = false;
+  $("agent-request").value = "";
+  $("agent-request").placeholder = profile
+    ? "What would you like to improve? Describe the change or ask the builder for suggestions."
+    : "I need a Rust reviewer for our async services. Help me choose what it should pay attention to.";
+  $("agent-create").scrollIntoView?.({ behavior: "smooth", block: "start" });
+  $("agent-request").focus();
+}
+function renderAgentDrafts() {
+  const drafts = (state?.tasks || []).filter(
+    (item) => item.task_kind === "agent_builder",
+  );
+  $("agent-drafts-section").hidden = !drafts.length;
+  $("agent-drafts").replaceChildren();
+  for (const draft of drafts) {
+    const control = button(
+      draft.display_name || "Agent conversation",
+      async () => {
+        selected = draft.task_id;
+        showPage("workspace");
+        packetKey = "";
+        $("message").value = "";
+        await refresh();
+      },
+    );
+    control.append(el("small", draft.stage.replaceAll("_", " ")));
+    $("agent-drafts").append(control);
+  }
+}
+$("agents-link").onclick = (event) => {
+  event.preventDefault();
+  guard(openAgents);
+};
+$("refresh-agents").onclick = () => guard(loadAgents);
+$("agent-search").oninput = renderCatalog;
+$("agent-role-filter").onchange = renderCatalog;
+$("add-agent").onclick = () => beginAgent();
+$("cancel-agent-create").onclick = () => {
+  $("agent-create").hidden = true;
+};
+$("use-agent-repository").onclick = () =>
+  guard(async () => {
+    if (submitting || state?.job?.running) return;
+    submitting = true;
+    agentControls();
+    try {
+      await api("/api/agents/source", {
+        repository: $("agent-repository").value,
+      });
+      await loadAgents();
+    } finally {
+      submitting = false;
+      agentControls();
+    }
+  });
+$("agent-form").onsubmit = (event) => {
+  event.preventDefault();
+  guard(async () => {
+    const request = $("agent-request").value;
+    if (!request.trim())
+      throw new Error(
+        "Describe the agent you need or what you would like to change.",
+      );
+    await command({
+      command: "agent_builder",
+      task_id: "agent-" + Date.now().toString(36),
+      request,
+      agent_id: editingAgent,
+    });
+    $("agent-create").hidden = true;
+  });
+};
+globalThis.addEventListener?.("popstate", () =>
+  guard(async () => {
+    page = globalThis.location?.pathname === "/agents" ? "agents" : "workspace";
+    if (state) render();
+    if (page === "agents") await loadAgents();
+  }),
+);
 guard(refresh);
+if (page === "agents") guard(loadAgents);

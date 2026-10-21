@@ -8,6 +8,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from urllib.parse import parse_qs, urlsplit
 
+from .agent_library import (
+    AVATARS,
+    ROLES,
+    AgentLibrary,
+    assignment_problem,
+    discover_agent_repository,
+)
 from .backends import CommandAgent
 from .cancellation import ModelCancellation
 from .config import RoutedAgent, load_settings
@@ -30,6 +37,58 @@ class LocalApp:
         self.cancellation = ModelCancellation()
         self.shutdown = threading.Event()
         self.selected_backend = args.backend
+        self.agent_settings = args.state_dir / "agents"
+        with AgentLibrary(self.agent_settings) as library:
+            self.agent_repository = (
+                args.agents_repo or library.saved_source(args.repo) or discover_agent_repository()
+            )
+
+    def agents(self):
+        with AgentLibrary(self.agent_settings, self.agent_repository) as library:
+            problem = None
+            try:
+                profiles = library.list()
+                selected = library.assignments(self.args.repo)
+            except (ValueError, RuntimeError, OSError) as error:
+                profiles, selected, problem = [], {}, str(error)
+            repository = str(library.repository) if library.repository else None
+            writable = library.writable
+        return {
+            "roles": ROLES,
+            "avatars": AVATARS,
+            "repository": repository,
+            "writable": writable and problem is None,
+            "error": problem,
+            "profiles": [
+                {**profile, "assignment_problem": assignment_problem(profile["definition"])}
+                for profile in profiles
+            ],
+            "selected": {role: agent_id for role, agent_id in selected.items() if agent_id},
+        }
+
+    def select_agent_repository(self, body):
+        with self.lock:
+            if self.job and self.job["running"]:
+                raise ValueError("Wait for the current operation before changing repositories")
+            if not isinstance(body.get("repository"), str) or not body["repository"].strip():
+                raise ValueError("Enter the path to an agent repository checkout")
+            with AgentLibrary(self.agent_settings, body["repository"]) as library:
+                library.list()
+                library.select_source(self.args.repo, library.repository)
+                self.agent_repository = library.repository
+        return self.agents()
+
+    def assign_agent(self, body):
+        with self.lock:
+            if self.job and self.job["running"]:
+                raise ValueError("Wait for the current operation before changing agents")
+            if not isinstance(body.get("role"), str) or (
+                body.get("agent_id") is not None and not isinstance(body["agent_id"], str)
+            ):
+                raise ValueError("Choose an agent and role")
+            with AgentLibrary(self.agent_settings, self.agent_repository) as library:
+                library.assign(self.args.repo, body["role"], body.get("agent_id"))
+        return {"saved": True}
 
     def project(self):
         with ContextStore(state_directory(self.args.repo, self.args.state_dir)) as context:
@@ -130,6 +189,7 @@ class LocalApp:
             unsigned_commits=self.args.unsigned_commits,
             progress=self.progress,
             validation=self.settings.validation,
+            agent_repository=self.agent_repository,
         )
 
     def progress(self, message):
@@ -156,7 +216,13 @@ class LocalApp:
                 if not saved:
                     continue
                 snapshots[name] = saved
-                tasks.append({"task_id": name, "stage": saved["stage"]})
+                item = {"task_id": name, "stage": saved["stage"]}
+                if saved.get("task_kind") == "agent_builder":
+                    item.update(
+                        task_kind="agent_builder",
+                        display_name=(saved.get("draft_definition") or {}).get("name", "New agent"),
+                    )
+                tasks.append(item)
             task = None
             if task_id in snapshots:
                 saved = snapshots[task_id]
@@ -181,6 +247,7 @@ class LocalApp:
     def start(self, command):
         allowed = {
             "start",
+            "agent_builder",
             "chat",
             "explore",
             "review",
@@ -207,6 +274,7 @@ class LocalApp:
             "head",
             "reviewers",
             "expectation",
+            "agent_id",
         ):
             if command.get(field) is not None and not isinstance(command[field], str):
                 raise ValueError(f"{field} must be text")
@@ -266,14 +334,20 @@ class LocalApp:
                         cancel=cancel,
                         progress=self.progress,
                     )
-            if action != "abandon":
+            if action != "abandon" and not (
+                action == "respond" and command.get("action") == "save_agent"
+            ):
                 selected = select_backend(agent, self.args.repo)
                 self.selected_backend = selected
                 self.progress(f"Selected backend: {selected}")
             if self.shutdown.is_set():
                 raise SelectionCancelled
             harness = self.harness(agent)
-            if action in {"start", "explore", "chat"}:
+            if action == "agent_builder":
+                result = harness.start_agent_builder(
+                    task_id, command.get("request", ""), agent_id=command.get("agent_id")
+                )
+            elif action in {"start", "explore", "chat"}:
                 if not command.get("base"):
                     raise ValueError("Choose a base branch or commit")
                 result = harness.start(
@@ -368,7 +442,8 @@ def create_server(app, port=8765):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+                "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; "
+                "base-uri 'none'; form-action 'self'",
             )
             self.end_headers()
             self.wfile.write(data)
@@ -400,14 +475,18 @@ def create_server(app, port=8765):
                     self.send(200, app.state(task_id))
                 elif path.path == "/api/abandon-plan":
                     self.send(200, app.abandon_plan(task_id))
+                elif path.path == "/api/agents":
+                    self.send(200, app.agents())
                 elif path.path == "/api/project":
                     self.send(200, app.project())
                 elif path.path == "/api/context/preview":
                     self.send(200, app.context_preview(query.get("snapshot", [None])[0], task_id))
                 elif path.path == "/api/context":
                     self.send(200, app.context_snapshot(query.get("snapshot", [None])[0]))
-                elif path.path in {"/", "/guide", "/app.js", "/theme.js", "/style.css"}:
-                    name = {"/": "index.html", "/guide": "guide.html"}.get(path.path, path.path[1:])
+                elif path.path in {"/", "/agents", "/guide", "/app.js", "/theme.js", "/style.css"}:
+                    name = {"/": "index.html", "/agents": "index.html", "/guide": "guide.html"}.get(
+                        path.path, path.path[1:]
+                    )
                     content = files("lambda_harness").joinpath("web", name).read_text()
                     if name == "index.html":
                         content = content.replace("HARNESS_SESSION_TOKEN", app.token)
@@ -436,6 +515,10 @@ def create_server(app, port=8765):
                     raise ValueError("Expected a JSON object")
                 if self.path == "/api/command":
                     self.send(202, app.start(body))
+                elif self.path == "/api/agents/source":
+                    self.send(200, app.select_agent_repository(body))
+                elif self.path == "/api/agents/assign":
+                    self.send(200, app.assign_agent(body))
                 elif self.path == "/api/stop":
                     self.send(200, {"stopping": app.cancellation.stop()})
                 elif self.path in {

@@ -58,6 +58,7 @@ All options go after `--` with `nix run`. There are no workflow subcommands.
 | Option | Purpose |
 | --- | --- |
 | `--repo PATH` | Required target Git checkout; no project path is assumed. |
+| `--agents-repo PATH` | Git checkout containing `agents/*.json`; overrides the saved catalog selection. Source launches detect the harness checkout. Installed packages otherwise show the bundled catalog. |
 | `--port PORT` | Loopback port, default 8765; 0 chooses a free port. |
 | `--state-dir PATH` | Saved tasks, logs, and worktrees; outside the checkout. Default: `$XDG_STATE_HOME/lambda-harness` or `~/.local/state/lambda-harness`. |
 | `--config FILE` | User-owned backend and validation configuration. |
@@ -78,6 +79,57 @@ For a custom or older state location, keep passing
 `--state-dir /path/to/existing/state-root` and any existing `--config` override.
 Keep the same target checkout path; do not move registered worktrees. Restart the
 server to load an updated version.
+
+## Your agent catalog
+
+Open **Agents** in the sidebar, or visit `/agents`. Browse portraits, roles,
+languages, and expertise. **View agent** shows the full instructions. Search by
+name, language, or expertise, and filter by role.
+
+**Add agent** starts a guided chat. Describe the help you need; you do not need to
+know the language's best practices. The builder proposes suitable expertise,
+explains tradeoffs, and asks focused questions. Ask for refinements, including a
+different avatar, until the definition fits. **Save to repository** writes the
+reviewed definition. **Edit** opens a new conversation about an existing agent;
+its saved definition remains unchanged until you save the revision. You can stop
+model generation and revise instructions, just as in other conversations.
+
+Definitions live in `agents/*.json` in a Git checkout, including the avatar name.
+The harness repository includes Haskell specialists, language-neutral roles, and
+a Rust reviewer. To make changes when launching directly from GitHub, clone it:
+
+```sh
+git clone git@github.com:Devnull-org/lambda-harness.git
+```
+
+On the Agents page, expand **Agent repository** and enter that clone's path.
+You can also select another team's Git checkout containing an `agents/` directory.
+An empty catalog is supported. When running from the harness source checkout,
+it is detected automatically. The bundled catalog in an installed/Nix package
+is read-only until you select a writable checkout.
+
+Saving creates an ordinary working-tree change. Review the diff, commit it, and
+push it or open a PR using your team's usual process. Teammates pull the repository
+and refresh the catalog to receive updates. The website does not commit or push
+agent definitions automatically. Git provides their history. Draft conversations
+and project selections are local; definitions are not stored in a local database.
+
+Use **Agents for this project**, or **Use for this project** on a profile, to select
+an agent for a workflow role. New tasks pin complete definitions, including their
+version and avatar. Editing a file or pulling an updated catalog does not change
+existing tasks. A deleted or incompatible selected definition blocks new tasks
+until you update the assignment. Role permissions, backend choice, approval gates,
+and validation remain controlled by the harness.
+
+The coding toolchain currently supports Haskell and Nix. Rust and other languages
+can already have chat, exploration, and review specialists. You can draft coding
+agents for other languages, but they cannot be assigned to test-writing,
+implementation, or refactoring until a matching toolchain is supported.
+
+Agent conversations appear separately on the Agents page, so they do not clutter
+your project task list. **Save to repository** does not automatically assign a
+new agent. Assignments are personal to this project; sharing definitions does not
+force teammates to use them.
 
 ## Choose a starting point
 
@@ -103,7 +155,8 @@ already exist in your checkout; GitHub PR URLs are fetched as described below.
 ### Review an existing change
 
 Choose **Review a PR or branch**. Enter a branch, commit, or GitHub PR URL and
-choose **Haskell**, **Security**, or both reviewers. Add a focus if you want to
+choose **Code**, **Security**, or both reviewers. The code reviewer uses the
+agent selected for this project, with a Haskell reviewer provided by default. Add a focus if you want to
 direct their attention. No requirements interview or code-writing phase is needed.
 
 For a local branch or commit, select its comparison base (usually the target

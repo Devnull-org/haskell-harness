@@ -15,6 +15,7 @@ class Element {
     this.scrollHeight = 1000;
     this.clientHeight = 500;
     this.text = "";
+    this.dataset = {};
   }
   set textContent(text) {
     this.text = String(text);
@@ -649,4 +650,184 @@ test("opening a memory receipt preserves an unsaved editor draft", async () => {
   await receipt.children.find((item) => item.tagName === "button").onclick();
   assert.equal(ui.elements.get("context-notes").value, "Unfinished edit");
   assert.match(ui.elements.get("error").textContent, /Save your memory draft/);
+});
+
+const agentProfile = {
+  id: "rust-reviewer",
+  version: "0123456789abcdef",
+  path: "agents/rust-reviewer.json",
+  definition: {
+    name: "Rust reviewer",
+    role: "reviewer",
+    avatar: "crab",
+    languages: ["Rust"],
+    expertise: ["Ownership", "Async cancellation"],
+    instructions: "Review lifetimes and resource cleanup.",
+  },
+  assignment_problem: null,
+};
+const agentCatalog = () => ({
+  roles: { reviewer: "Code reviewer" },
+  profiles: [agentProfile],
+  selected: {},
+  repository: "/catalog",
+  writable: true,
+});
+
+test("Agents is a separate catalog page with portraits, search, and full instructions", async () => {
+  const ui = await app();
+  ui.fetch(async (path) =>
+    response(path === "/api/agents" ? agentCatalog() : snapshot()),
+  );
+  await ui.run("openAgents()");
+  assert.equal(ui.elements.get("agents-page").hidden, false);
+  assert.equal(ui.elements.get("work").hidden, true);
+  assert.equal(ui.elements.get("new-panel").hidden, true);
+  assert.equal(ui.elements.get("title").textContent, "Agents");
+  assert.equal(ui.elements.get("agent-grid").children.length, 1);
+  assert.match(ui.elements.get("agent-grid").textContent, /Rust reviewer/);
+  const card = ui.elements.get("agent-grid").children[0];
+  assert.match(card.children[0].children[0].src, /^data:image\/svg\+xml,/);
+  assert.equal(card.children[0].children[0].alt, "Rust reviewer avatar");
+  await card.children.at(-1).children[0].onclick();
+  assert.equal(ui.elements.get("agent-details").hidden, false);
+  assert.match(
+    ui.elements.get("agent-details").textContent,
+    /Review lifetimes/,
+  );
+  ui.elements.get("agent-search").value = "Haskell";
+  ui.elements.get("agent-search").oninput();
+  assert.match(ui.elements.get("agent-grid").textContent, /No agents match/);
+});
+
+test("Add and Edit start guided chat and preserve instructions during polling", async () => {
+  const ui = await app(),
+    commands = [];
+  ui.fetch(async (path, options) => {
+    if (path === "/api/agents") return response(agentCatalog());
+    if (path === "/api/command") {
+      commands.push(JSON.parse(options.body));
+      return response({ accepted: true });
+    }
+    return response(snapshot());
+  });
+  await ui.run("openAgents()");
+  ui.elements.get("add-agent").onclick();
+  ui.elements.get("agent-request").value =
+    "Help me define a Rust reviewer\nI need guidance.";
+  await ui.run("refresh()");
+  assert.match(ui.elements.get("agent-request").value, /I need guidance/);
+  ui.elements.get("agent-form").onsubmit({ preventDefault() {} });
+  await settle();
+  assert.equal(commands[0].command, "agent_builder");
+  assert.equal(commands[0].agent_id, null);
+  assert.match(commands[0].request, /\nI need guidance/);
+  assert.equal(ui.elements.get("agents-page").hidden, true);
+  await ui.run("openAgents()");
+  await ui.elements
+    .get("agent-grid")
+    .children[0].children.at(-1)
+    .children[1].onclick();
+  assert.equal(
+    ui.elements.get("agent-create-title").textContent,
+    "Edit Rust reviewer",
+  );
+  ui.elements.get("agent-request").value = "Focus on cancellation.";
+  ui.elements.get("agent-form").onsubmit({ preventDefault() {} });
+  await settle();
+  assert.equal(commands[1].agent_id, "rust-reviewer");
+});
+
+test("agent conversations stay in Agents and explicit save carries the approval token", async () => {
+  const ui = await app(),
+    commands = [];
+  const builder = {
+    ...task("builder"),
+    task_kind: "agent_builder",
+    stage: "agent_builder",
+    messages: [
+      { role: "agent_builder", answer: "I recommend ownership checks." },
+    ],
+    prompt: {
+      actions: ["answer", "save_agent"],
+      definition: agentProfile.definition,
+      approval_token: "reviewed-draft",
+    },
+  };
+  const data = {
+    ...snapshot(builder),
+    tasks: [
+      {
+        task_id: "builder",
+        task_kind: "agent_builder",
+        display_name: "Rust reviewer",
+        stage: "agent_builder",
+      },
+    ],
+  };
+  ui.fetch(async (path, options) => {
+    if (path === "/api/command") {
+      commands.push(JSON.parse(options.body));
+      return response({ accepted: true });
+    }
+    return response(data);
+  });
+  ui.run("selected = 'builder'");
+  await ui.run("refresh()");
+  assert.doesNotMatch(ui.elements.get("tasks").textContent, /builder/);
+  assert.match(ui.elements.get("agent-drafts").textContent, /Rust reviewer/);
+  assert.match(ui.elements.get("history").textContent, /I recommend ownership/);
+  assert.match(ui.elements.get("packet").textContent, /Full instructions/);
+  const save = ui.elements
+    .get("actions")
+    .children.find((node) => node.textContent === "Save to repository");
+  assert(save);
+  await save.onclick();
+  assert.equal(commands[0].action, "save_agent");
+  assert.equal(commands[0].token, "reviewed-draft");
+});
+
+test("bundled catalogs require a checkout before editing and saving source uses the explicit path", async () => {
+  const ui = await app(),
+    changes = [];
+  ui.fetch(async (path, options) => {
+    if (path === "/api/agents")
+      return response({ ...agentCatalog(), writable: false, repository: null });
+    if (path === "/api/agents/source") {
+      changes.push(JSON.parse(options.body));
+      return response({});
+    }
+    return response(snapshot());
+  });
+  await ui.run("openAgents()");
+  assert.equal(ui.elements.get("add-agent").disabled, true);
+  assert.equal(ui.elements.get("agent-source").open, true);
+  ui.elements.get("agent-repository").value = "/team/agent-repo";
+  await ui.elements.get("use-agent-repository").onclick();
+  assert.deepEqual(changes, [{ repository: "/team/agent-repo" }]);
+});
+
+test("a removed agent stays visible as unavailable so its assignment can be reset", async () => {
+  const ui = await app(),
+    changes = [];
+  ui.fetch(async (path, options) => {
+    if (path === "/api/agents")
+      return response({
+        ...agentCatalog(),
+        profiles: [],
+        selected: { reviewer: "removed" },
+      });
+    if (path === "/api/agents/assign") {
+      changes.push(JSON.parse(options.body));
+      return response({ saved: true });
+    }
+    return response(snapshot());
+  });
+  await ui.run("openAgents()");
+  const select = ui.elements.get("agent-assignments").children[0].children[0];
+  assert.equal(select.value, "removed");
+  assert.match(select.textContent, /Unavailable agent/);
+  select.value = "";
+  await select.onchange();
+  assert.deepEqual(changes, [{ role: "reviewer", agent_id: null }]);
 });

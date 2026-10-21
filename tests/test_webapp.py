@@ -639,3 +639,97 @@ def test_chat_memory_save_is_visible_in_history_and_project_editor_after_reopeni
         assert reopened.context_snapshot()["notes"] == note
     finally:
         reopened.close()
+
+
+def test_agents_page_builds_reviews_and_saves_to_git_without_another_model_call(
+    browser_app, tmp_path, monkeypatch
+):
+    from .test_agent_builder import DEFINITION, DRAFT, agent_repo
+
+    app, call, calls, _ = browser_app
+    root = agent_repo(tmp_path)
+    assert call("/agents")[0] == 200
+    assert 'id="agent-grid"' in call("/agents")[1]
+    assert call("/api/agents", authenticated=False)[0] == 403
+    assert call("/api/agents/source", {"repository": str(root)})[0] == 200
+    assert call("/api/agents")[1]["profiles"] == []
+    agent = ScriptedAgent()
+    agent.responses["agent_builder"].append(DRAFT)
+    monkeypatch.setattr("lambda_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", lambda *a: "test")
+    assert (
+        call(
+            "/api/command",
+            {"command": "agent_builder", "task_id": "rust-agent", "request": "A Rust reviewer"},
+        )[0]
+        == 202
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    current = call("/api/state?task=rust-agent")[1]
+    assert current["job"]["error"] is None
+    assert current["tasks"][0]["task_kind"] == "agent_builder"
+    assert call("/api/agents")[1]["profiles"] == []
+
+    def no_model(*args):
+        raise AssertionError("Saving must not probe or invoke a backend")
+
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", no_model)
+    assert (
+        call(
+            "/api/command",
+            {
+                "command": "respond",
+                "task_id": "rust-agent",
+                "action": "save_agent",
+                "token": current["task"]["prompt"]["approval_token"],
+            },
+        )[0]
+        == 202
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    saved = call("/api/state?task=rust-agent")[1]
+    assert saved["job"]["error"] is None
+    assert saved["task"]["stage"] == "agent_ready"
+    profile = call("/api/agents")[1]["profiles"][0]
+    assert json.loads((root / profile["path"]).read_text()) == DEFINITION
+    assert len(agent.calls) == 1 and not calls.exists()
+    assert call("/api/agents/assign", {"role": "reviewer", "agent_id": profile["id"]})[0] == 200
+    assert call("/api/agents")[1]["selected"] == {"reviewer": profile["id"]}
+    file = root / profile["path"]
+    content = file.read_text()
+    file.unlink()
+    assert call("/api/agents")[1]["selected"] == {"reviewer": profile["id"]}
+    file.write_text(content)
+    assert call("/api/agents/assign", {"role": "implementer", "agent_id": profile["id"]})[0] == 400
+    # Restarting the website remembers the repository, not a copied local catalog.
+    reopened = LocalApp(app.args)
+    assert reopened.agents()["repository"] == str(root)
+    assert reopened.agents()["profiles"] == [profile]
+    reopened.close()
+
+
+def test_agent_repository_and_assignments_cannot_change_during_a_model_call(browser_app, tmp_path):
+    _, call, _, ready = browser_app
+    call("/api/command", {"command": "start", "task_id": "busy", "request": "Test", "base": "main"})
+    wait_for(ready.exists)
+    assert call("/api/agents/assign", {"role": "chat", "agent_id": None})[0] == 400
+    assert call("/api/agents/source", {"repository": str(tmp_path)})[0] == 400
+    assert call("/api/agents")[0] == 200
+    call("/api/stop", {})
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+
+
+def test_missing_agent_checkout_does_not_break_status_or_repository_selection(
+    browser_app, tmp_path
+):
+    from .test_agent_builder import agent_repo
+
+    _, call, _, _ = browser_app
+    root = agent_repo(tmp_path)
+    assert call("/api/agents/source", {"repository": str(root)})[0] == 200
+    root.rename(tmp_path / "moved-catalog")
+    assert call("/api/state")[0] == 200
+    code, catalog = call("/api/agents")
+    assert code == 200 and catalog["error"] and not catalog["writable"]
+    assert call("/api/agents/source", {"repository": str(tmp_path / "moved-catalog")})[0] == 200
+    assert call("/api/agents")[1]["error"] is None

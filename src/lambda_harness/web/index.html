@@ -19,6 +19,9 @@
         SAVED WORK <button id="refresh" class="quiet">Refresh</button>
       </div>
       <nav id="tasks" aria-label="Saved tasks"></nav>
+      <a id="agents-link" class="workspace-link" href="/agents"
+        >Agents <span>↗</span></a
+      >
       <button id="project-memory" class="quiet">Project memory</button>
       <button id="project-tools" class="quiet">Project settings</button>
       <a class="guide-link" href="/guide" target="_blank" rel="noopener"
@@ -50,6 +53,100 @@
         </div>
       </header>
       <div id="error" role="alert" hidden></div>
+      <section id="agents-page" hidden aria-label="Agents">
+        <div class="agents-intro">
+          <div>
+            <div class="eyebrow">YOUR TEAM OF SPECIALISTS</div>
+            <h2>A good agent knows its craft.</h2>
+            <p class="muted">
+              Give each agent a clear purpose. Shape its expertise through
+              conversation, then share it with your team in Git.
+            </p>
+          </div>
+          <button id="add-agent" class="primary">＋ Add agent</button>
+        </div>
+        <details id="agent-source" class="panel">
+          <summary id="agent-source-summary">Agent repository</summary>
+          <p id="agent-source-status" class="muted"></p>
+          <label for="agent-repository"
+            >Local Git checkout containing agents/</label
+          >
+          <div class="button-row">
+            <input
+              id="agent-repository"
+              placeholder="/path/to/lambda-harness"
+            />
+            <button id="use-agent-repository">Use repository</button>
+          </div>
+          <p class="muted">
+            Clone the harness repository or your team's agent repository, then
+            select its checkout here. Saving writes a JSON file. Review, commit,
+            and push to share it; teammates pull to get updates.
+          </p>
+        </details>
+        <section id="agent-create" class="panel" hidden>
+          <div class="compose-top">
+            <h3 id="agent-create-title">Create an agent through chat</h3>
+            <button id="cancel-agent-create" class="quiet">Cancel</button>
+          </div>
+          <p class="muted">
+            Describe the help you need. The builder suggests relevant practices
+            and asks focused questions. You review the agent before saving.
+          </p>
+          <form id="agent-form">
+            <label for="agent-request">What should this agent help with?</label>
+            <textarea
+              id="agent-request"
+              rows="4"
+              required
+              placeholder="I need a Rust reviewer for our async services. Help me choose what it should pay attention to."
+            ></textarea>
+            <div class="form-footer">
+              <span class="muted">Its avatar can be changed in chat too.</span
+              ><button id="start-agent-chat" class="primary" type="submit">
+                Start conversation →
+              </button>
+            </div>
+          </form>
+        </section>
+        <div class="agents-toolbar">
+          <label class="search-label" for="agent-search"
+            >Find an agent<input
+              id="agent-search"
+              type="search"
+              placeholder="Search name, language, or expertise"
+          /></label>
+          <label for="agent-role-filter"
+            >Role<select id="agent-role-filter">
+              <option value="">All roles</option>
+            </select></label
+          >
+          <button id="refresh-agents" class="quiet">Refresh catalog</button>
+        </div>
+        <p id="agent-count" class="muted" role="status"></p>
+        <div id="agent-grid" class="agent-grid"></div>
+        <section
+          id="agent-details"
+          class="panel"
+          hidden
+          aria-label="Agent details"
+        ></section>
+        <details class="panel">
+          <summary>Agents for this project</summary>
+          <p class="muted">
+            Selections apply to new tasks. Existing tasks keep their saved agent
+            definitions.
+          </p>
+          <div id="agent-assignments" class="agent-assignments"></div>
+        </details>
+        <section id="agent-drafts-section" class="panel" hidden>
+          <h3>Agent conversations</h3>
+          <p class="muted">
+            Pick up a draft or revisit how an agent was designed.
+          </p>
+          <div id="agent-drafts" class="agent-drafts"></div>
+        </section>
+      </section>
       <section id="project-panel" class="panel" hidden>
         <div class="compose-top">
           <h2>Project settings</h2>
@@ -190,8 +287,7 @@
               <span
                 ><strong>Review a PR or branch</strong
                 ><small
-                  >Get a Haskell or security review of an existing
-                  change.</small
+                  >Get a code or security review of an existing change.</small
                 ></span
               >
             </label>
@@ -240,8 +336,8 @@
             </p>
             <label
               >Reviewers<select id="reviewers">
-                <option value="both">Haskell + security</option>
-                <option value="haskell">Haskell</option>
+                <option value="both">Code + security</option>
+                <option value="haskell">Code</option>
                 <option value="security">Security</option>
               </select></label
             >

@@ -22,6 +22,9 @@ def parser():
         help="Saved tasks and worktrees; defaults to the user state directory, "
         "reusing existing project data",
     )
+    result.add_argument(
+        "--agents-repo", type=Path, help="Git checkout containing shared agents/*.json definitions"
+    )
     result.add_argument("--port", type=int, default=8765, help="Loopback port (default: 8765)")
     result.add_argument("--config", type=Path, help="User-owned backend and validation TOML")
     result.add_argument("--nix-flake", type=Path, help="Validation flake (default: task worktree)")

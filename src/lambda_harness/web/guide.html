@@ -29,6 +29,7 @@
       <nav class="contents" aria-label="Guide contents">
         <a href="#start">Get started</a>
         <a href="#workflow">The workflow</a>
+        <a href="#agents">Agents</a>
         <a href="#context">Project memory</a>
         <a href="#models">Models</a>
         <a href="#validation">Validation</a>
@@ -64,8 +65,8 @@
         </p>
         <h3>Review a PR or branch</h3>
         <p>
-          Choose this option to inspect an existing change with the Haskell
-          reviewer, security reviewer, or both. Enter a branch, commit, or
+          Choose this option to inspect an existing change with the selected
+          code reviewer, security reviewer, or both. Enter a branch, commit, or
           GitHub PR URL. Add an optional focus. No interview or implementation
           is required.
         </p>
@@ -152,6 +153,49 @@
           <strong>Start a fresh attempt</strong> creates another task while
           keeping the original. <strong>Abandon task</strong> deletes its
           history, reports, branch, and worktree after confirmation.
+        </p>
+      </section>
+      <section id="agents" class="panel">
+        <h2>Your agent catalog</h2>
+        <p>
+          Open <a href="/agents">Agents</a> to browse avatars, roles, languages,
+          and expertise. View full instructions, search the catalog, or choose
+          <strong>Add agent</strong> to start a guided conversation. Describe
+          the help you need; the builder suggests practices and explains
+          tradeoffs. Ask for changes, including a different avatar, before
+          saving.
+        </p>
+        <p>
+          <strong>Edit</strong> starts a conversation about an existing agent.
+          Its definition changes only when you choose
+          <strong>Save to repository</strong>. Saved agent conversations live on
+          the Agents page, where you can return to unfinished drafts.
+        </p>
+        <p>
+          Definitions and avatar choices live in <code>agents/*.json</code> in
+          Git. Source launches detect the harness checkout. If you launch an
+          installed package or directly from GitHub, clone your agent repository
+          and select its checkout under <strong>Agent repository</strong>. The
+          bundled catalog is read-only.
+        </p>
+        <p>
+          Saving writes a local Git change. Review it, commit it, and push it to
+          share with the team. Teammates pull and refresh the catalog. The
+          website never commits or pushes definitions automatically.
+          Conversations and project selections stay local.
+        </p>
+        <p>
+          Use <strong>Agents for this project</strong> to choose a specialist
+          for each role. New tasks keep a fixed copy of their definitions;
+          editing an agent does not change existing tasks. A new agent is not
+          assigned automatically.
+        </p>
+        <p>
+          Haskell and Nix coding checks are supported today. Other languages can
+          use chat, exploration, and review agents. A Rust coding definition can
+          be saved, but it needs a supported toolchain before it can be assigned
+          to coding stages. Agent instructions cannot bypass approvals or change
+          permissions.
         </p>
       </section>
       <section id="context" class="panel">

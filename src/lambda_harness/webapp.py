@@ -29,7 +29,7 @@ from .projects import ProjectRegistry, validate_repository
 from .review_source import resolve_review
 from .validation import LocalExecutor
 from .workflow import Harness
-from .workspace import Workspace, git
+from .workspace import Workspace, git, validate_task_name
 
 
 class LocalApp:
@@ -291,6 +291,7 @@ class LocalApp:
             raise ValueError("Unknown workflow command")
         if not isinstance(command.get("task_id"), str):
             raise ValueError("Choose a task name")
+        validate_task_name(command["task_id"])
         for field in (
             "request",
             "base",

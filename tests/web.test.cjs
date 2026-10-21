@@ -631,6 +631,58 @@ for (const reviewers of ["documentation", "all"])
     assert.match(html, new RegExp(`<option value="${reviewers}">`));
   });
 
+test("task names accept spaces and keep the entered name in requests and navigation", async () => {
+  const html = readFileSync("src/lambda_harness/web/index.html", "utf8");
+  const input = html.match(/<input\s+id="task-name"[^>]*>/)[0];
+  const pattern = new RegExp(
+    "^(?:" + input.match(/pattern="([^"]+)"/)[1] + ")$",
+    "v",
+  );
+  for (const name of [
+    "Review documentation",
+    "Review  documentation",
+    "legacy-name_1",
+    "A",
+    "a".repeat(64),
+  ])
+    assert(pattern.test(name), name);
+  for (const name of [
+    "",
+    " ",
+    " Review",
+    "Review ",
+    "Review\ncode",
+    "../Review",
+    "a".repeat(65),
+  ])
+    assert(!pattern.test(name), name);
+  const name = "Review documentation";
+  const current = snapshot(task(name));
+  const submitted = [],
+    paths = [];
+  const ui = await app({
+    fetcher: async (path, options) => {
+      paths.push(path);
+      if (path === "/api/command") {
+        submitted.push(JSON.parse(options.body));
+        return response({ accepted: true });
+      }
+      return response(current);
+    },
+  });
+  ui.kind.value = "start";
+  ui.elements.get("task-name").value = name;
+  ui.elements.get("base").value = "main";
+  ui.elements.get("request").value = "Check documentation";
+  ui.elements.get("new-form").onsubmit({ preventDefault() {} });
+  await settle();
+  assert.equal(submitted[0].task_id, name);
+  assert.equal(ui.run("selected"), name);
+  assert.equal(ui.elements.get("title").textContent, name);
+  assert.match(ui.elements.get("tasks").textContent, /Review documentation/);
+  assert(paths.includes("/api/state?task=Review%20documentation"));
+});
+
 test("standalone forms submit their own scope without feature-only options", async () => {
   const ui = await app();
   const submitted = [];

@@ -190,6 +190,10 @@ can stop there or start a requirements interview later.
 specification until you are satisfied, then explicitly approve it.
 
 Choose a unique task name and a base branch, tag, or commit before starting.
+Task names can contain spaces, such as **Review documentation**. Use up to 64
+letters, digits, spaces, underscores, or hyphens; start with a letter or digit
+and leave no spaces at either end. The name stays visible in saved work and
+handoffs; the harness replaces spaces with hyphens in its Git branch name.
 Each task gets its own worktree from that exact commit. Uncommitted changes in
 your original checkout stay there. Local and remote-tracking branch names must
 already exist in your checkout; GitHub PR URLs are fetched as described below.

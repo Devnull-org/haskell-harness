@@ -25,7 +25,16 @@ from .review_context import review_diff
 from .review_source import resolve_review
 from .schemas import REVIEWERS, validate_response
 from .validation import ValidationConfig, classify_validation, test_evidence
-from .workspace import Workspace, digest, git, is_test_path, resolve_base, save_json
+from .workspace import (
+    Workspace,
+    digest,
+    git,
+    is_test_path,
+    resolve_base,
+    save_json,
+    task_branch,
+    validate_task_name,
+)
 
 PHASE_NODES = {
     "explore": "explore",
@@ -115,8 +124,7 @@ class Harness:
                 fcntl.flock(stream, fcntl.LOCK_UN)
 
     def _config(self, task_id):
-        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", task_id):
-            raise ValueError("Task ID must use 1–64 letters, digits, underscores, or hyphens")
+        validate_task_name(task_id)
         return {"configurable": {"thread_id": task_id}, "recursion_limit": 500}
 
     def _state(self, task_id, *, allow_abandoning=False):
@@ -910,7 +918,7 @@ class Harness:
 
     def _create_worktree(self, state):
         path = Path(state["directory"]) / "worktree"
-        branch = f"harness/{state['task_id']}-{digest(state['directory'])[:8]}"
+        branch = task_branch(state["task_id"], state["directory"])
         revision = state.get("starting_revision", state["base"])
         if not path.exists():
             git(self.repository, "worktree", "add", "-b", branch, str(path), revision)

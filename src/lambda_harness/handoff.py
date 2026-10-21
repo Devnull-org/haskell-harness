@@ -16,7 +16,7 @@ from pydantic import Field, JsonValue
 from .agent_library import assignment_problem
 from .process import run_process
 from .schemas import REVIEWERS, AgentDefinition, Exploration, Record, Specification
-from .workspace import Workspace, digest, git
+from .workspace import Workspace, digest, git, task_branch, validate_task_name
 
 MAX_HANDOFF_BYTES = 32 * 1024 * 1024
 MAX_TASKS = 30
@@ -211,8 +211,7 @@ def _validate_state(state):
     for name in ("task_id", "request", "base", "base_ref", "stage", "next", "initial_phase"):
         if not isinstance(state.get(name), str):
             raise ValueError(f"Missing or invalid workflow field: {name}")
-    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", state["task_id"]):
-        raise ValueError("Invalid handoff task name")
+    validate_task_name(state["task_id"])
     for name in ("messages", "validations", "commits", "dispositions"):
         if not isinstance(state.get(name), list) or any(
             not isinstance(item, dict) for item in state[name]
@@ -655,7 +654,7 @@ def import_handoff(harness, archive, *, confirmation):
             for packet, item in zip(data["tasks"], plan["tasks"], strict=True):
                 task_id = item["task_id"]
                 directory = harness.state_dir / task_id
-                branch = f"harness/{task_id}-{digest(str(directory))[:8]}"
+                branch = task_branch(task_id, directory)
                 if git(harness.repository, "branch", "--list", branch):
                     raise ValueError("An import branch already exists; inspect it before retrying")
                 if packet["bundle"]:

@@ -383,8 +383,10 @@
               >Task name<input
                 id="task-name"
                 required
-                pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,63}"
-                placeholder="validation-options"
+                maxlength="64"
+                pattern="[A-Za-z0-9]([A-Za-z0-9 _\-]{0,62}[A-Za-z0-9_\-])?"
+                title="Use 1–64 letters, numbers, spaces, underscores, or hyphens. Start with a letter or number and omit leading or trailing spaces."
+                placeholder="Review documentation"
             /></label>
             <label
               ><span id="base-label">Base branch or commit</span

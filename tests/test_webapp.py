@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -442,6 +443,43 @@ def test_browser_asks_for_backend_without_losing_the_pending_request(browser_app
     call("/api/stop", {})
     wait_for(lambda: not call("/api/state")[1]["job"]["running"])
     assert call("/api/state?task=choice")[1]["task"]["request"] == "Keep my idea"
+
+
+def test_browser_creates_and_deletes_tasks_with_spaces(browser_app, monkeypatch):
+    _, call, _, _ = browser_app
+    agent = ScriptedAgent()
+    monkeypatch.setattr("lambda_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", lambda *a: "test")
+    name = "Review documentation"
+    code, _ = call(
+        "/api/command",
+        {"command": "start", "task_id": name, "request": "Check docs", "base": "main"},
+    )
+    assert code == 202
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    state = call("/api/state?task=" + quote(name))[1]
+    assert state["job"]["error"] is None, state["job"]
+    assert state["task"]["task_id"] == name
+    assert state["tasks"] == [{"task_id": name, "stage": "specification_review"}]
+    code, error = call(
+        "/api/command", {"command": "start", "task_id": "../Escape", "request": "Invalid"}
+    )
+    assert code == 400 and "Task name" in error["error"]
+    plan = call("/api/abandon-plan?task=" + quote(name))[1]
+    assert (
+        call(
+            "/api/command",
+            {
+                "command": "abandon",
+                "task_id": name,
+                "confirmation": name,
+                "token": plan["confirmation_token"],
+            },
+        )[0]
+        == 202
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    assert call("/api/state")[1]["tasks"] == []
 
 
 def test_browser_abandon_requires_task_name_and_current_confirmation_token(browser_app):

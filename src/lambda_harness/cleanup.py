@@ -3,14 +3,14 @@
 import shutil
 from pathlib import Path
 
-from .workspace import Workspace, digest, git
+from .workspace import Workspace, git, task_branch
 
 
 def cleanup_plan(repository, state_dir, state):
     """Verify ownership before offering any task files or Git references for deletion."""
     directory = state_dir / state["task_id"]
     worktree = directory / "worktree"
-    branch = f"harness/{state['task_id']}-{digest(str(directory))[:8]}"
+    branch = task_branch(state["task_id"], directory)
     if Path(state["directory"]) != directory or directory.is_symlink() or worktree.is_symlink():
         raise ValueError("Task directory or worktree is unexpected or crosses a symlink")
     if state.get("worktree", str(worktree)) != str(worktree):

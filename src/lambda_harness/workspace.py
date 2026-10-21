@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 
 from .process import run_process
@@ -30,6 +31,23 @@ def resolve_base(repository, ref):
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def validate_task_name(name):
+    """Keep task names readable and safe as a single directory name."""
+    if not isinstance(name, str) or not re.fullmatch(
+        r"[A-Za-z0-9](?:[A-Za-z0-9 _-]{0,62}[A-Za-z0-9_-])?", name
+    ):
+        raise ValueError(
+            "Task name must use 1–64 letters, digits, spaces, underscores, or hyphens. "
+            "Start with a letter or digit and omit leading or trailing spaces."
+        )
+
+
+def task_branch(name, directory):
+    """Git branches cannot contain spaces; the directory hash keeps names distinct."""
+    validate_task_name(name)
+    return f"harness/{name.replace(' ', '-')}-{digest(str(directory))[:8]}"
 
 
 def save_json(path, value):

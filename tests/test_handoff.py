@@ -109,6 +109,27 @@ def test_large_review_artifacts_follow_the_imported_task(rig, recipient):
     assert "END_OF_DIAGRAM" in Path(changes["full_diff"]).read_text()
 
 
+def test_spaced_task_names_survive_handoff_and_name_conflicts(rig, recipient):
+    source, _, _ = rig
+    target, agent, _ = recipient
+    name = "Review  documentation"
+    original = source.start(name, "Review the documentation")
+    _, result = transfer(source, target, [name])
+    assert result["tasks"] == [{"original": name, "task_id": name}]
+    assert accept(target, name)["task_id"] == name
+    _, repeated = transfer(source, target, [name])
+    imported = name + "-import-1"
+    assert repeated["tasks"] == [{"original": name, "task_id": imported}]
+    restored = accept(target, imported)
+    assert restored["stage"] == original["stage"]
+    branch = git(Path(restored["worktree"]), "branch", "--show-current")
+    assert " " not in branch
+    plan = target.abandon_plan(imported)
+    target.abandon(imported, confirmation_token=plan["confirmation_token"])
+    assert target.inspect(name)["task_id"] == name
+    assert not agent.calls
+
+
 def test_roundtrip_specification_memory_and_pinned_agents(rig, recipient):
     source, _, _ = rig
     target, agent, executor = recipient

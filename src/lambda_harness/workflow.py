@@ -419,7 +419,7 @@ class Harness:
             state = self._state(task_id)
             if action not in state.get("prompt", {}).get("actions", []):
                 raise ValueError(f"Action {action!r} is not available at {state.get('stage')}")
-            if action in {"approve", "accept_red", "save_agent"}:
+            if action in {"approve", "accept_red", "save_agent", "continue_handoff"}:
                 if fields.get("approval_token") != state["prompt"].get("approval_token"):
                     raise ValueError("Stale or missing approval token")
                 if self._workspace(state).fingerprint() != state["gate_fingerprint"]:
@@ -462,6 +462,7 @@ class Harness:
                 "review_source",
                 "agent_profiles",
                 "saved_agent",
+                "handoff_origin",
             )
             if key in state
         }
@@ -1211,7 +1212,15 @@ class Harness:
     def _reply(self, state):
         response = state.pop("response")
         action, stage = response["action"], state["stage"]
-        if stage == "agent_paused" and action == "revise":
+        if stage == "handoff_review" and action == "continue_handoff":
+            state.update(state.pop("handoff_resume"))
+            if state["next"] == "pause":
+                self._gate(state, state["stage"], state["prompt"], state["prompt"]["actions"])
+            else:
+                save_json(
+                    Path(state["report_directory"]) / "current-review.json", self._view(state)
+                )
+        elif stage == "agent_paused" and action == "revise":
             if state["retry_node"] == "reply":
                 state.update(state.pop("failed_reply"))
                 state["response"]["text"] = response["text"]

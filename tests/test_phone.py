@@ -2,12 +2,31 @@
 
 import json
 from email.message import Message
+from xml.etree import ElementTree
 
 import pytest
 
 from lambda_harness.phone import PhoneAccess, request_origin
 
 from .helpers import executable
+
+
+def test_phone_qr_encodes_only_the_https_address_including_a_custom_port(monkeypatch):
+    import segno
+
+    make = segno.make_qr
+    contents = []
+
+    def record(content, **kwargs):
+        contents.append(content)
+        return make(content, **kwargs)
+
+    monkeypatch.setattr(segno, "make_qr", record)
+    phone = PhoneAccess("unused", "laptop.example.ts.net", "owner@example.com", 8443)
+    svg = phone.qr_svg()
+    assert contents == ["https://laptop.example.ts.net:8443"]
+    assert ElementTree.fromstring(svg).tag == "{http://www.w3.org/2000/svg}svg"
+    assert b"owner@example.com" not in svg
 
 
 def fake_tailscale(tmp_path, *, busy=False, failure=False):

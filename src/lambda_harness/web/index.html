@@ -52,7 +52,16 @@
         </select>
       </label>
       <details id="phone-access" class="phone-access" hidden>
-        <summary>Open on your phone</summary>
+        <summary>Open on your phone · QR code</summary>
+        <img
+          id="phone-qr"
+          src="/phone-qr.svg"
+          alt="Scan to open Lambda Harness on your phone"
+          width="196"
+          height="196"
+          loading="lazy"
+        />
+        <p>Scan with your phone’s camera. Tailscale must be connected.</p>
         <a id="phone-url" target="_blank" rel="noopener"></a>
         <p id="phone-status"></p>
         <p>Keep this computer awake and Tailscale connected on both devices.</p>

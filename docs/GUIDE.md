@@ -133,7 +133,8 @@ nix run --refresh github:Devnull-org/lambda-harness -- --tailscale
 
 Keep your usual `--repo`, `--state-dir`, and backend options when updating an
 existing launch. Open the printed **Phone** HTTPS address in your phone's browser,
-or find it under **Open on your phone** in the website's sidebar. You can add it to
+or scan the QR code under **Open on your phone** in the website's sidebar. The QR
+code is generated locally and contains only the HTTPS address. You can add it to
 your phone's home screen. Expand the project name to navigate on a small screen.
 Both screens use the same tasks, messages, approvals, and project memory; code and
 agents run on the computer. Keep it awake with the harness and Tailscale running.

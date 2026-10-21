@@ -638,6 +638,9 @@ def create_server(app, port=8765, *, phone=None):
                 self.send(400, {"error": str(error)})
 
         def get(self, path):
+            if path.path == "/phone-qr.svg" and phone is not None:
+                self.send(200, phone.qr_svg(), "image/svg+xml")
+                return
             if path.path == "/api/projects":
                 self.send(200, hub.projects())
                 return

@@ -1,5 +1,6 @@
 """Private phone access through a temporary Tailscale Serve session."""
 
+import io
 import json
 import os
 import re
@@ -11,6 +12,8 @@ import tempfile
 import time
 from email.header import decode_header, make_header
 from pathlib import Path
+
+import segno
 
 from .process import run_process
 
@@ -116,6 +119,13 @@ class PhoneAccess:
             "url": self.origin,
             "ready": self.process is not None and self.process.poll() is None,
         }
+
+    def qr_svg(self):
+        output = io.BytesIO()
+        segno.make_qr(self.origin, error="m").save(
+            output, kind="svg", scale=5, border=4, dark="#000", light="#fff"
+        )
+        return output.getvalue()
 
     def close(self):
         if self.process is not None and self.process.poll() is None:

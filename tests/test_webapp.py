@@ -421,6 +421,10 @@ def test_phone_requests_require_owner_identity_origin_and_session_token(browser_
         "Tailscale-User-Login": "owner@example.com",
     }
     assert app.token in call("/", headers=headers, authenticated=False)[1]
+    qr_status, qr = call("/phone-qr.svg", headers=headers, authenticated=False)
+    assert qr_status == 200 and "<svg" in qr
+    assert app.token not in qr
+    assert call("/phone-qr.svg", headers={**headers, "Tailscale-User-Login": "other"})[0] == 403
     assert call("/api/state", headers=headers)[0] == 200
     assert call("/api/state", headers=headers, authenticated=False)[0] == 403
     same_origin = {**headers, "Origin": "https://laptop.example.ts.net"}

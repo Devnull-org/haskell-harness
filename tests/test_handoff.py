@@ -61,6 +61,43 @@ def test_recovered_interview_turns_travel_with_a_handoff(rig, recipient):
     assert not target_agent.calls
 
 
+def test_existing_test_baseline_can_be_shared_and_rechecked(rig, recipient):
+    from .test_phases import specification
+
+    source, _, _ = rig
+    target, agent, _ = recipient
+    specification(source)
+    assert source.run_phase("task", "implement")["stage"] == "validation_blocked"
+    transfer(source, target, ["task"])
+    view = accept(target, "task")
+    assert view["test_strategy"] == "existing"
+    assert target.respond("task", "recheck")["stage"] == "validation_blocked"
+    assert not agent.calls
+    assert target.respond("task", "choose_phase")["stage"] == "specification_ready"
+
+
+def test_test_scope_decision_can_be_shared_without_starting_code(rig, recipient):
+    from .test_phases import specification
+
+    source, agent, _ = rig
+    target, target_agent, _ = recipient
+    specification(source)
+    agent.responses["test_author"].append(
+        {
+            "summary": "Assessment only",
+            "changes": [],
+            "expected_failures": [],
+            "coverage": {},
+            "commit_message": "No changes",
+        }
+    )
+    assert source.run_phase("task", "tests")["stage"] == "test_scope_review"
+    transfer(source, target, ["task"])
+    assert accept(target, "task")["stage"] == "test_scope_review"
+    assert target.respond("task", "choose_phase")["stage"] == "specification_ready"
+    assert not target_agent.calls
+
+
 def test_review_tool_receipts_survive_handoff(rig, repository, recipient, monkeypatch):
     from .test_github_actions import github, review
 

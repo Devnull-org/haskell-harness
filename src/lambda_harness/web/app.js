@@ -99,6 +99,7 @@ const labels = {
   fix: "Fix selected findings",
   dismiss: "Dismiss selected findings",
   accept_red: "Accept expected test failure",
+  choose_phase: "Choose another step",
 };
 const phaseLabels = {
   explore: "Explore",
@@ -704,6 +705,8 @@ function renderHistory(task) {
       } else if (item.specification)
         renderSpecification(entry, item.specification);
       history.append(entry);
+    } else if (item.role === "test_author" && item.answer) {
+      history.append(message("Test author", item.answer));
     } else if (item.role === "agent_builder") {
       history.append(message("Agent builder", item.answer));
     } else if (item.role === "chat") {
@@ -830,7 +833,11 @@ function renderTask(task, running) {
         button("View agent catalog", openAgents),
       );
     }
-    if (prompt.summary) packet.append(el("h2", prompt.summary));
+    if (
+      prompt.summary &&
+      !(task.messages || []).some((item) => item.answer === prompt.summary)
+    )
+      packet.append(el("h2", prompt.summary));
     if (prompt.error) packet.append(prose(prompt.error));
     if (prompt.guidance) packet.append(prose(prompt.guidance));
     const interview = (task.messages || []).findLast(
@@ -954,12 +961,25 @@ function renderTask(task, running) {
   $("next-phases").hidden = !(prompt.available_phases || []).length;
   $("phases").replaceChildren();
   for (const phase of prompt.available_phases || []) {
-    const control = button(phaseLabels[phase] || phase, () =>
+    const label =
+      task.stage === "specification_ready" &&
+      ["implement", "refactor"].includes(phase)
+        ? `${phaseLabels[phase]} using existing tests`
+        : phaseLabels[phase] || phase;
+    const control = button(label, () =>
       command({ command: "run", task_id: selected, phase }),
     );
     control.disabled = running;
     $("phases").append(control);
   }
+  if (task.stage === "specification_ready")
+    $("phases").append(
+      el(
+        "p",
+        "Choose Explore for an assessment, or revisit the interview to change scope. Reusing tests checks the existing suite before coding and requires every patch to pass.",
+        "muted",
+      ),
+    );
   if (task.review_actions) {
     const control = button("Check documentation links", () =>
       reviewAction("check_links"),

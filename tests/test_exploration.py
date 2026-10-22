@@ -72,7 +72,13 @@ def test_existing_approved_interview_can_run_exploration_with_its_scope_and_cont
     state.pop("initial_phase", None)
     state["prompt"]["available_phases"] = ["tests"]
     harness.graph.update_state(harness._config("research"), state, as_node="finish")
-    assert harness.inspect("research")["prompt"]["available_phases"] == ["explore", "tests"]
+    assert harness.inspect("research")["prompt"]["available_phases"] == [
+        "explore",
+        "interview",
+        "tests",
+        "implement",
+        "refactor",
+    ]
     agent.responses["explorer"].append(ANALYSIS)
     view = harness.run_phase("research", "explore")
     assert view["stage"] == "exploration"

@@ -350,9 +350,25 @@ normal Git process to take the commit into your project.
 
 ## Continue at your pace
 
-After specification approval, choose **Write failing tests**. Ask questions and
-approve the exact tests before choosing **Implement**. Then choose **Refactor**,
-**Haskell review**, and **Security review**. Resolve findings before handoff.
+After specification approval, choose the step that fits the task:
+
+- **Explore** delivers an assessment. **Requirements interview** revisits the scope.
+- **Write failing tests** follows TDD. Ask questions and approve the exact tests
+  before choosing **Implement**.
+- **Implement using existing tests** or **Refactor using existing tests** reuses
+  current coverage for changes that do not need new tests. The harness first runs
+  the existing suite, lint, strict compilation, and Nix checks. All must pass before
+  coding, and every subsequent patch must stay green. Existing tests remain protected.
+
+If the test author concludes that no test patch is appropriate, its explanation
+appears as a scope decision. Ask questions, revise the request, or use **Choose
+another step**. This also works for older failed test-generation attempts when
+no patch was applied and the task worktree is clean. It never starts coding
+automatically or discards proposed test changes. Assessment-only requirements
+should go to exploration or a new interview before requesting implementation.
+
+After implementation, choose **Refactor**, **Code review**, and **Security review**.
+Resolve findings before handoff.
 
 The optional **Code walkthrough** asks questions about the finished code. You can
 require it when starting a task, or choose it later. **Prepare local handoff**

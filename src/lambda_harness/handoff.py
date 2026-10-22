@@ -28,9 +28,10 @@ GATES = {
     "exploration": {"question", "done"},
     "standalone_review": {"question", "revise", "done"},
     "test_review": {"approve", "question", "revise", "recheck"},
+    "test_scope_review": {"question", "revise", "choose_phase"},
     "test_change_review": {"question", "revise", "reject"},
     "red_failure_review": {"accept_red", "recheck"},
-    "validation_blocked": {"recheck", "revise"},
+    "validation_blocked": {"recheck", "revise", "choose_phase"},
     "review_findings": {"question", "fix", "dismiss"},
     "walkthrough": {"answer", "skip"},
     "agent_paused": {"revise", "retry"},
@@ -57,6 +58,7 @@ RETRY_NODES = {
     "standalone_review",
     "interview",
     "worktree",
+    "existing_tests",
     "tests",
     "implement",
     "refactor",
@@ -101,6 +103,8 @@ STATE_FIELDS = {
     "agent_profiles",
     "task_kind",
     "test_expectation",
+    "test_strategy",
+    "checking_baseline",
     "review_source",
     "reviewers",
     "starting_revision",
@@ -259,6 +263,10 @@ def _validate_state(state):
         raise ValueError("Invalid coding role")
     if state.get("phase") not in {None, "red", "green"}:
         raise ValueError("Invalid validation phase")
+    if state.get("test_strategy") not in {None, "new", "existing"}:
+        raise ValueError("Invalid test strategy")
+    if "checking_baseline" in state and type(state["checking_baseline"]) is not bool:
+        raise ValueError("Invalid baseline check state")
     for name in (
         "gate_fingerprint",
         "phase_fingerprint",

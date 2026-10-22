@@ -89,6 +89,7 @@ class Harness:
             "standalone_review",
             "interview",
             "worktree",
+            "existing_tests",
             "tests",
             "implement",
             "refactor",
@@ -400,6 +401,8 @@ class Harness:
             if phase == "interview":
                 state.pop("specification", None)
             state["next"] = "worktree" if phase == "tests" else PHASE_NODES[phase]
+            if state["stage"] == "specification_ready" and phase in {"implement", "refactor"}:
+                state["next"] = "existing_tests"
             state["prompt"], state["attempts"], state["patch_count"] = {}, 0, 0
             self.graph.invoke(state, config)
             return self._view(self._state(task_id))
@@ -432,8 +435,19 @@ class Harness:
     def respond(self, task_id, action, **fields):
         with self._lock():
             state = self._state(task_id)
-            if action not in state.get("prompt", {}).get("actions", []):
+            actions = list(state.get("prompt", {}).get("actions", []))
+            if self._can_choose_phase(state):
+                actions.append("choose_phase")
+            if action not in actions:
                 raise ValueError(f"Action {action!r} is not available at {state.get('stage')}")
+            if action == "choose_phase":
+                workspace = self._workspace(state)
+                if workspace.revision != state["base"] or git(
+                    workspace.path, "status", "--porcelain"
+                ):
+                    raise ValueError(
+                        "Worktree changed; restore a clean task base before changing phases"
+                    )
             if action in {"approve", "accept_red", "save_agent", "continue_handoff"}:
                 if fields.get("approval_token") != state["prompt"].get("approval_token"):
                     raise ValueError("Stale or missing approval token")
@@ -549,6 +563,7 @@ class Harness:
                 "project_context_id",
                 "task_kind",
                 "test_expectation",
+                "test_strategy",
                 "review_source",
                 "agent_profiles",
                 "saved_agent",
@@ -572,6 +587,11 @@ class Harness:
             )
         if state["stage"] == "specification_ready":
             view["prompt"] = {**view["prompt"], "available_phases": self._available_phases(state)}
+        if self._can_choose_phase(state):
+            view["prompt"] = {
+                **view["prompt"],
+                "actions": list(dict.fromkeys([*view["prompt"]["actions"], "choose_phase"])),
+            }
         if state.get("task_kind") == "tests":
             view["test_scope"] = {
                 key: state["specification"][key] for key in ("packages", "acceptance_criteria")
@@ -580,11 +600,29 @@ class Harness:
             view["review_actions"] = actions
         return view
 
+    @staticmethod
+    def _can_choose_phase(state):
+        if (
+            state.get("task_kind", "feature") != "feature"
+            or state.get("commits")
+            or state.get("selected_findings")
+            or state.get("agent_integrity_fingerprint")
+        ):
+            return False
+        return (
+            state["stage"] == "test_scope_review"
+            or state.get("checking_baseline", False)
+            and state["stage"]
+            in {"validation_blocked", "agent_error", "backend_blocked", "agent_paused"}
+            or state["stage"] in {"backend_blocked", "agent_error", "agent_paused"}
+            and state.get("retry_node") == "tests"
+        )
+
     def _available_phases(self, state):
         if state.get("task_kind") in {"tests", "review", "chat", "agent_builder"}:
             return []
         following = {
-            "specification_ready": ["explore", "tests"],
+            "specification_ready": ["explore", "interview", "tests", "implement", "refactor"],
             "exploration_ready": ["explore", "interview"],
             "tests_requested": ["tests"],
             "tests_ready": ["implement"],
@@ -705,6 +743,7 @@ class Harness:
             "request": state["request"],
             "task_kind": state.get("task_kind", "feature"),
             "test_expectation": state.get("test_expectation", "red"),
+            "test_strategy": state.get("test_strategy", "new"),
             "review_source": state.get("review_source"),
             "specification": state.get("specification"),
             "messages": messages,
@@ -985,6 +1024,21 @@ class Harness:
                 raise ValueError(f"Unknown Cabal package: {package}")
         state["next"] = "tests"
 
+    def _existing_tests(self, state):
+        self._worktree(state)
+        workspace = self._workspace(state)
+        state["test_strategy"], state["checking_baseline"] = "existing", True
+        state["test_paths"], state["expected_failures"] = [], []
+        state["approved_tests"] = workspace.test_manifest()
+        state["role"] = "implementer" if state["selected_phase"] == "implement" else "refactorer"
+        state["phase"] = "green"
+        state["proposal"] = {
+            "summary": "Check existing coverage before changing code",
+            "changes": [],
+            "commit_message": "No commit: baseline checks",
+        }
+        state["next"] = "validate"
+
     def _tests(self, state):
         unexpected = [
             p
@@ -997,10 +1051,17 @@ class Harness:
                 "Save or restore them before revising tests: " + ", ".join(unexpected)
             )
         proposal = self._ask(state, "test_author")
+        if not proposal["changes"]:
+            state["messages"].append({"role": "test_author", "answer": proposal["summary"]})
+            self._gate(
+                state, "test_scope_review", {"summary": proposal["summary"]}, ["question", "revise"]
+            )
+            return
         criteria = {c["id"] for c in state["specification"]["acceptance_criteria"]}
         if not all(proposal["coverage"].get(key) for key in criteria):
             raise ValueError("Tests must map every acceptance criterion to named test cases")
         self._workspace(state).apply(proposal["changes"], tests_only=True)
+        state["test_strategy"] = "new"
         state["test_paths"] = sorted(
             set(state.get("test_paths", [])) | {c["path"] for c in proposal["changes"]}
         )
@@ -1051,7 +1112,11 @@ class Harness:
         self._assert_tests(state)
         state["proposal"] = proposal
         state["phase"] = (
-            "red" if role == "implementer" and not proposal.get("complete", True) else "green"
+            "red"
+            if role == "implementer"
+            and not proposal.get("complete", True)
+            and state.get("test_strategy") != "existing"
+            else "green"
         )
         state["attempts"] += 1
         state["next"] = "validate"
@@ -1147,7 +1212,9 @@ class Harness:
                 ["accept_red", "recheck"],
             )
         elif status == "blocked":
-            if (
+            if state.get("checking_baseline"):
+                self._gate(state, "validation_blocked", {"validation": validation}, ["recheck"])
+            elif (
                 state["role"] in {"implementer", "refactorer"}
                 and state["attempts"] < self.max_repair_rounds
             ):
@@ -1160,7 +1227,9 @@ class Harness:
             self._validated(state)
 
     def _validated(self, state):
-        if state["role"] == "test_author":
+        if state.pop("checking_baseline", False):
+            state["next"] = PHASE_NODES[state["selected_phase"]]
+        elif state["role"] == "test_author":
             self._gate(
                 state,
                 "test_review",
@@ -1319,7 +1388,24 @@ class Harness:
     def _reply(self, state):
         response = state.pop("response")
         action, stage = response["action"], state["stage"]
-        if stage == "handoff_review" and action == "continue_handoff":
+        if action == "choose_phase":
+            for key in (
+                "checking_baseline",
+                "approved_tests",
+                "test_paths",
+                "test_strategy",
+                "expected_failures",
+                "proposal",
+                "role",
+                "phase",
+                "retry_node",
+            ):
+                state.pop(key, None)
+            state["mode"] = "phased"
+            self._phase_complete(
+                state, "specification_ready", "Choose the next step for the approved scope."
+            )
+        elif stage == "handoff_review" and action == "continue_handoff":
             state.update(state.pop("handoff_resume"))
             if state["next"] == "pause":
                 self._gate(state, state["stage"], state["prompt"], state["prompt"]["actions"])
@@ -1421,6 +1507,7 @@ class Harness:
             role = {
                 "specification_review": "interviewer",
                 "test_review": "test_author",
+                "test_scope_review": "test_author",
                 "test_change_review": state.get("role", "implementer"),
                 "review_findings": "security_reviewer"
                 if "SEC-" in response["text"]
@@ -1520,7 +1607,8 @@ class Harness:
             if stage in {"interview", "specification_review"}:
                 state["next"] = "interview"
             elif (
-                stage in {"test_review", "test_change_review"} or state.get("role") == "test_author"
+                stage in {"test_review", "test_change_review", "test_scope_review"}
+                or state.get("role") == "test_author"
             ):
                 state["next"] = "tests"
             else:

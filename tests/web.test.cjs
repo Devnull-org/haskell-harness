@@ -1064,6 +1064,48 @@ test("standalone review history shows findings once and keeps the finish action 
   );
 });
 
+test("approved interviews offer explicit existing-test paths and scope recovery", async () => {
+  const current = snapshot({
+    ...task(),
+    stage: "specification_ready",
+    prompt: {
+      actions: [],
+      available_phases: [
+        "explore",
+        "interview",
+        "tests",
+        "implement",
+        "refactor",
+      ],
+    },
+  });
+  let posted;
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path === "/api/command") posted = JSON.parse(options.body);
+      return response(current);
+    },
+  });
+  const phases = ui.elements.get("phases");
+  assert.match(phases.textContent, /Write failing tests/);
+  assert.match(phases.textContent, /Implement using existing tests/);
+  assert.match(phases.textContent, /Refactor using existing tests/);
+  await phases.children
+    .find((node) => node.textContent === "Implement using existing tests")
+    .onclick();
+  assert.equal(posted.command, "run");
+  assert.equal(posted.phase, "implement");
+  current.task.stage = "backend_blocked";
+  current.task.prompt = { actions: ["retry", "choose_phase"] };
+  await ui.run("refresh()");
+  await ui.elements
+    .get("actions")
+    .children.find((node) => node.textContent === "Choose another step")
+    .onclick();
+  assert.equal(posted.command, "respond");
+  assert.equal(posted.action, "choose_phase");
+});
+
 test("interview responses stay between replies and appear only once", async () => {
   const specification = {
     problem: "Increment the input",

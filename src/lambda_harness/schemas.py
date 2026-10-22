@@ -3,7 +3,7 @@
 import copy
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 class Record(BaseModel):
@@ -63,6 +63,23 @@ class Tests(Record):
     expected_failures: list[str] = Field(min_length=1)
     coverage: dict[str, list[str]]
     commit_message: str = Field(min_length=1, max_length=2000)
+
+
+class FeatureTests(Tests):
+    changes: list[Change] = Field(
+        description="Test changes, or [] when the scope needs a developer decision."
+    )
+    expected_failures: list[str] = Field(
+        description="Named failures for a test patch; [] when no patch is proposed."
+    )
+
+    @model_validator(mode="after")
+    def require_failures_for_changes(self):
+        if bool(self.changes) != bool(self.expected_failures):
+            raise ValueError(
+                "A test patch needs named failures; a scope decision must contain neither"
+            )
+        return self
 
 
 class Finding(Record):
@@ -176,6 +193,8 @@ REVIEWERS = {
 def schema_for(role, context):
     if context.get("intent") == "explain":
         return Explanation
+    if role == "test_author" and context.get("task_kind", "feature") == "feature":
+        return FeatureTests
     if (
         role == "test_author"
         and context.get("task_kind") == "tests"

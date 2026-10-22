@@ -200,7 +200,12 @@
           </li>
           <li>
             <strong>Write failing tests.</strong> Inspect the tests, ask
-            questions, and approve them before implementation.
+            questions, and approve them before implementation. For changes
+            covered by existing tests, choose
+            <strong>Implement using existing tests</strong> or
+            <strong>Refactor using existing tests</strong>
+            instead. The existing suite, lint, compilation, and Nix checks must
+            pass before coding and after every patch.
           </li>
           <li>
             <strong>Implement.</strong> A Haskell specialist writes focused
@@ -227,6 +232,15 @@
         <p>
           Finishing a phase does not start the next one. A completed exploration
           can lead to an interview later; it does not approve coding.
+        </p>
+        <p>
+          After the interview you can also choose <strong>Explore</strong> for
+          an assessment or <strong>Requirements interview</strong> to revise the
+          scope. If no test patch is appropriate, the test author explains why
+          and waits for your decision. <strong>Choose another step</strong>
+          returns to these options, including after an older failed
+          test-generation attempt with a clean worktree. It does not discard
+          files or start coding.
         </p>
         <h3>Stay in control of the conversation</h3>
         <p>

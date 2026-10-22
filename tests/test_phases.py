@@ -37,7 +37,13 @@ def test_default_interview_stops_and_can_continue_after_restart(rig, repository,
     harness, agent, executor = rig
     completed = specification(harness)
     assert completed["stage"] == "specification_ready"
-    assert completed["prompt"]["available_phases"] == ["explore", "tests"]
+    assert completed["prompt"]["available_phases"] == [
+        "explore",
+        "interview",
+        "tests",
+        "implement",
+        "refactor",
+    ]
     assert Path(completed["worktree"]).is_dir()
     assert (Path(completed["report_directory"]) / "specification.json").is_file()
     assert roles(agent) == ["interviewer"]
@@ -86,9 +92,10 @@ def test_each_phase_stops_before_the_next_agent(rig, first):
 
 def test_phase_selection_cannot_skip_test_approval(rig):
     harness, agent, _ = rig
-    specification(harness)
-    with pytest.raises(ValueError, match="not available"):
+    pending = harness.start("task", "Fix addOne")
+    with pytest.raises(ValueError, match="pending"):
         harness.run_phase("task", "implement")
+    approve(harness, pending)
     view = harness.run_phase("task", "tests")
     assert view["stage"] == "test_review"
     with pytest.raises(ValueError, match="resume|pending"):

@@ -16,6 +16,11 @@ expected_failures contains exact JUnit identities: classname + '.' + testcase na
 validation evidence to choose these. Do not add unrelated failures to the list merely
 to pass validation. coverage maps acceptance criterion IDs to these test identities.
 Your tests will be discussed and explicitly approved by the developer before coding.
+For a feature task, if the approved scope is assessment-only or no new test patch
+is appropriate, return changes=[] and expected_failures=[]. Explain why in summary
+and use coverage={} if there are no relevant test identities. The developer will
+choose whether to explore, revise the scope, or reuse existing tests. Never invent
+a failing test or treat this decision as permission to implement.
 For task_kind=tests, the supplied scope comes directly from the developer; there is
 no interview or implementation phase. Stop at tests. Every test named in coverage
 must appear in the actual JUnit execution evidence, including passing coverage tests.

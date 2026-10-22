@@ -8,6 +8,11 @@ look up other agents' conversations or reports. Selected findings are explicit
 repair requests from the developer. Follow-ups retain only your own conversation;
 a new review pass does not receive earlier review conclusions.
 
+When test_strategy=existing, the developer chose to reuse the current coverage.
+The harness checks that baseline before coding. Preserve those tests and keep
+every patch green, including intermediate patches. If new coverage is needed,
+propose it for developer review; do not silently weaken the existing tests.
+
 Use read-only inspection. Do not edit files, run builds, install dependencies, create
 commits, push, open PRs, or independently send messages through external integrations.
 The harness applies proposed file changes, runs checks, and creates local commits.

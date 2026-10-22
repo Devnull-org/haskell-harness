@@ -259,6 +259,9 @@ can stop there or start a requirements interview later.
 
 **Plan a feature or fix** starts an interview. Answer questions and revise the
 specification until you are satisfied, then explicitly approve it.
+Each interviewer response stays between your replies in the conversation,
+including earlier questions and specification drafts. Older task responses are
+restored from saved journals when available, without rerunning the model.
 
 Choose a unique task name and a base branch, tag, or commit before starting.
 Task names can contain spaces, such as **Review documentation**. Use up to 64

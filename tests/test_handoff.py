@@ -45,6 +45,22 @@ def accept(harness, task):
     )
 
 
+def test_recovered_interview_turns_travel_with_a_handoff(rig, recipient):
+    from lambda_harness.conversation import conversation_messages
+
+    from .test_conversation import legacy_interview
+
+    source, agent, _ = rig
+    target, target_agent, _ = recipient
+    original = legacy_interview(source, agent)
+    expected = conversation_messages(original)
+    transfer(source, target, ["legacy"])
+    accept(target, "legacy")
+    assert target._state("legacy")["messages"] == expected
+    assert source._state("legacy") == original
+    assert not target_agent.calls
+
+
 def test_review_tool_receipts_survive_handoff(rig, repository, recipient, monkeypatch):
     from .test_github_actions import github, review
 

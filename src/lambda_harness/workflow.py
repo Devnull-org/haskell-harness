@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from .agent_context import CODING_ROLES, NODE_ROLES, messages_for_agent
 from .agent_library import AVATARS, ROLES, AgentLibrary
 from .cleanup import cleanup_plan, remove_resources
+from .conversation import conversation_messages, interview_message
 from .failures import AgentInterrupted, BackendError, BackendResponseError
 from .github_actions import post_review_comment
 from .link_checks import check_documentation_links
@@ -638,6 +639,7 @@ class Harness:
             journal = Path(state["directory"]) / "steps" / f"{state['seq']:04d}-{name}.json"
             if journal.exists():
                 return json.loads(journal.read_text())
+            state["messages"] = conversation_messages(state)
             self.progress(f"{state['task_id']}: {name.replace('_', ' ')}")
             try:
                 getattr(self, "_" + name)(state)
@@ -837,6 +839,9 @@ class Harness:
         result = self._ask(state, "interviewer", **extra)
         state["specification"] = result["specification"]
         questions = result["questions"] or result["specification"]["open_questions"]
+        state["messages"].append(
+            interview_message(result["specification"], questions, state["seq"])
+        )
         if questions:
             self._gate(state, "interview", {"questions": questions}, ["answer"])
         else:

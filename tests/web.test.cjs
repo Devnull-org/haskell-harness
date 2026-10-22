@@ -1064,6 +1064,73 @@ test("standalone review history shows findings once and keeps the finish action 
   );
 });
 
+test("interview responses stay between replies and appear only once", async () => {
+  const specification = {
+    problem: "Increment the input",
+    expected_behavior: "Add one",
+    acceptance_criteria: [{ id: "A1", description: "Zero becomes one" }],
+    out_of_scope: [],
+    constraints: [],
+  };
+  const current = snapshot({
+    ...task(),
+    stage: "specification_review",
+    messages: [
+      { role: "interviewer", questions: ["Which inputs?"], specification },
+      { text: "Integers." },
+      { role: "interviewer", questions: ["Include negatives?"], specification },
+      { text: "Yes." },
+      { role: "interviewer", questions: [], specification },
+    ],
+    prompt: { specification, actions: ["approve", "question", "revise"] },
+  });
+  const ui = await app({ fetcher: async () => response(current) });
+  const history = ui.elements.get("history");
+  assert.deepEqual(
+    history.children.map((item) => item.textContent.replaceAll("\n", "")),
+    [
+      "Initial requestInvestigate the parser",
+      "InterviewerWhich inputs?",
+      "YouIntegers.",
+      "InterviewerInclude negatives?",
+      "YouYes.",
+      "InterviewerIncrement the inputAdd oneAcceptance criteriaA1: Zero becomes one",
+    ],
+  );
+  assert.doesNotMatch(
+    ui.elements.get("packet").textContent,
+    /Increment the input/,
+  );
+  current.task.messages.push({
+    question: "Why zero?",
+    answer: "It is the smallest example.",
+  });
+  current.task.prompt.answer = "It is the smallest example.";
+  await ui.run("refresh()");
+  assert.match(history.children.at(-2).textContent, /Why zero/);
+  assert.match(history.children.at(-1).textContent, /smallest example/);
+  assert.doesNotMatch(
+    ui.elements.get("packet").textContent,
+    /smallest example/,
+  );
+});
+
+test("current interviewer questions are not repeated below the conversation", async () => {
+  const questions = ["Which input types?"];
+  const current = snapshot({
+    ...task(),
+    stage: "interview",
+    messages: [{ role: "interviewer", questions }],
+    prompt: { questions, actions: ["answer"] },
+  });
+  const ui = await app({ fetcher: async () => response(current) });
+  assert.match(ui.elements.get("history").textContent, /Which input types/);
+  assert.doesNotMatch(
+    ui.elements.get("packet").textContent,
+    /Which input types/,
+  );
+});
+
 test("history is visible and updates when only saved messages change", async () => {
   const ui = await app();
   const history = ui.elements.get("history");

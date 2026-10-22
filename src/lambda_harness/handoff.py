@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import Field, JsonValue
 
 from .agent_library import assignment_problem
+from .conversation import conversation_messages
 from .process import run_process
 from .schemas import REVIEWERS, AgentDefinition, Exploration, Record, Specification
 from .workspace import Workspace, digest, git, task_branch, validate_task_name
@@ -427,6 +428,7 @@ def export_handoff(harness, task_ids):
         for task_id in task_ids:
             checkpoint = harness.graph.get_state(harness._config(task_id))
             state = copy.deepcopy(harness._state(task_id))
+            state["messages"] = conversation_messages(state)
             if checkpoint.next and not checkpoint.interrupts:
                 raise ValueError("Stop the task at a review gate before exporting")
             if state.get("handoff_resume"):

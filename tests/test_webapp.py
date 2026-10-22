@@ -99,6 +99,29 @@ def wait_for(test):
     raise AssertionError("Operation did not finish")
 
 
+def test_saved_interview_history_is_recovered_in_the_browser_api(browser_app):
+    from .test_conversation import legacy_interview
+
+    app, call, _, _ = browser_app
+    agent = ScriptedAgent()
+    harness = app.harness(agent)
+    try:
+        original = legacy_interview(harness, agent)
+        status, response = call("/api/state?task=legacy")
+        assert status == 200
+        messages = response["task"]["messages"]
+        assert [m.get("text") or m["questions"][0] for m in messages] == [
+            "First saved question",
+            "First developer reply",
+            "Second saved question",
+        ]
+        assert call("/api/state?task=legacy")[1]["task"]["messages"] == messages
+        assert harness._state("legacy") == original
+        assert len(agent.calls) == 2
+    finally:
+        harness.close()
+
+
 def test_chat_selects_models_per_reply_and_keeps_provenance_after_reopening(browser_app, tmp_path):
     from lambda_harness.backends import Backend
 

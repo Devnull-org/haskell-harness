@@ -23,6 +23,7 @@ from .agent_library import (
 from .backends import CommandAgent
 from .cancellation import ModelCancellation
 from .config import RoutedAgent, load_settings
+from .conversation import conversation_messages
 from .discovery import SelectionCancelled, SelectionRequired, select_backend
 from .handoff import MAX_HANDOFF_BYTES, export_handoff, import_handoff, preview_handoff
 from .model_catalog import discover_models, valid_model
@@ -261,7 +262,7 @@ class LocalApp:
                 saved = snapshots[task_id]
                 task = harness._view(saved, inspect_worktree=False)
                 task["request"] = saved["request"]
-                task["messages"] = saved["messages"]
+                task["messages"] = conversation_messages(saved)
                 task["can_use_context"] = harness.can_use_context(task_id)
         finally:
             harness.close()

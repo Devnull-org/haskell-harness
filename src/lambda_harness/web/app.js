@@ -207,6 +207,16 @@ function message(who, text, human = false) {
   node.append(el("div", who, "eyebrow"), prose(text));
   return node;
 }
+function renderSpecification(parent, spec) {
+  parent.append(el("h2", spec.problem), prose(spec.expected_behavior));
+  section(
+    parent,
+    "Acceptance criteria",
+    spec.acceptance_criteria.map((c) => c.id + ": " + c.description).join("\n"),
+  );
+  section(parent, "Out of scope", spec.out_of_scope.join("\n"));
+  section(parent, "Constraints", spec.constraints.join("\n"));
+}
 function githubCommentLink(url) {
   const link = el("a", "View GitHub comment");
   if (
@@ -686,6 +696,14 @@ function renderHistory(task) {
       const entry = el("div", undefined, "message");
       renderReviews(entry, item.reviews);
       history.append(entry);
+    } else if (item.role === "interviewer") {
+      const entry = el("div", undefined, "message");
+      entry.append(el("div", "Interviewer", "eyebrow"));
+      if (item.questions?.length) {
+        for (const question of item.questions) entry.append(prose(question));
+      } else if (item.specification)
+        renderSpecification(entry, item.specification);
+      history.append(entry);
     } else if (item.role === "agent_builder") {
       history.append(message("Agent builder", item.answer));
     } else if (item.role === "chat") {
@@ -747,6 +765,7 @@ function renderTask(task, running) {
       task.task_id,
       task.stage,
       prompt,
+      task.messages,
       task.test_scope,
       task.review_actions,
       running,
@@ -814,11 +833,21 @@ function renderTask(task, running) {
     if (prompt.summary) packet.append(el("h2", prompt.summary));
     if (prompt.error) packet.append(prose(prompt.error));
     if (prompt.guidance) packet.append(prose(prompt.guidance));
-    if (prompt.questions)
+    const interview = (task.messages || []).findLast(
+      (item) => item.role === "interviewer",
+    );
+    if (
+      prompt.questions &&
+      JSON.stringify(prompt.questions) !== JSON.stringify(interview?.questions)
+    )
       for (const q of prompt.questions)
         packet.append(prose(typeof q === "string" ? q : q.question));
     if (prompt.question) packet.append(prose(prompt.question));
-    if (prompt.answer) packet.append(prose(prompt.answer));
+    if (
+      prompt.answer &&
+      !(task.messages || []).some((item) => item.answer === prompt.answer)
+    )
+      packet.append(prose(prompt.answer));
     if (
       prompt.reviews &&
       !(task.messages || []).some(
@@ -837,19 +866,13 @@ function renderTask(task, running) {
     if (prompt.references)
       section(notes, "References", prompt.references.join("\n"));
     notes.hidden = !notes.children.length;
-    if (prompt.specification) {
-      const spec = prompt.specification;
-      packet.append(el("h2", spec.problem), prose(spec.expected_behavior));
-      section(
-        packet,
-        "Acceptance criteria",
-        spec.acceptance_criteria
-          .map((c) => c.id + ": " + c.description)
-          .join("\n"),
-      );
-      section(packet, "Out of scope", spec.out_of_scope.join("\n"));
-      section(packet, "Constraints", spec.constraints.join("\n"));
-    }
+    if (
+      prompt.specification &&
+      (interview?.questions?.length ||
+        JSON.stringify(prompt.specification) !==
+          JSON.stringify(interview?.specification))
+    )
+      renderSpecification(packet, prompt.specification);
     if (task.test_scope) {
       section(
         packet,

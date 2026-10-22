@@ -216,14 +216,18 @@ leave, and return to the saved chat whenever you like. **Stop model** and revise
 instructions work here too. Chat does not edit files or start a coding workflow.
 Its transcript is also saved as `chat.md` in the report directory.
 
-Use **Model for this reply** when starting a chat, or **Model for the next reply**
-beside the message box. Choices come from the selected backend's installed CLI.
+All task conversations support model selection, including explorations, interviews,
+reviews, and the agent workshop. Use **Model for this reply** when starting a task,
+or **Model for the next response** above the message box. The picker remains
+available between phases and when retrying a stopped request. Choices come from
+the selected backend's installed CLI.
 With automatic backend selection, the list groups models by installed provider;
 choosing one also selects that provider for the request. **Refresh models** reloads
 the catalog after signing in or changing accounts. Listing models sends no chat prompt.
 
-The picker keeps your choice within that conversation. Each reply records the
-backend and requested model, plus the actual model when the provider reports it.
+The picker keeps your choice within that conversation while the page is open.
+General chat also records the backend and requested model with each reply, plus
+the actual model when the provider reports it, and restores that choice on reopening.
 Older replies without this information are left unlabelled. **Use configured default**
 follows the launcher and backend configuration; a provider's **Default** option
 clears the launcher model override for that reply. A catalog is not a quota or

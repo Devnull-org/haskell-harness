@@ -167,6 +167,38 @@ def test_chat_selects_models_per_reply_and_keeps_provenance_after_reopening(brow
         reopened.close()
 
 
+def test_exploration_follow_up_uses_the_selected_model(browser_app, tmp_path):
+    from lambda_harness.backends import Backend
+
+    app, call, calls, _ = browser_app
+    script = executable(
+        tmp_path,
+        "import json,sys\nfrom pathlib import Path\n"
+        "request=json.load(sys.stdin)\n"
+        f"with Path({str(calls)!r}).open('a') as f: f.write(json.dumps(request)+'\\n')\n"
+        f"print({json.dumps(ANALYSIS)!r})\n",
+    )
+    app.settings.backends["test"] = Backend(command=[script], input_format="json")
+    for command in [
+        {"command": "explore", "request": "Explore the parser", "base": "HEAD", "model": "quick"},
+        {
+            "command": "respond",
+            "action": "question",
+            "text": "What are the tradeoffs?",
+            "model": "careful",
+        },
+    ]:
+        assert call("/api/command", {"task_id": "research", "backend": "test", **command})[0] == 202
+        wait_for(lambda: app.job and not app.job["running"])
+        assert app.job["error"] is None
+        assert app.job["result"]["stage"] == "exploration"
+    requests = [json.loads(line) for line in calls.read_text().splitlines()]
+    assert [(r["role"], r["model"]) for r in requests] == [
+        ("explorer", "quick"),
+        ("explorer", "careful"),
+    ]
+
+
 def test_model_discovery_does_not_lock_state_or_stop_requests(browser_app, monkeypatch):
     app, call, _, _ = browser_app
     app.selected_backend = "test"

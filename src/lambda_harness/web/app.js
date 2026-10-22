@@ -289,7 +289,7 @@ function modelKey(backend = state?.backend || "auto") {
 function modelScope(task = selected, backend = state?.backend || "auto") {
   return `${modelKey(backend)}:${task || "new"}`;
 }
-function chatModelChoice() {
+function responseModelChoice() {
   const prefix = selected ? "reply" : "new";
   if ($(`${prefix}-model-picker`).hidden) return {};
   return JSON.parse($(`${prefix}-chat-model`).value || "{}");
@@ -316,23 +316,24 @@ async function loadModels(force = false) {
 }
 function renderModelPicker() {
   if (!state) return;
-  const chat =
-    selected &&
-    state.task?.task_id === selected &&
-    state.task.task_kind === "chat";
-  const creating = !selected && newTaskKind() === "chat";
-  $("new-model-picker").hidden = !creating;
-  $("reply-model-picker").hidden = !chat;
-  if ((!chat && !creating) || page !== "workspace" || state.project === null)
+  const conversation = selected && state.task?.task_id === selected;
+  const creating = !selected;
+  $("new-model-picker").hidden = !creating || page !== "workspace";
+  $("reply-model-picker").hidden = !conversation || page !== "workspace";
+  if (
+    (!conversation && !creating) ||
+    page !== "workspace" ||
+    state.project === null
+  )
     return;
   const key = modelKey(),
     scope = modelScope(),
-    prefix = chat ? "reply" : "new";
+    prefix = conversation ? "reply" : "new";
   const picker = $(`${prefix}-chat-model`);
   const data = modelCatalogKey === key ? modelCatalog : null;
   const catalogs = data?.catalogs || [];
-  const last = chat
-    ? state.task.messages?.findLast((item) => item.role === "chat")?.generation
+  const last = conversation
+    ? state.task.messages?.findLast((item) => item.generation)?.generation
     : null;
   let chosen = modelChoices.get(scope);
   if (
@@ -404,11 +405,19 @@ async function command(body) {
       "An operation is still running. Stop it before sending another.",
     );
   if (
-    body.command === "chat" ||
-    (state?.task?.task_kind === "chat" &&
-      ["respond", "resume", "restart"].includes(body.command))
+    [
+      "chat",
+      "explore",
+      "start",
+      "review",
+      "tests",
+      "respond",
+      "run",
+      "resume",
+      "restart",
+    ].includes(body.command)
   ) {
-    const choice = chatModelChoice();
+    const choice = responseModelChoice();
     if (!body.backend || body.backend === choice.backend)
       body = { ...choice, ...body };
   }

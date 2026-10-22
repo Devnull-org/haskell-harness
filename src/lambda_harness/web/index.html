@@ -508,6 +508,16 @@
           <h2>Choose the next step</h2>
           <div id="phases" class="button-row"></div>
         </section>
+        <div id="reply-model-picker" class="model-picker" hidden>
+          <label for="reply-chat-model">Model for the next response</label>
+          <div class="model-controls">
+            <select id="reply-chat-model"></select>
+            <button id="reply-refresh-models" type="button" class="quiet">
+              Refresh models
+            </button>
+          </div>
+          <small id="reply-model-status" class="muted" role="status"></small>
+        </div>
         <section id="composer" class="panel" hidden>
           <div class="compose-top">
             <label id="composer-label" for="message">Your instructions</label
@@ -521,16 +531,6 @@
             placeholder="Ask a follow-up or describe what should change."
           ></textarea>
           <div id="findings"></div>
-          <div id="reply-model-picker" class="model-picker" hidden>
-            <label for="reply-chat-model">Model for the next reply</label>
-            <div class="model-controls">
-              <select id="reply-chat-model"></select>
-              <button id="reply-refresh-models" type="button" class="quiet">
-                Refresh models
-              </button>
-            </div>
-            <small id="reply-model-status" class="muted" role="status"></small>
-          </div>
           <div class="form-footer">
             <div>
               <select id="message-action" aria-label="Message action"></select

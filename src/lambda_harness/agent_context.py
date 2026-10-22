@@ -5,6 +5,7 @@ import copy
 REVIEW_ROLES = {"haskell_reviewer", "security_reviewer", "documentation_reviewer"}
 CODING_ROLES = {"test_author", "implementer", "refactorer"}
 NODE_ROLES = {
+    "discover_validation": "validation_discovery",
     "agent_builder": "agent_builder",
     "chat": "chat",
     "explore": "explorer",
@@ -18,6 +19,7 @@ NODE_ROLES = {
     "walkthrough": "walkthrough",
 }
 STAGE_ROLES = {
+    "validation_setup": "validation_discovery",
     "agent_builder": "agent_builder",
     "chat": "chat",
     "exploration": "explorer",

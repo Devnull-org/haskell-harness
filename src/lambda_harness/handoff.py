@@ -32,6 +32,7 @@ GATES = {
     "test_change_review": {"question", "revise", "reject"},
     "red_failure_review": {"accept_red", "recheck"},
     "validation_blocked": {"recheck", "revise", "choose_phase"},
+    "validation_setup": {"answer", "retry", "choose_phase"},
     "review_findings": {"question", "fix", "dismiss"},
     "walkthrough": {"answer", "skip"},
     "agent_paused": {"revise", "retry"},
@@ -53,6 +54,7 @@ BOUNDARIES = {
     "review_complete",
 }
 RETRY_NODES = {
+    "discover_validation",
     "chat",
     "explore",
     "standalone_review",
@@ -77,6 +79,7 @@ LOCAL_FIELDS = {
     "worktree",
     "branch",
     "validation_config",
+    "validation_overrides",
     "response",
     "handoff_origin",
     "handoff_resume",
@@ -116,6 +119,9 @@ STATE_FIELDS = {
     "exploration",
     "standalone_reviews",
     "validation",
+    "validation_knowledge",
+    "validation_following",
+    "validation_detailed",
     "coverage",
     "failed_reply",
     "retry_node",
@@ -227,6 +233,7 @@ def _validate_state(state):
             raise ValueError(f"Invalid workflow count: {name}")
     for name in (
         "agent_profiles",
+        "validation_knowledge",
         "specification",
         "exploration",
         "standalone_reviews",
@@ -267,6 +274,16 @@ def _validate_state(state):
         raise ValueError("Invalid test strategy")
     if "checking_baseline" in state and type(state["checking_baseline"]) is not bool:
         raise ValueError("Invalid baseline check state")
+    if state.get("validation_following") not in {
+        None,
+        "tests",
+        "implement",
+        "refactor",
+        "validate",
+    }:
+        raise ValueError("Invalid phase after validation discovery")
+    if "validation_detailed" in state and type(state["validation_detailed"]) is not bool:
+        raise ValueError("Invalid validation evidence requirement")
     for name in (
         "gate_fingerprint",
         "phase_fingerprint",
@@ -711,7 +728,10 @@ def import_handoff(harness, archive, *, confirmation):
                     branch=branch,
                     mode="phased",
                     validation_config=harness.validation.model_dump(),
+                    validation_overrides=harness.validation.model_dump(exclude_unset=True),
                 )
+                # Commands and tool availability must be rediscovered on this machine.
+                state.pop("validation_knowledge", None)
                 state.pop("validated_fingerprint", None)
                 if state.get("retry_node") == "commit" or (
                     state.get("failed_reply", {}).get("response", {}).get("action")

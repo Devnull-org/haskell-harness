@@ -12,14 +12,12 @@ from lambda_harness.workflow import Harness
 from .conftest import FAILURE_ID, ScriptedAgent, command_result, junit
 
 
-def test_default_checks_use_cabal_hlint_and_nix_without_project_recipes():
-    commands = dict(ValidationConfig().commands(["example-app"]))
-    assert commands == {
-        "lint": ["hlint", "."],
-        "build": ["cabal", "build", "all", "--enable-tests", "--ghc-options=-Werror"],
-        "nix": ["nix", "flake", "check"],
-        "test:example-app": ["cabal", "test", "example-app", "--test-show-details=direct"],
-    }
+def test_uninspected_defaults_cannot_execute_or_assume_hlint_and_junit():
+    config = ValidationConfig()
+    assert config.lint is None
+    assert config.junit_glob is None
+    with pytest.raises(ValueError, match="Inspect"):
+        config.commands(["example-app"])
 
 
 def test_explicit_user_configuration_can_supply_project_commands(tmp_path):
@@ -46,6 +44,9 @@ def test_explicit_user_configuration_can_supply_project_commands(tmp_path):
         {"build": []},
         {"test": ["cabal", "test"]},
         {"test": ["cabal", "test", "{unknown}"]},
+        {"build": ["cabal", "build", "{unknown}"]},
+        {"build": ["cabal", "build", "prefix-{package}"]},
+        {"lint": ["nix", "build", "{package}"]},
         {"junit_glob": "../outside/*.xml"},
         {"junit_glob": "/tmp/*.xml"},
     ],
@@ -53,6 +54,21 @@ def test_explicit_user_configuration_can_supply_project_commands(tmp_path):
 def test_invalid_validation_configuration_fails_early(fields):
     with pytest.raises(ValueError):
         ValidationConfig(**fields)
+
+
+def test_discovered_cabal_build_targets_expand_to_selected_packages():
+    config = ValidationConfig(
+        lint=["nix", "flake", "check"],
+        build=["cabal", "build", "{package}", "--enable-tests", "--ghc-options=-Werror"],
+    )
+    assert dict(config.commands(["app", "library"]))["build"] == [
+        "cabal",
+        "build",
+        "app",
+        "library",
+        "--enable-tests",
+        "--ghc-options=-Werror",
+    ]
 
 
 @pytest.mark.parametrize("build", [None, 1])

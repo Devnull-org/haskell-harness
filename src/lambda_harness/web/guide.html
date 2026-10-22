@@ -499,6 +499,14 @@
       <section id="validation" class="panel">
         <h2>Tests first. Reviewable patches.</h2>
         <p>
+          Before writing tests, coding, or running checks, the harness reads the
+          project's test suites, runner entry points, Nix setup, CI, and
+          repository instructions. It saves its findings under
+          <strong>Project test setup</strong>
+          in the task. Unclear prerequisites or commands become questions before
+          execution. HLint is not assumed.
+        </p>
+        <p>
           Project tests run through Cabal. Every code patch runs lint, a strict
           build with <code>-Werror</code>, Nix checks, and the selected
           package's tests inside the target's Nix environment.
@@ -509,10 +517,11 @@
           Later phases require passing checks.
         </p>
         <p>
-          Configure the project's test runner to write JUnit reports. The
-          default pattern is <code>test-reports/**/*.xml</code>; only fresh
-          reports inside the worktree count. The harness needs these to
-          distinguish an expected failed assertion from a broken test run.
+          Reusing existing tests can use Cabal's normal passing suite summary.
+          TDD and named coverage checks need individual test results. The
+          current detailed-report adapter supports JUnit; discovery checks
+          whether the runner already provides it and asks if support is missing.
+          It never installs a reporter or changes test code during inspection.
         </p>
         <p>A user-owned TOML file can adapt your team's commands:</p>
         <pre><code>[validation]

@@ -10,6 +10,41 @@ class Record(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class ValidationChecks(Record):
+    lint: list[str] = Field(min_length=1)
+    build: list[str] = Field(min_length=1)
+    nix: list[str] = Field(min_length=1)
+    test: list[str] = Field(min_length=1)
+    junit_glob: str | None
+
+    @model_validator(mode="after")
+    def valid_commands(self):
+        from .validation import ValidationConfig
+
+        ValidationConfig.model_validate(self.model_dump())
+        return self
+
+
+class TestSuiteKnowledge(Record):
+    package: str
+    suites: list[str] = Field(min_length=1)
+    framework: str = Field(min_length=1)
+    execution: str = Field(min_length=1, description="Runner, prerequisites, and suite scope.")
+
+
+class ValidationSource(Record):
+    path: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+
+
+class ValidationDiscovery(Record):
+    summary: str = Field(min_length=1)
+    suites: list[TestSuiteKnowledge]
+    sources: list[ValidationSource] = Field(min_length=1)
+    checks: ValidationChecks | None
+    questions: list[str]
+
+
 class Criterion(Record):
     id: str = Field(min_length=1)
     description: str = Field(min_length=1)
@@ -167,6 +202,7 @@ class AgentDraft(Explanation):
 
 
 SCHEMAS = {
+    "validation_discovery": ValidationDiscovery,
     "agent_builder": AgentDraft,
     "chat": ChatReply,
     "interviewer": Interview,

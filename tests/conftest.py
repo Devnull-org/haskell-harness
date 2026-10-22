@@ -58,8 +58,33 @@ class ScriptedAgent:
     def __init__(self):
         self.responses = defaultdict(deque)
         self.calls = []
+        self.discovery_calls = []
 
     def __call__(self, role, context, cwd):
+        if role == "validation_discovery":
+            self.discovery_calls.append((role, copy.deepcopy(context), Path(cwd)))
+            if self.responses[role]:
+                return copy.deepcopy(self.responses[role].popleft())
+            return {
+                "summary": "Read the fixture's test setup.",
+                "suites": [
+                    {
+                        "package": "example-app",
+                        "suites": ["tests"],
+                        "framework": "fixture runner",
+                        "execution": "Local tests through Cabal.",
+                    }
+                ],
+                "sources": [{"path": "example-app/example-app.cabal", "reason": "Package tests"}],
+                "checks": {
+                    "lint": ["hlint", "."],
+                    "build": ["cabal", "build", "all", "--enable-tests", "--ghc-options=-Werror"],
+                    "nix": ["nix", "flake", "check"],
+                    "test": ["cabal", "test", "{package}", "--test-show-details=direct"],
+                    "junit_glob": "test-reports/**/*.xml",
+                },
+                "questions": [],
+            }
         self.calls.append((role, copy.deepcopy(context), Path(cwd)))
         if self.responses[role]:
             return copy.deepcopy(self.responses[role].popleft())

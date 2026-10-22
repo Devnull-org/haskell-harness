@@ -73,7 +73,33 @@ def test_existing_test_baseline_can_be_shared_and_rechecked(rig, recipient):
     assert view["test_strategy"] == "existing"
     assert target.respond("task", "recheck")["stage"] == "validation_blocked"
     assert not agent.calls
+    assert len(agent.discovery_calls) == 1
     assert target.respond("task", "choose_phase")["stage"] == "specification_ready"
+
+
+def test_unresolved_test_setup_can_be_shared_without_executing_checks(rig, recipient):
+    from .test_phases import specification
+    from .test_validation_discovery import discovered
+
+    source, agent, executor = rig
+    target, target_agent, target_executor = recipient
+    specification(source)
+    agent.responses["validation_discovery"].append(
+        discovered(questions=["Which service does the integration suite need?"])
+    )
+    assert source.run_phase("task", "tests")["stage"] == "validation_setup"
+    transfer(source, target, ["task"])
+    view = accept(target, "task")
+    assert view["stage"] == "validation_setup"
+    assert "integration suite" in view["prompt"]["questions"][0]
+    assert not target._state("task").get("validation_knowledge")
+    assert not executor.calls and not target_executor.calls
+    assert not target_agent.discovery_calls
+    assert (
+        target.respond("task", "answer", text="The fixture starts its service.")["stage"]
+        == "test_review"
+    )
+    assert len(target_agent.discovery_calls) == 1
 
 
 def test_test_scope_decision_can_be_shared_without_starting_code(rig, recipient):

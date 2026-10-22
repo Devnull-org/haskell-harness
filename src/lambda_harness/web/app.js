@@ -705,6 +705,11 @@ function renderHistory(task) {
       } else if (item.specification)
         renderSpecification(entry, item.specification);
       history.append(entry);
+    } else if (item.role === "validation_discovery") {
+      const entry = message("Project inspection", item.answer);
+      for (const question of item.questions || [])
+        entry.append(prose(question));
+      history.append(entry);
     } else if (item.role === "test_author" && item.answer) {
       history.append(message("Test author", item.answer));
     } else if (item.role === "agent_builder") {
@@ -771,6 +776,7 @@ function renderTask(task, running) {
       prompt,
       task.messages,
       task.test_scope,
+      task.validation_knowledge,
       task.review_actions,
       running,
     ]);
@@ -844,9 +850,13 @@ function renderTask(task, running) {
     const interview = (task.messages || []).findLast(
       (item) => item.role === "interviewer",
     );
+    const questionTurn = (task.messages || []).findLast(
+      (item) => item.questions,
+    );
     if (
       prompt.questions &&
-      JSON.stringify(prompt.questions) !== JSON.stringify(interview?.questions)
+      JSON.stringify(prompt.questions) !==
+        JSON.stringify(questionTurn?.questions)
     )
       for (const q of prompt.questions)
         packet.append(prose(typeof q === "string" ? q : q.question));
@@ -909,6 +919,33 @@ function renderTask(task, running) {
     section(packet, "Validation", prompt.validation);
     section(packet, "Findings", prompt.findings);
     section(packet, "Feedback", prompt.feedback);
+    if (task.validation_knowledge) {
+      const knowledge = task.validation_knowledge;
+      const setup = el("details");
+      setup.append(
+        el("summary", "Project test setup"),
+        prose(knowledge.summary),
+      );
+      for (const suite of knowledge.suites)
+        setup.append(
+          el("h3", `${suite.package} · ${suite.framework}`),
+          prose(`${suite.suites.join(", ")}\n${suite.execution}`),
+        );
+      if (knowledge.checks)
+        for (const name of ["lint", "build", "nix", "test"])
+          setup.append(
+            el("strong", name),
+            el("pre", knowledge.checks[name].join(" ")),
+          );
+      section(
+        setup,
+        "Sources",
+        knowledge.sources
+          .map((source) => `${source.path}: ${source.reason}`)
+          .join("\n"),
+      );
+      packet.append(setup);
+    }
     packet.hidden = !packet.children.length;
     $("message-action").replaceChildren();
     for (const action of messageActions) {

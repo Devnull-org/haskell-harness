@@ -27,6 +27,13 @@ from .review_context import review_diff
 from .review_source import resolve_review
 from .schemas import REVIEWERS, validate_response
 from .validation import ValidationConfig, classify_validation, test_evidence
+from .validation_discovery import (
+    knowledge_is_current,
+    prepare_knowledge,
+    project_inventory,
+    saved_overrides,
+    validation_environment,
+)
 from .workspace import (
     Workspace,
     digest,
@@ -90,6 +97,7 @@ class Harness:
             "interview",
             "worktree",
             "existing_tests",
+            "discover_validation",
             "tests",
             "implement",
             "refactor",
@@ -277,6 +285,7 @@ class Harness:
             "project_context_id": None if phase == "agent_builder" else self.context.latest_id(),
             "agent_profiles": agent_profiles,
             "validation_config": self.validation.model_dump(),
+            "validation_overrides": self.validation.model_dump(exclude_unset=True),
         }
         if phase == "chat":
             state["task_kind"], state["mode"] = "chat", "phased"
@@ -564,6 +573,7 @@ class Harness:
                 "task_kind",
                 "test_expectation",
                 "test_strategy",
+                "validation_knowledge",
                 "review_source",
                 "agent_profiles",
                 "saved_agent",
@@ -611,11 +621,16 @@ class Harness:
             return False
         return (
             state["stage"] == "test_scope_review"
+            or state["stage"] == "validation_setup"
             or state.get("checking_baseline", False)
             and state["stage"]
             in {"validation_blocked", "agent_error", "backend_blocked", "agent_paused"}
             or state["stage"] in {"backend_blocked", "agent_error", "agent_paused"}
-            and state.get("retry_node") == "tests"
+            and (
+                state.get("retry_node") == "tests"
+                or state.get("retry_node") == "discover_validation"
+                and state.get("validation_following") == "tests"
+            )
         )
 
     def _available_phases(self, state):
@@ -751,6 +766,7 @@ class Harness:
             "base_revision": state["base"],
             "approved_tests": state.get("approved_tests", {}),
             "validation_config": state.get("validation_config", self.validation.model_dump()),
+            "validation_knowledge": state.get("validation_knowledge"),
             "patches": [
                 {
                     "revision": patch["revision"],
@@ -1050,6 +1066,8 @@ class Harness:
                 "Uncommitted production edits cannot enter a test-first patch. "
                 "Save or restore them before revising tests: " + ", ".join(unexpected)
             )
+        if not self._ensure_validation_knowledge(state, "tests"):
+            return
         proposal = self._ask(state, "test_author")
         if not proposal["changes"]:
             state["messages"].append({"role": "test_author", "answer": proposal["summary"]})
@@ -1088,6 +1106,10 @@ class Harness:
 
     def _code(self, state, role):
         self._assert_tests(state)
+        if not self._ensure_validation_knowledge(
+            state, "implement" if role == "implementer" else "refactor"
+        ):
+            return
         proposal = self._ask(state, role)
         state["role"] = role
         if any(
@@ -1127,7 +1149,71 @@ class Harness:
     def _refactor(self, state):
         self._code(state, "refactorer")
 
+    def _ensure_validation_knowledge(self, state, following):
+        detailed = following == "tests" or state.get("test_strategy") != "existing"
+        if knowledge_is_current(
+            self._workspace(state),
+            state.get("validation_knowledge"),
+            state["specification"]["packages"],
+            detailed,
+            validation_environment(self.execute),
+        ):
+            return True
+        state["validation_following"] = following
+        state["validation_detailed"] = detailed
+        state["next"] = "discover_validation"
+        return False
+
+    def _discover_validation(self, state):
+        workspace = self._workspace(state)
+        overrides = saved_overrides(state, self.validation)
+        discovery = self._ask(
+            state,
+            "validation_discovery",
+            inventory=project_inventory(workspace),
+            validation_overrides=overrides,
+            # Do not present old implicit defaults as a discovered project convention.
+            validation_config=overrides,
+            detailed_test_evidence=state["validation_detailed"],
+            validation_environment=validation_environment(self.execute),
+        )
+        knowledge = prepare_knowledge(
+            workspace,
+            discovery,
+            state["specification"]["packages"],
+            overrides,
+            detailed=state["validation_detailed"],
+            environment=validation_environment(self.execute),
+        )
+        state["validation_overrides"] = overrides
+        state["validation_knowledge"] = knowledge
+        state["messages"].append(
+            {
+                "role": "validation_discovery",
+                "answer": knowledge["summary"],
+                "questions": knowledge["questions"],
+            }
+        )
+        save_json(Path(state["report_directory"]) / "validation-setup.json", knowledge)
+        if not knowledge["ready"]:
+            self._gate(
+                state,
+                "validation_setup",
+                {
+                    "questions": knowledge["questions"],
+                    "guidance": "Project inspection is complete. "
+                    "No validation commands have run for this setup.",
+                },
+                ["answer", "retry"],
+            )
+            state["retry_node"] = "discover_validation"
+            return
+        state["validation_config"] = knowledge["checks"]
+        state["next"] = state["validation_following"]
+
     def _validate(self, state):
+        if not self._ensure_validation_knowledge(state, "validate"):
+            return
         workspace = self._workspace(state)
         if git(workspace.path, "ls-files", "--others", "--exclude-standard"):
             raise ValueError(
@@ -1164,8 +1250,12 @@ class Harness:
             raise ValueError(
                 "Production files changed during test validation; inspect and restore them"
             )
+        allow_cabal = configuration.junit_glob is None and not state["validation_detailed"]
         status = classify_validation(
-            results, state.get("expected_failures", []), phase=state["phase"]
+            results,
+            state.get("expected_failures", []),
+            phase=state["phase"],
+            allow_cabal=allow_cabal,
         )
         state["validated_fingerprint"] = workspace.fingerprint()
         validation = {
@@ -1186,7 +1276,7 @@ class Harness:
             },
         }
         try:
-            validation["test_evidence"] = test_evidence(results)
+            validation["test_evidence"] = test_evidence(results, allow_cabal=allow_cabal)
             if state.get("task_kind") == "tests":
                 covered = {name for names in state["coverage"].values() for name in names}
                 missing = covered - set(validation["test_evidence"]["identities"])
@@ -1413,6 +1503,9 @@ class Harness:
                 save_json(
                     Path(state["report_directory"]) / "current-review.json", self._view(state)
                 )
+        elif stage == "validation_setup" and action == "answer":
+            state["messages"].append({"stage": stage, "text": response["text"]})
+            state["next"] = "discover_validation"
         elif stage == "agent_paused" and action == "revise":
             if state["retry_node"] == "reply":
                 state.update(state.pop("failed_reply"))

@@ -1,24 +1,27 @@
 # Validation and commits
 
-Project tests are **Haskell tests run by Cabal**. Each code patch runs these
-commands in its worktree, inside `nix develop WORKTREE --command ...`:
+Before writing tests, coding, or running validation, the harness inspects the
+project using read-only file access. It reads repository instructions, Cabal
+test suites and runner entry points, Nix shells and checks, CI, and documented
+recipes. It records suite names, frameworks, prerequisites, commands, and sources
+under **Project test setup** in the task. No project commands run during discovery.
+If the setup is unclear, the harness asks focused questions before proceeding.
 
-```sh
-hlint .
-cabal build all --enable-tests --ghc-options=-Werror
-nix flake check
-cabal test PACKAGE_NAME --test-show-details=direct
-```
+Project tests are **Haskell tests run by Cabal**. Commands run in the task worktree,
+inside `nix develop WORKTREE --command ...`. The selected commands must cover lint,
+strict compilation with `-Werror`, Nix checks, and each selected package's tests.
+HLint and `just` are not assumed. For example, a repository can provide lint through
+a Nix check without putting its linter in the development shell.
 
-The test command runs for each Cabal package in the accepted specification or
-the developer's standalone test scope.
-`PACKAGE_NAME` is your actual package name. The project's development shell must
-provide its GHC, Cabal, HLint, and other required tools. No `justfile` is assumed.
-The harness's own Nix environment does not supply project dependencies.
+Discovery is saved in `reports/validation-setup.json` and supplied to coding agents.
+Resume reuses it while its sources, relevant configuration, selected packages, and
+evidence requirements are unchanged. Changed setup is inspected again. Imported
+tasks rediscover it on the receiving machine. Older paused tasks rediscover the
+old built-in defaults on **Recheck**, preserving saved non-default command overrides.
 
 Checks can be adapted using `[validation]` in your user configuration. Select a
 project-specific configuration explicitly with `--config /path/to/config.toml`;
-the harness never automatically executes configuration from the target checkout.
+these explicit overrides take precedence over discovered commands.
 For example, a team with existing recipes can use:
 
 ```toml
@@ -31,19 +34,23 @@ junit_glob = "test-reports/{package}/**/*.xml"
 ```
 
 Each command is an argument list, executed without a shell. `{package}` in `test`
-and `junit_glob` is replaced by the current package name. The build command must
+and `junit_glob` is replaced by the current package name. A whole `{package}` argument
+in `build` expands to the selected packages as separate arguments, for `cabal build`.
+The build command must
 compile the code and tests with warnings treated as errors. Lint, build, Nix,
 and test checks are all required; empty command lists are rejected.
-Commands and report patterns are saved with new tasks and reused on resume.
-To use changed settings, start a new task or a fresh attempt. Older saved tasks
-without these settings adopt the selected configuration at their next validation.
+Explicit overrides are saved with new tasks and reused on resume. To change these
+overrides, start a fresh attempt with the updated configuration.
 
-Cabal does not produce JUnit reports automatically for every test framework.
-Configure the project's test runner or a trusted wrapper to write them.
-The default report pattern is
-`test-reports/**/*.xml`; only fresh files inside the worktree are read. Adapt the
-pattern to your runner. Missing reports block approval; a nonzero exit code alone
-cannot establish that the intended assertion failed.
+When reusing existing tests, a successful Cabal command with a complete, nonempty
+passing suite summary can establish green. JUnit is not required for that path.
+Test-first and standalone coverage phases need individual test identities. The
+current detailed-evidence adapter supports JUnit. Discovery checks whether the
+runner already supports it and selects its actual flag and report location. If
+the project has no supported reporter, discovery pauses to discuss the limitation;
+it does not install dependencies, change the runner, or guess flags. Cabal itself
+does not automatically produce JUnit for every framework. Only fresh reports inside
+the worktree count. A nonzero exit code alone cannot establish an expected assertion.
 Keep generated reports and build artifacts ignored by Git so they are not
 treated as source changes during validation.
 
@@ -54,7 +61,7 @@ For a project without its own flake, configure `validation.nix` to check the
 appropriate dependency flake explicitly. Use the same `--nix-flake` when reopening the website.
 
 Every commit must pass lint and strict compilation. Test-first commits may contain
-identified failing assertions; compiler errors, missing test reports, runner
+identified failing assertions; compiler errors, missing required test evidence, runner
 errors, and unrelated failing tests block progress. The harness reads fresh JUnit
 reports produced by the configured test command and compares exact test identities.
 If a Nix check fails during the red phase, progress stops at `red_failure_review`.

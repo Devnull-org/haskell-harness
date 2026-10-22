@@ -1,5 +1,6 @@
 """Interpret Cabal test evidence separately from lint, build, and Nix failures."""
 
+import re
 import time
 from pathlib import Path, PurePosixPath
 from string import Formatter
@@ -12,7 +13,7 @@ from .schemas import Record
 
 
 class ValidationConfig(Record):
-    lint: list[str] = Field(default_factory=lambda: ["hlint", "."], min_length=1)
+    lint: list[str] | None = Field(default=None, min_length=1)
     build: list[str] = Field(
         default_factory=lambda: [
             "cabal",
@@ -28,20 +29,32 @@ class ValidationConfig(Record):
         default_factory=lambda: ["cabal", "test", "{package}", "--test-show-details=direct"],
         min_length=1,
     )
-    junit_glob: str = "test-reports/**/*.xml"
+    junit_glob: str | None = None
 
     @model_validator(mode="after")
     def valid_commands(self):
         for command in (self.lint, self.build, self.nix, self.test):
+            if command is None:
+                continue
             if any(not arg or "\x00" in arg for arg in command):
                 raise ValueError("Validation arguments must be nonempty text without NUL bytes")
         if not any("{package}" in arg for arg in self.test):
             raise ValueError("The test command must include {package}")
-        for template in [*self.test, self.junit_glob]:
+        for template in [*(self.lint or []), *self.nix]:
+            if any(field is not None for _, field, _, _ in Formatter().parse(template)):
+                raise ValueError("Placeholders are supported only in build, test, and junit_glob")
+        for template in self.build:
+            if template != "{package}" and any(
+                field is not None for _, field, _, _ in Formatter().parse(template)
+            ):
+                raise ValueError("Build placeholders must be the whole argument {package}")
+        for template in [*self.test, *([self.junit_glob] if self.junit_glob else [])]:
             for _, field, spec, conversion in Formatter().parse(template):
                 if field not in {None, "package"} or spec or conversion:
                     raise ValueError("Only the {package} placeholder is supported")
         pattern = self.report_pattern("example")
+        if pattern is None:
+            return self
         path = PurePosixPath(pattern)
         if (
             not pattern
@@ -55,23 +68,43 @@ class ValidationConfig(Record):
         return self
 
     def commands(self, packages):
-        commands = [("lint", self.lint), ("build", self.build), ("nix", self.nix)]
+        if self.lint is None:
+            raise ValueError("Inspect the project's validation setup before running checks")
+        build = [
+            value for arg in self.build for value in (packages if arg == "{package}" else [arg])
+        ]
+        commands = [("lint", self.lint), ("build", build), ("nix", self.nix)]
         return commands + [
             (f"test:{package}", [arg.format(package=package) for arg in self.test])
             for package in packages
         ]
 
     def report_pattern(self, package):
-        return self.junit_glob.format(package=package)
+        return self.junit_glob.format(package=package) if self.junit_glob is not None else None
 
 
-def test_evidence(results):
+def test_evidence(results, *, allow_cabal=False):
     failures, errors, executed, identities = [], [], 0, set()
+    suites_executed = 0
     for name, result in results.items():
         if not name.startswith("test:"):
             continue
         xml_reports = result.get("junit_xml", [])
         if not xml_reports:
+            if allow_cabal and result["exit_code"] == 0:
+                # Cabal's suite summary proves a green run, but cannot identify red assertions.
+                summaries = re.findall(
+                    r"^(\d+) of (\d+) test suites \((\d+) of (\d+) test cases\) passed\.$",
+                    result["stdout"],
+                    re.MULTILINE,
+                )
+                if summaries and all(
+                    int(passed) == int(total) > 0 and int(cases) == int(count) > 0
+                    for passed, total, cases, count in summaries
+                ):
+                    suites_executed += sum(int(total) for _, total, _, _ in summaries)
+                    continue
+                raise ValueError(f"No complete passing Cabal test summary for {name}")
             raise ValueError(f"Missing JUnit evidence for {name}")
         command_failures = []
         command_executed = 0
@@ -114,11 +147,12 @@ def test_evidence(results):
         "failures": sorted(set(failures)),
         "errors": errors,
         "executed": executed,
+        "suites_executed": suites_executed,
         "identities": sorted(identities),
     }
 
 
-def classify_validation(results, expected_failures, *, phase):
+def classify_validation(results, expected_failures, *, phase, allow_cabal=False):
     if phase not in {"red", "green"}:
         raise ValueError("Validation phase must be red or green")
     if not {"lint", "build", "nix"} <= results.keys() or not any(
@@ -128,10 +162,10 @@ def classify_validation(results, expected_failures, *, phase):
     if any(results[name]["exit_code"] != 0 for name in ("lint", "build")):
         return "blocked"
     try:
-        evidence = test_evidence(results)
+        evidence = test_evidence(results, allow_cabal=allow_cabal and phase == "green")
     except ValueError:
         return "blocked"
-    if evidence["errors"] or evidence["executed"] == 0:
+    if evidence["errors"] or not (evidence["executed"] or evidence["suites_executed"]):
         return "blocked"
     if phase == "green":
         return (

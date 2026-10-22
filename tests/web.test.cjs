@@ -1113,6 +1113,55 @@ test("standalone review history shows findings once and keeps the finish action 
   );
 });
 
+test("project inspection shows suites and sources and keeps questions in conversation", async () => {
+  const current = snapshot({
+    ...task(),
+    stage: "validation_setup",
+    messages: [
+      {
+        role: "validation_discovery",
+        answer: "Tests use Cabal.",
+        questions: ["Which service is needed?"],
+      },
+    ],
+    prompt: {
+      actions: ["answer", "retry"],
+      questions: ["Which service is needed?"],
+    },
+    validation_knowledge: {
+      summary: "Tests use Cabal.",
+      suites: [
+        {
+          package: "example-app",
+          suites: ["unit", "integration"],
+          framework: "Tasty",
+          execution: "Integration starts a local service.",
+        },
+      ],
+      sources: [
+        { path: "example-app/example-app.cabal", reason: "Suite definitions" },
+      ],
+      checks: null,
+    },
+  });
+  const ui = await app({ fetcher: async () => response(current) });
+  assert.match(
+    ui.elements.get("history").textContent,
+    /Project inspection.*Which service is needed/s,
+  );
+  const packet = ui.elements.get("packet");
+  assert.match(
+    packet.textContent,
+    /Project test setup.*Tasty.*integration.*Suite definitions/s,
+  );
+  assert.doesNotMatch(packet.textContent, /Which service is needed/);
+  assert.equal(
+    packet.children.find((item) => item.tagName === "details").open,
+    undefined,
+  );
+  assert.equal(ui.elements.get("send").disabled, false);
+});
+
 test("approved interviews offer explicit existing-test paths and scope recovery", async () => {
   const current = snapshot({
     ...task(),

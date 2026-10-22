@@ -469,6 +469,8 @@ async function refresh() {
     if (requestId !== refreshId || taskId !== selected) return;
     connectionError = e.message;
     error("Unable to refresh: " + e.message + " Retrying automatically…");
+    $("activity-spinner").hidden = true;
+    if (state?.task?.task_id === selected) renderHistory(state.task);
   } finally {
     if (requestId === refreshId && taskId === selected)
       timer = setTimeout(
@@ -546,6 +548,7 @@ function render() {
   renderModelPicker();
   if (state.task) renderTask(state.task, busy);
   $("activity").hidden = page !== "workspace" || !state.job;
+  $("activity-spinner").hidden = !running || !!connectionError;
   if (state.job) {
     const job = state.job;
     $("activity-label").textContent = running
@@ -605,8 +608,18 @@ function render() {
       .join("\n");
   }
 }
+function responseProgress(taskId) {
+  const sending = submitting && pendingMessage?.task_id === taskId;
+  const working = state?.job?.running && state.job.task_id === taskId;
+  if (!sending && !working) return null;
+  if (connectionError) return "Connection lost · reconnecting…";
+  if (state.stopping) return "Stopping…";
+  if (!working) return "Sending…";
+  return state.job.operation === "review_action" ? "Working…" : "Thinking…";
+}
 function renderHistory(task) {
   const messages = task.messages || [];
+  const progress = responseProgress(task.task_id);
   if (
     pendingMessage?.task_id === task.task_id &&
     messages
@@ -624,6 +637,7 @@ function renderHistory(task) {
     task.review_actions,
     submitting,
     state?.job?.running,
+    progress,
   ]);
   if (key === historyKey) return;
   const history = $("history");
@@ -712,6 +726,15 @@ function renderHistory(task) {
   if (pending) {
     const entry = message("You", pending.text, true);
     entry.append(el("small", pending.status, "message-status"));
+    history.append(entry);
+  }
+  if (progress) {
+    const entry = el("div", undefined, "message response-progress");
+    entry.role = "status";
+    entry.ariaLive = "polite";
+    entry.append(
+      el("span", progress, connectionError ? "muted" : "thinking-indicator"),
+    );
     history.append(entry);
   }
   if (atBottom || switched || pending?.status === "Sending…")

@@ -1108,6 +1108,90 @@ test("sending shows the question immediately and prevents duplicate submissions"
   );
 });
 
+test("a thinking indicator appears while sending and stays until the response finishes", async () => {
+  const current = snapshot();
+  let accept;
+  const ui = await app({
+    fetcher: async (path) => {
+      if (path.startsWith("/api/models")) return response({ catalogs: [] });
+      if (path === "/api/command")
+        return new Promise((resolve) => {
+          accept = resolve;
+        });
+      return response(current);
+    },
+  });
+  const indicator = () =>
+    ui.elements
+      .get("history")
+      .children.find((item) => item.className === "message response-progress");
+  ui.elements.get("message").value = "What are the tradeoffs?";
+  const pending = ui.run("respond('question')");
+  assert.match(indicator().textContent, /Sending/);
+  assert.equal(indicator().role, "status");
+  current.job = {
+    id: "working",
+    task_id: "example",
+    running: true,
+    operation: "respond",
+    log: [],
+  };
+  current.can_stop = true;
+  accept(response({}));
+  await pending;
+  assert.match(indicator().textContent, /Thinking/);
+  assert.equal(ui.elements.get("activity-spinner").hidden, false);
+  current.stopping = true;
+  await ui.run("refresh()");
+  assert.match(indicator().textContent, /Stopping/);
+  current.job.running = false;
+  current.stopping = false;
+  current.task.messages.push({ role: "chat", answer: "The answer" });
+  await ui.run("refresh()");
+  assert.equal(indicator(), undefined);
+  assert.equal(ui.elements.get("activity-spinner").hidden, true);
+  assert.match(ui.elements.get("history").textContent, /The answer/);
+});
+
+test("thinking status handles connection loss, other tasks, and backend errors", async () => {
+  const current = snapshot();
+  current.job = {
+    id: "working",
+    task_id: "example",
+    running: true,
+    operation: "respond",
+    log: [],
+  };
+  const ui = await app({ fetcher: async () => response(current) });
+  ui.run("render()");
+  const indicator = () =>
+    ui.elements
+      .get("history")
+      .children.find((item) => item.className === "message response-progress");
+  assert.match(indicator().textContent, /Thinking/);
+  ui.fetch(async () => {
+    throw new Error("Connection failed");
+  });
+  await ui.run("refresh()");
+  assert.match(indicator().textContent, /Connection lost/);
+  assert.notEqual(indicator().children[0].className, "thinking-indicator");
+  assert.equal(ui.elements.get("activity-spinner").hidden, true);
+  ui.fetch(async () => response(current));
+  await ui.run("refresh()");
+  assert.match(indicator().textContent, /Thinking/);
+  current.task = task("another");
+  ui.run('selected = "another"');
+  await ui.run("refresh()");
+  assert.equal(indicator(), undefined);
+  current.task = task();
+  current.job.running = false;
+  current.job.error = "Usage limit";
+  ui.run('selected = "example"');
+  await ui.run("refresh()");
+  assert.equal(indicator(), undefined);
+  assert.equal(ui.elements.get("activity-spinner").hidden, true);
+});
+
 test("a failed poll retries and keeps the draft", async () => {
   const ui = await app();
   ui.elements.get("message").value = "Unsent draft";

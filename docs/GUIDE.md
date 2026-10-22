@@ -216,6 +216,9 @@ leave, and return to the saved chat whenever you like. **Stop model** and revise
 instructions work here too. Chat does not edit files or start a coding workflow.
 Its transcript is also saved as `chat.md` in the report directory.
 
+After sending a question, a **Thinking…** indicator appears in the conversation
+until the response arrives. It also shows sending, stopping, or connection loss.
+
 All task conversations support model selection, including explorations, interviews,
 reviews, and the agent workshop. Use **Model for this reply** when starting a task,
 or **Model for the next response** above the message box. The picker remains

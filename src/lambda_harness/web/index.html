@@ -552,8 +552,11 @@
       </section>
       <section id="activity" class="panel" hidden aria-live="polite">
         <div class="activity-top">
-          <strong id="activity-label">Working…</strong
-          ><button id="stop" class="stop">■ Stop model</button>
+          <strong
+            ><span id="activity-spinner" aria-hidden="true" hidden></span
+            ><span id="activity-label">Working…</span></strong
+          >
+          <button id="stop" class="stop">■ Stop model</button>
         </div>
         <p id="activity-message" class="muted"></p>
         <details>

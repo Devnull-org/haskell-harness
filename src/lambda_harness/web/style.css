@@ -1030,7 +1030,9 @@ dialog {
   overflow-y: auto;
   white-space: pre-wrap;
 }
-.transfer-busy::before {
+.transfer-busy::before,
+.thinking-indicator::before,
+#activity-spinner::before {
   content: "";
   display: inline-block;
   width: 0.8em;
@@ -1047,7 +1049,9 @@ dialog {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .transfer-busy::before {
+  .transfer-busy::before,
+  .thinking-indicator::before,
+  #activity-spinner::before {
     animation: none;
   }
 }

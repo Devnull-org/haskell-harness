@@ -280,6 +280,11 @@ Each task gets its own worktree from that exact commit. Uncommitted changes in
 your original checkout stay there. Local and remote-tracking branch names must
 already exist in your checkout; GitHub PR URLs are fetched as described below.
 
+Open a saved task to see its **Task worktree** panel above the conversation.
+Use **Copy path** to open that folder in your editor or terminal. This is where
+the agent's files live, on the computer running the harness. The path stays
+available when a task is paused or finished.
+
 ### Review an existing change
 
 Choose **Review a PR or branch**. Enter a branch, commit, or GitHub PR URL and

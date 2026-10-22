@@ -773,6 +773,47 @@ function renderHistory(task) {
   if (atBottom || switched || pending?.status === "Sending…")
     history.scrollTop = history.scrollHeight;
 }
+function renderWorktree(task) {
+  const panel = $("task-worktree"),
+    field = $("worktree-path"),
+    path = task.worktree || "";
+  panel.hidden = task.task_kind === "agent_builder";
+  if (panel.dataset.task !== task.task_id || field.value !== path) {
+    panel.dataset.task = task.task_id;
+    field.value = path;
+    field.hidden = !path;
+    $("copy-worktree").disabled = !path;
+    $("worktree-status").textContent = path
+      ? ""
+      : "Worktree has not been created yet.";
+  }
+}
+async function copyWorktree() {
+  const field = $("worktree-path"),
+    control = $("copy-worktree"),
+    path = field.value,
+    taskId = $("task-worktree").dataset.task;
+  if (!path || control.disabled) return;
+  const current = () =>
+    $("task-worktree").dataset.task === taskId && field.value === path;
+  control.disabled = true;
+  $("worktree-status").textContent = "Copying…";
+  try {
+    await globalThis.navigator.clipboard.writeText(path);
+    if (current()) $("worktree-status").textContent = "Path copied.";
+  } catch {
+    if (current()) {
+      field.focus();
+      field.select();
+      $("worktree-status").textContent =
+        "Copy is unavailable in this browser. Copy the selected path manually.";
+    }
+  } finally {
+    if (current()) control.disabled = false;
+  }
+}
+$("copy-worktree").onclick = copyWorktree;
+
 function renderTask(task, running) {
   const prompt = task.prompt || {},
     actions = prompt.actions || [],
@@ -790,7 +831,6 @@ function renderTask(task, running) {
   $("task-meta").replaceChildren(
     el("strong", task.stage.replaceAll("_", " ")),
     el("div", "Base: " + task.base_ref + " · " + task.base.slice(0, 12)),
-    el("div", "Worktree: " + (task.worktree || "Preparing")),
     el("div", "Reports: " + task.report_directory),
   );
   if (task.review_source) {
@@ -802,7 +842,6 @@ function renderTask(task, running) {
         "div",
         `Pinned head: ${source.head.slice(0, 12)} · Merge base: ${source.merge_base.slice(0, 12)}`,
       ),
-      el("div", "Worktree: " + (task.worktree || "Preparing")),
       el("div", "Reports: " + task.report_directory),
     );
   }
@@ -824,6 +863,7 @@ function renderTask(task, running) {
   }
   $("restart").hidden = task.task_kind === "agent_builder";
   $("export-task").hidden = task.task_kind === "agent_builder";
+  renderWorktree(task);
   renderHistory(task);
   if (key !== packetKey) {
     packetKey = key;

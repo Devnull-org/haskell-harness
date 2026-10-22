@@ -430,6 +430,26 @@ select {
   font-size: 15px;
   margin-bottom: 8px;
 }
+.worktree-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.worktree-heading h2 {
+  margin: 0;
+  font-size: 17px;
+}
+#worktree-path {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+#worktree-status {
+  min-height: 1.6em;
+  margin: 8px 0 0;
+  font-size: 13px;
+}
 .message {
   padding: 18px 22px;
   border-radius: 9px;

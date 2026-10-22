@@ -47,6 +47,9 @@ class Element {
     this.open = false;
   }
   focus() {}
+  select() {
+    this.selected = true;
+  }
   click() {
     this.onclick?.();
   }
@@ -658,6 +661,7 @@ async function app({
   pathname = "/",
   fetcher: initialFetch,
   mobile = false,
+  clipboard,
 } = {}) {
   const elements = new Map();
   const html = readFileSync("src/lambda_harness/web/index.html", "utf8");
@@ -676,6 +680,7 @@ async function app({
   const timers = new Map();
   const context = vm.createContext({
     matchMedia: () => ({ matches: mobile }),
+    navigator: { clipboard },
     location,
     history: {
       replaceState: (_, __, path) => {
@@ -749,6 +754,89 @@ async function app({
     },
   };
 }
+
+test("a task exposes its worktree and copies the exact path while work is running", async () => {
+  const current = snapshot({
+    ...task(),
+    worktree: "/saved work/developer's task/worktree",
+  });
+  current.job = {
+    id: "working",
+    task_id: "example",
+    running: true,
+    operation: "respond",
+    log: [],
+  };
+  let copied;
+  const ui = await app({
+    fetcher: async () => response(current),
+    clipboard: { writeText: async (value) => (copied = value) },
+  });
+  ui.run("render()");
+  assert.equal(ui.elements.get("task-worktree").hidden, false);
+  assert.equal(ui.elements.get("worktree-path").value, current.task.worktree);
+  assert.equal(ui.elements.get("copy-worktree").disabled, false);
+  await ui.elements.get("copy-worktree").onclick();
+  assert.equal(copied, current.task.worktree);
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("worktree-status").textContent, "Path copied.");
+});
+
+for (const clipboard of [
+  undefined,
+  {
+    writeText: async () => {
+      throw new Error("Clipboard permission denied");
+    },
+  },
+]) {
+  test(`worktree copying offers manual selection when the clipboard is ${clipboard ? "denied" : "unavailable"}`, async () => {
+    const current = snapshot({ ...task(), worktree: "/task/worktree" });
+    const ui = await app({ fetcher: async () => response(current), clipboard });
+    ui.run("render()");
+    await ui.elements.get("copy-worktree").onclick();
+    assert.equal(ui.elements.get("worktree-path").selected, true);
+    assert.match(
+      ui.elements.get("worktree-status").textContent,
+      /copy.*manually/i,
+    );
+    assert.equal(ui.elements.get("copy-worktree").disabled, false);
+    assert.equal(ui.run("connectionError"), null);
+  });
+}
+
+test("worktree controls follow the selected task and do not carry over stale copy results", async () => {
+  const current = snapshot({ ...task(), worktree: "/first/worktree" });
+  let finishCopy;
+  const ui = await app({
+    fetcher: async () => response(current),
+    clipboard: {
+      writeText: () => new Promise((resolve) => (finishCopy = resolve)),
+    },
+  });
+  ui.run("render()");
+  const copying = ui.elements.get("copy-worktree").onclick();
+  current.task = {
+    ...task("second"),
+    task_kind: "review",
+    worktree: "/second/worktree",
+  };
+  ui.run("selected = 'second'");
+  await ui.run("refresh()");
+  finishCopy();
+  await copying;
+  assert.equal(ui.elements.get("worktree-path").value, "/second/worktree");
+  assert.equal(ui.elements.get("worktree-status").textContent, "");
+  assert.equal(ui.elements.get("copy-worktree").disabled, false);
+  delete current.task.worktree;
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("worktree-path").value, "");
+  assert.equal(ui.elements.get("copy-worktree").disabled, true);
+  assert.match(ui.elements.get("worktree-status").textContent, /not.*created/i);
+  current.task.task_kind = "agent_builder";
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("task-worktree").hidden, true);
+});
 
 test("review bases stay editable and preserve branch and PR choices across polling", async () => {
   const ui = await app();

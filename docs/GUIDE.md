@@ -28,9 +28,9 @@ assignments, conversations, and memory remain project-specific. Its URL includes
 the project when opened from the sidebar so assignments retain their context.
 The old `/agents` link still uses the launcher's initial project, when supplied.
 
-The project's **Settings** page saves its preferred backend across restarts. An
-explicit `--backend` launch override takes precedence without erasing the saved
-preference. With no project preference or launch override, the user configuration
+The project's **Settings** page saves its preferred backend across restarts.
+Choose backends and response models on the website; there is no `--backend` startup
+option. With no project preference, the user configuration
 supplies the default. Automatic backend discovery chooses a backend for the session
 without overwriting the project's preference. Provider definitions and logins are
 reusable across projects. If a saved backend is removed from your configuration,
@@ -46,12 +46,18 @@ before leaving. Refreshing or closing the tab can still discard unsaved text.
 From any directory, with Nix and Git installed:
 
 ```sh
-nix run --refresh github:Devnull-org/lambda-harness
+nix run --refresh github:Devnull-org/lambda-harness -- \
+  --state-dir ~/.local/state/lambda-harness
 ```
+
+`--state-dir` is required on every launch. Choose a persistent directory outside
+your project checkouts for the project list, conversations, memory, logs, and worktrees.
+The path above is an example, not an automatic default. If you already have saved
+work, use its existing state directory. The server prints the resolved path at startup.
 
 Open the printed URL, usually `http://127.0.0.1:8765`, and add a checkout from
 **Projects**. To register and open a particular checkout at launch, append
-`-- --repo "/path/to/project"`. Keep the server process running. Closing the browser
+`--repo "/path/to/project"`. Keep the server process running. Closing the browser
 leaves active work running. Ctrl+C in the server's terminal stops the server and
 cancels active work while keeping submitted messages and completed steps saved.
 
@@ -68,7 +74,7 @@ in the page, with no `serve`, `start`, or `resume` subcommand in the launch line
 ```sh
 git clone git@github.com:Devnull-org/lambda-harness.git
 cd lambda-harness
-nix run . -- --repo "/path/to/project"
+nix run . -- --state-dir ~/.local/state/lambda-harness --repo "/path/to/project"
 ```
 
 Nix resolves `.` before reading `--repo`. It must point at the harness clone's
@@ -81,7 +87,8 @@ Install Git and [uv](https://docs.astral.sh/uv/getting-started/installation/), c
 the repository, and run:
 
 ```sh
-uv run --locked --no-dev python -m lambda_harness --repo "/path/to/project"
+uv run --locked --no-dev python -m lambda_harness \
+  --state-dir ~/.local/state/lambda-harness --repo "/path/to/project"
 ```
 
 uv installs the pinned Python dependencies and starts the same local website.
@@ -100,23 +107,19 @@ All options go after `--` with `nix run`. There are no workflow subcommands.
 | `--port PORT` | Loopback port, default 8765; 0 chooses a free port. |
 | `--tailscale` | Start private HTTPS access for the Tailscale account signed in on this computer. Requires Tailscale installed and connected. |
 | `--tailscale-port PORT` | Tailscale HTTPS port, default 443. Choose another, such as 8443, if already used; requires `--tailscale`. |
-| `--state-dir PATH` | Project list, saved tasks, logs, and worktrees; outside all registered checkouts. Default: `$XDG_STATE_HOME/lambda-harness` or `~/.local/state/lambda-harness`. |
+| `--state-dir PATH` | **Required.** Project list, conversations, memory, logs, and worktrees; outside all registered checkouts. Reuse the same path on every launch. |
 | `--config FILE` | User-owned backend and validation configuration. |
 | `--nix-flake PATH` | Dependency flake override for the initial `--repo` only; other projects use their own task worktrees. Requires `--repo`. |
-| `--backend NAME` | Initial backend override for projects opened by this server; also selectable on the page. |
 | `--model ID` | Model override for all agents. |
 | `--agent-timeout SECONDS` | Override the backend request timeout. |
 | `--check-timeout SECONDS` | Validation command timeout, default 3600. |
 | `--unsigned-commits` | Disable signing for harness commits only. |
 | `--help` | Describe server startup options. |
 
-Existing tasks keep their worktrees and checkpoints. The previous product's default
-state directory is detected for the initial `--repo` checkout when it has no state in the new
-directory. Nothing is moved or merged. The previous default configuration and
-browser theme are also reused when no new setting exists.
-
-For a custom or older state location, keep passing
-`--state-dir /path/to/existing/state-root` and any existing `--config` override.
+Existing tasks keep their worktrees and checkpoints. Storage is never selected,
+moved, or merged automatically. Keep passing `--state-dir /path/to/existing/state-root`
+and any existing `--config` override. The previous default configuration and browser
+theme are still reused when no new setting exists.
 Keep the same target checkout path; do not move registered worktrees. Restart the
 server to load an updated version. Keep the same state root for your registered
 project list. Explicitly launching with `--repo` registers that checkout again even
@@ -128,10 +131,11 @@ Install and connect Tailscale on the computer and phone using the same account.
 Then start the harness with:
 
 ```sh
-nix run --refresh github:Devnull-org/lambda-harness -- --tailscale
+nix run --refresh github:Devnull-org/lambda-harness -- \
+  --state-dir ~/.local/state/lambda-harness --tailscale
 ```
 
-Keep your usual `--repo`, `--state-dir`, and backend options when updating an
+Keep your usual `--repo` and `--state-dir` options when updating an
 existing launch. Open the printed **Phone** HTTPS address in your phone's browser,
 or scan the QR code under **Open on your phone** in the website's sidebar. The QR
 code is generated locally and contains only the HTTPS address. You can add it to

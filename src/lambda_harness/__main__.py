@@ -4,7 +4,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from .paths import default_state_root
 from .project_context import state_directory
 from .projects import validate_repository
 from .webapp import serve
@@ -13,7 +12,8 @@ from .webapp import serve
 def parser():
     result = argparse.ArgumentParser(
         description="Start the Lambda Harness local website.",
-        epilog="Open the printed URL to explore, plan, review, and manage saved work.",
+        epilog="Choose a persistent --state-dir outside your project checkouts and reuse it "
+        "on every launch. Select backends and models in the website.",
     )
     result.add_argument(
         "--repo",
@@ -23,8 +23,10 @@ def parser():
     result.add_argument(
         "--state-dir",
         type=Path,
-        help="Saved tasks and worktrees; defaults to the user state directory, "
-        "reusing existing project data",
+        metavar="PATH",
+        required=True,
+        help="Required directory for saved projects, conversations, memory, and worktrees. "
+        "Reuse the same path to return to your work",
     )
     result.add_argument(
         "--agents-repo", type=Path, help="Git checkout containing shared agents/*.json definitions"
@@ -43,7 +45,6 @@ def parser():
     )
     result.add_argument("--config", type=Path, help="User-owned backend and validation TOML")
     result.add_argument("--nix-flake", type=Path, help="Validation flake (default: task worktree)")
-    result.add_argument("--backend", help="Initial backend selection (default: configured choice)")
     result.add_argument("--model", help="Model override for all agents")
     result.add_argument("--agent-timeout", type=float, help="Agent timeout in seconds")
     result.add_argument(
@@ -62,8 +63,6 @@ def main(argv=None):
             args.repo = validate_repository(args.repo)
         elif args.nix_flake:
             raise ValueError("Use --repo with --nix-flake to identify the project it applies to")
-        if args.state_dir is None:
-            args.state_dir = default_state_root(args.repo)
         args.state_dir = args.state_dir.expanduser().resolve()
         if args.repo:
             state_directory(args.repo, args.state_dir)

@@ -57,8 +57,12 @@ flowchart LR
 With Nix, run this from any directory:
 
 ```sh
-nix run --refresh github:Devnull-org/lambda-harness
+nix run --refresh github:Devnull-org/lambda-harness -- \
+  --state-dir ~/.local/state/lambda-harness
 ```
+
+`--state-dir` is required: it chooses where your conversations, memory, and worktrees
+live. Reuse the same directory each time; existing users should keep their current path.
 
 Open the printed local URL and add a Git checkout from **Projects**.
 Switch between projects from the sidebar; each keeps its own memory and saved work.

@@ -39,17 +39,14 @@ Without Nix, install your chosen CLI separately; executables are resolved throug
 `PATH`. Sign in through the provider's normal login flow. The harness does not
 perform login automatically or change your credentials.
 
-The initial backend and model can also be set at server startup:
-
-```sh
-nix run . -- --repo "/path/to/project" --backend claude-code --model opus
-```
+Choose the backend in **Project settings** and the model in the conversation's
+**Model for the next response** picker. There is no `--backend` startup option.
 
 There are no per-provider harness packages or terminal workflow commands.
 An explicit backend or named configuration default bypasses discovery.
 Automatic selection applies one chosen profile to every role for the server session.
-Use a named configuration default without a global backend override to retain
-per-role routing.
+Use a named configuration default without an explicit backend choice on the website
+to retain per-role routing.
 
 The Codex adapter sends the prompt and role schema through stdin and validates the
 final stdout response. It uses `--ephemeral`, `--sandbox read-only`, and
@@ -93,9 +90,11 @@ catalogue or a silent fallback.
 
 Precedence is explicit:
 
-1. `--backend` selects one profile for all roles, overriding role-specific backend
-   and model choices. Its configured default model applies unless `--model` is given.
-2. Without `--backend`, each role can override the configured default backend/model.
+1. A backend selected on the website applies to all roles for that session,
+   overriding role-specific backend and model choices. A choice saved in Project
+   settings is reused on future sessions.
+2. Without a session or project backend choice, each role can override the configured
+   default backend/model.
 3. `--model` overrides the model for every role. `--agent-timeout` overrides profile timeouts.
 
 A named profile in your configuration replaces that profile as a whole. Arguments,

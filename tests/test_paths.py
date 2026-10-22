@@ -1,29 +1,21 @@
-"""The product rename keeps saved work and user configuration discoverable."""
+"""Storage is chosen explicitly; user configuration keeps its existing lookup rules."""
 
 from lambda_harness.__main__ import main
 from lambda_harness.config import load_settings
-from lambda_harness.paths import default_state_root
 from lambda_harness.project_context import state_directory
 
 
-def test_new_projects_use_the_new_state_directory(repository, tmp_path, monkeypatch):
-    root = tmp_path / "state"
-    monkeypatch.setenv("XDG_STATE_HOME", str(root))
-    assert default_state_root(repository) == root / "lambda-harness"
-    assert not root.exists()
-
-
 def test_website_can_start_without_a_project(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     calls = []
     monkeypatch.setattr("lambda_harness.__main__.serve", calls.append)
-    assert main([]) == 0
+    options = ["--state-dir", str(tmp_path / "chosen")]
+    assert main(options) == 0
     assert calls[0].repo is None
-    assert calls[0].state_dir == tmp_path / "lambda-harness"
-    assert main(["--nix-flake", str(tmp_path)]) == 1
+    assert calls[0].state_dir == tmp_path / "chosen"
+    assert main([*options, "--nix-flake", str(tmp_path)]) == 1
 
 
-def test_existing_project_state_is_reused_without_moving_worktrees(
+def test_explicit_existing_state_is_reused_without_moving_worktrees(
     repository, tmp_path, monkeypatch
 ):
     root = tmp_path / "state"
@@ -32,33 +24,21 @@ def test_existing_project_state_is_reused_without_moving_worktrees(
     directory = state_directory(repository, legacy)
     directory.mkdir(parents=True)
     (directory / "checkpoints.sqlite").write_bytes(b"existing checkpoint")
-    # A new directory for a different project must not hide this project's history.
+    # An alternative state root must not override the developer's explicit choice.
     (root / "lambda-harness" / "another-project").mkdir(parents=True)
-    assert default_state_root(repository) == legacy
     calls = []
     monkeypatch.setattr("lambda_harness.__main__.serve", calls.append)
-    assert main(["--repo", str(repository)]) == 0
+    assert main(["--repo", str(repository), "--state-dir", str(legacy)]) == 0
     assert calls[0].state_dir == legacy
     assert (directory / "checkpoints.sqlite").read_bytes() == b"existing checkpoint"
 
 
-def test_new_project_state_takes_precedence_without_merging_old_state(
-    repository, tmp_path, monkeypatch
-):
-    root = tmp_path / "state"
-    monkeypatch.setenv("XDG_STATE_HOME", str(root))
-    for name in ("haskell-harness", "lambda-harness"):
-        directory = state_directory(repository, root / name)
-        directory.mkdir(parents=True)
-        (directory / "project-context.sqlite").touch()
-    assert default_state_root(repository) == root / "lambda-harness"
-
-
-def test_explicit_state_directory_wins(repository, tmp_path, monkeypatch):
+def test_state_directory_is_resolved_before_startup(repository, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     calls = []
     monkeypatch.setattr("lambda_harness.__main__.serve", calls.append)
     explicit = tmp_path / "chosen"
-    assert main(["--repo", str(repository), "--state-dir", str(explicit)]) == 0
+    assert main(["--repo", str(repository), "--state-dir", "chosen"]) == 0
     assert calls[0].state_dir == explicit
 
 

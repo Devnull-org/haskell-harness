@@ -18,7 +18,7 @@ contacting models or running a target project's build.
 Launch the development source with:
 
 ```sh
-python -m lambda_harness --repo "/path/to/project"
+python -m lambda_harness --state-dir "/path/to/harness-state" --repo "/path/to/project"
 ```
 
 Without Nix, use `uv run --locked pytest` and `uv run --locked ruff check .` for

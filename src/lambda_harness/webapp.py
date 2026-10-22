@@ -54,10 +54,8 @@ class LocalApp:
             saved_backend if saved_backend not in {None, "auto", *self.settings.backends} else None
         )
         saved_backend = None if self.unavailable_backend else saved_backend
-        self.project_backend = args.backend or saved_backend
-        self.backend_origin = (
-            "launch" if args.backend else "project" if saved_backend else "default"
-        )
+        self.project_backend = saved_backend
+        self.backend_origin = "project" if saved_backend else "default"
         self.selected_backend = self.project_backend
         self.model_lock = threading.Lock()
         self.model_cache = {}
@@ -845,6 +843,7 @@ def serve(args):
     app = ProjectHub(args)
     server = create_server(app, args.port, phone=phone)
     print(f"Lambda Harness: http://127.0.0.1:{server.server_port}", flush=True)
+    print(f"Saved work: {args.state_dir}", flush=True)
     if args.repo:
         print(f"Initial project: {args.repo}", flush=True)
     print("Keep this process running while using the page.", flush=True)

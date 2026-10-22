@@ -1315,21 +1315,17 @@ def test_project_urls_cannot_open_another_projects_memory_or_settings(browser_ap
         assert call(f"/projects/not-this-project/{page}")[0] == 404
 
 
-def test_launch_backend_override_does_not_erase_project_preference(browser_app):
-    import copy
-
+def test_automatic_backend_choice_is_restored_after_restarting(browser_app):
     app, call, _, _ = browser_app
-    assert call("/api/backend", {"backend": "codex"})[0] == 200
-    args = copy.copy(app.args)
-    args.backend = "test"
-    overridden = LocalApp(args)
+    assert call("/api/backend", {"backend": "auto"})[0] == 200
+    app.selected_backend = "codex"
     reopened = LocalApp(app.args)
     try:
-        assert overridden.project()["backend"] == "test"
-        assert overridden.project()["backend_origin"] == "launch"
-        assert reopened.project()["backend"] == "codex"
+        assert app.state()["backend"] == "codex"
+        assert reopened.project()["backend"] == "auto"
+        assert reopened.project()["backend_origin"] == "project"
+        assert reopened.state()["backend"] == "auto"
     finally:
-        overridden.close()
         reopened.close()
 
 

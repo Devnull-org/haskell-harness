@@ -1,28 +1,10 @@
-"""Default locations, retaining old installations without moving registered worktrees."""
+"""Find user configuration, including settings saved before the product rename."""
 
 import os
 from pathlib import Path
 
-from .workspace import digest
-
 APP_DIRECTORY = "lambda-harness"
-# Compatibility only: changing existing worktree paths would break Git registrations.
 LEGACY_DIRECTORY = "haskell-harness"
-
-
-def default_state_root(repository=None):
-    root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state")))
-    if repository is None:
-        return root / APP_DIRECTORY
-    project = digest(str(Path(repository).expanduser().resolve()))[:16]
-    for name in (APP_DIRECTORY, LEGACY_DIRECTORY):
-        directory = root / name / project
-        if any(
-            (directory / file).is_file()
-            for file in ("checkpoints.sqlite", "project-context.sqlite")
-        ):
-            return root / name
-    return root / APP_DIRECTORY
 
 
 def default_config_path():

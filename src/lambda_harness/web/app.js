@@ -1103,9 +1103,7 @@ async function loadProject() {
     ? `Saved backend ${project.unavailable_backend} is unavailable. Choose a replacement for this project.`
     : project.backend_origin === "project"
       ? "Saved for this project. Automatic discovery does not change this preference."
-      : project.backend_origin === "launch"
-        ? "Initial choice from the server launcher. Launch overrides take precedence over saved preferences on restart."
-        : "Using your default configuration. Save a choice to give this project its own preference.";
+      : "Using your default configuration. Save a choice to give this project its own preference.";
 }
 async function changeProject(path, body) {
   if (submitting || state?.job?.running) return;

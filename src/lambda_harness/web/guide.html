@@ -68,10 +68,9 @@
           opens a fresh page; the browser warns if you have unsent text.
         </p>
         <p>
-          Settings saves the preferred backend for future sessions. An explicit
-          <code>--backend</code> launch override takes precedence without
-          erasing that preference. Automatic discovery picks a backend for the
-          session without changing the saved preference.
+          Settings saves the preferred backend for future sessions. Choose
+          backends and models on the website. Automatic discovery picks a
+          backend for the session without changing the saved preference.
         </p>
         <p>
           Choose <strong>General chat</strong> for an ongoing conversation: ask
@@ -282,7 +281,8 @@
           Connect Tailscale on both devices using the same account, then launch
           the harness with <code>--tailscale</code>:
         </p>
-        <pre><code>nix run --refresh github:Devnull-org/lambda-harness -- --tailscale</code></pre>
+        <pre><code>nix run --refresh github:Devnull-org/lambda-harness -- \
+  --state-dir ~/.local/state/lambda-harness --tailscale</code></pre>
         <p>
           Open the printed Phone HTTPS address in your phone's browser. It is
           also under <strong>Open on your phone</strong> in the sidebar. Add it
@@ -556,25 +556,37 @@ junit_glob = "test-reports/{package}/**/*.xml"</code></pre>
           background session even though your terminal is idle.
         </p>
         <p>To start it yourself from any directory:</p>
-        <pre><code>nix run --refresh github:Devnull-org/lambda-harness</code></pre>
+        <pre><code>nix run --refresh github:Devnull-org/lambda-harness -- \
+  --state-dir ~/.local/state/lambda-harness</code></pre>
+        <p>
+          <code>--state-dir</code> is required. Choose a persistent directory
+          outside your project checkouts and reuse it every time. It holds your
+          project list, conversations, memory, logs, and worktrees. The path
+          above is an example; if you already have saved work, use its existing
+          directory. Startup prints the resolved path. Storage is never moved or
+          selected automatically.
+        </p>
         <p>
           Open the printed URL and add a checkout from Projects. You can also
-          append <code>-- --repo "/path/to/project"</code> to open it
-          immediately. Keep this command running. Closing the browser leaves
-          work running. Ctrl+C in the server terminal stops active work;
-          submitted messages and completed steps remain saved.
+          append <code>--repo "/path/to/project"</code> to open it immediately.
+          Keep this command running. Closing the browser leaves work running.
+          Ctrl+C in the server terminal stops active work; submitted messages
+          and completed steps remain saved.
         </p>
         <p>
           From a harness clone, use
-          <code>nix run . -- --repo "/path/to/project"</code>. Nix resolves
-          <code>.</code> before reading <code>--repo</code>, so run that form
-          from the harness directory.
+          <code
+            >nix run . -- --state-dir ~/.local/state/lambda-harness --repo
+            "/path/to/project"</code
+          >. Nix resolves <code>.</code> before reading <code>--repo</code>, so
+          run that form from the harness directory.
         </p>
         <p>
           Without Nix, install Git, uv, and your chosen backend CLI, then run
           this from a harness clone:
         </p>
-        <pre><code>uv run --locked --no-dev python -m lambda_harness --repo "/path/to/project"</code></pre>
+        <pre><code>uv run --locked --no-dev python -m lambda_harness \
+  --state-dir ~/.local/state/lambda-harness --repo "/path/to/project"</code></pre>
         <p>
           Nix is optional for exploration and interviews. Code validation still
           needs the project's Nix environment.
@@ -601,8 +613,9 @@ junit_glob = "test-reports/{package}/**/*.xml"</code></pre>
             <tr>
               <td><code>--state-dir PATH</code></td>
               <td>
-                Project list, tasks, and worktrees. Defaults to the user's state
-                directory, outside all registered checkouts.
+                Required. Project list, conversations, memory, logs, and
+                worktrees. Keep it outside all registered checkouts and reuse it
+                on every launch.
               </td>
             </tr>
             <tr>

@@ -508,6 +508,28 @@ summary {
 #activity .activity-top {
   margin: 0;
 }
+#activity[data-running="true"] {
+  position: sticky;
+  top: 12px;
+  z-index: 5;
+}
+#activity .activity-top strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#activity .stop {
+  flex-shrink: 0;
+}
+#activity #log {
+  max-height: 25vh;
+  overflow: auto;
+}
+.composer-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 9px;
+}
 #activity-message {
   margin: 8px 0;
   font-size: 13px;

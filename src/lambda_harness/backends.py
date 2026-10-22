@@ -325,13 +325,19 @@ class CommandAgent:
                 f"Backend {self.name!r}: executable found; no authentication probe configured",
             )
         command = [executable if item == "{executable}" else item for item in self.backend.probe]
-        code, out, err = run_process(
-            command,
-            cwd,
-            timeout=30,
-            env=self.environment(),
-            cancel=self.cancellation.closing if self.cancellation else None,
+        scope = (
+            self.cancellation.request(kind="backend_check")
+            if self.cancellation
+            else nullcontext(None)
         )
+        with scope as cancel:
+            code, out, err = run_process(
+                command,
+                cwd,
+                timeout=30,
+                env=self.environment(),
+                cancel=cancel,
+            )
         output = out or err
         rejected = any(
             pattern.lower() in (out + err).lower() for pattern in self.backend.probe_reject_patterns

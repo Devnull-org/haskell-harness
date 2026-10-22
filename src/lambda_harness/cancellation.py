@@ -1,4 +1,4 @@
-"""Stop a model call without interrupting LangGraph's checkpoint bookkeeping."""
+"""Stop external work without interrupting LangGraph's checkpoint bookkeeping."""
 
 import signal
 import threading
@@ -8,6 +8,7 @@ from contextlib import contextmanager
 class ModelCancellation:
     def __init__(self):
         self.active = None
+        self.kind = None
         self.previous_handler = None
         self.closing = threading.Event()
 
@@ -24,10 +25,11 @@ class ModelCancellation:
         self.stop()
 
     @contextmanager
-    def request(self):
+    def request(self, *, kind="model"):
         if self.active is not None:
             raise RuntimeError("A model request is already running")
         event = threading.Event()
+        self.kind = kind
         self.active = event
         if self.closing.is_set():
             event.set()
@@ -35,6 +37,7 @@ class ModelCancellation:
             yield event
         finally:
             self.active = None
+            self.kind = None
 
     def __enter__(self):
         self.previous_handler = signal.getsignal(signal.SIGINT)

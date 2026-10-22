@@ -219,6 +219,7 @@ class LocalApp:
                 nix_flake=self.args.nix_flake,
                 timeout=self.args.check_timeout,
                 cancel=self.shutdown,
+                cancellation=self.cancellation,
             ),
             unsigned_commits=self.args.unsigned_commits,
             progress=self.progress,
@@ -276,6 +277,7 @@ class LocalApp:
             "job": job,
             "can_stop": active is not None and not active.is_set(),
             "stopping": active is not None and active.is_set(),
+            "activity_kind": self.cancellation.kind,
             "backend": self.selected_backend or self.settings.default_backend,
         }
 

@@ -89,6 +89,37 @@ def test_stopping_cannot_hide_a_direct_checkout_edit(rig):
     assert view["prompt"]["actions"] == ["retry"]
 
 
+@pytest.mark.parametrize("check_number", [1, 2, 3, 4])
+def test_stopping_implementation_checks_never_starts_repair_or_commits(rig, check_number):
+    from lambda_harness.validation import ValidationInterrupted
+
+    from .conftest import IMPLEMENTED, approve_tests
+
+    harness, agent, executor = rig
+    tests = reach_test_review(harness)
+    checks = 0
+
+    def stop_check(argv, cwd, **kwargs):
+        nonlocal checks
+        checks += 1
+        if checks == check_number:
+            raise ValidationInterrupted(argv, ProcessError("Stopped", kind="cancelled"))
+        return executor(argv, cwd, **kwargs)
+
+    harness.execute = stop_check
+    stopped = approve_tests(harness, tests)
+    assert stopped["stage"] == "validation_blocked"
+    assert stopped["prompt"]["validation"]["status"] == "stopped"
+    assert checks == check_number
+    assert [role for role, _, _ in agent.calls].count("implementer") == 1
+    worktree = Path(stopped["worktree"])
+    assert (worktree / SOURCE).read_text() == IMPLEMENTED
+    assert SOURCE in git(worktree, "diff", "--name-only")
+    assert (
+        "validated_fingerprint" not in harness.graph.get_state(harness._config("increment")).values
+    )
+
+
 def test_cancellation_stops_a_process_without_waiting_for_backend_timeout(tmp_path):
     ready = tmp_path / "ready"
     script = executable(
@@ -133,3 +164,31 @@ def test_cancelled_backend_never_returns_its_partial_proposal(tmp_path):
         with pytest.raises(AgentInterrupted):
             agent("interviewer", {"request": "Original", "messages": []}, tmp_path)
     assert signal.getsignal(signal.SIGINT) == previous
+
+
+def test_backend_authentication_check_can_be_stopped(tmp_path):
+    from lambda_harness.cancellation import ModelCancellation
+
+    ready = tmp_path / "ready"
+    script = executable(
+        tmp_path,
+        f"import time\nfrom pathlib import Path\nPath({str(ready)!r}).touch()\ntime.sleep(60)\n",
+    )
+    cancellation = ModelCancellation()
+
+    def stop_when_started():
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        cancellation.stop()
+
+    stopper = threading.Thread(target=stop_when_started)
+    stopper.start()
+    try:
+        agent = CommandAgent(Backend(command=[script], probe=[script]), cancellation=cancellation)
+        with pytest.raises(ProcessError, match="cancelled"):
+            agent.doctor(tmp_path)
+        assert cancellation.active is None
+        assert cancellation.kind is None
+    finally:
+        stopper.join(timeout=5)

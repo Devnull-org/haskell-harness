@@ -26,7 +26,7 @@ from .reports import chat_report, exploration_report, pr_description, standalone
 from .review_context import review_diff
 from .review_source import resolve_review
 from .schemas import REVIEWERS, validate_response
-from .validation import ValidationConfig, classify_validation, test_evidence
+from .validation import ValidationConfig, ValidationInterrupted, classify_validation, test_evidence
 from .validation_discovery import (
     knowledge_is_current,
     prepare_knowledge,
@@ -1223,6 +1223,7 @@ class Harness:
             state.setdefault("validation_config", self.validation.model_dump())
         )
         commands = configuration.commands(state["specification"]["packages"])
+        state.pop("validated_fingerprint", None)
         results = {}
         for name, command in commands:
             self.progress(f"{state['task_id']}: {' '.join(command)}")
@@ -1231,13 +1232,41 @@ class Harness:
                 if name.startswith("test:")
                 else {}
             )
-            results[name] = self.execute(command, workspace.path, **options)
+            stopped = False
+            try:
+                results[name] = self.execute(command, workspace.path, **options)
+            except ValidationInterrupted as error:
+                results[name] = error.result
+                stopped = True
             save_json(
                 Path(state["directory"])
                 / "logs"
                 / f"{state['seq']:04d}-{name.replace(':', '-')}.json",
                 results[name],
             )
+            if stopped:
+                validation = {
+                    "status": "stopped",
+                    "phase": state["phase"],
+                    "role": state["role"],
+                    "revision": workspace.revision,
+                    "log_directory": str(Path(state["directory"]) / "logs"),
+                    "stopped_command": name,
+                }
+                state["validation"] = validation
+                state["validations"].append(validation)
+                save_json(Path(state["report_directory"]) / "validation.json", state["validations"])
+                self._gate(
+                    state,
+                    "validation_blocked",
+                    {
+                        "summary": "Checks stopped. Your task and changes are saved.",
+                        "guidance": "Use Recheck to run validation again when you are ready.",
+                        "validation": validation,
+                    },
+                    ["recheck"],
+                )
+                return
             if name == "lint":
                 lint_fingerprint = workspace.fingerprint()
         if workspace.fingerprint() != lint_fingerprint:

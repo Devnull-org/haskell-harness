@@ -1360,6 +1360,88 @@ test("a thinking indicator appears while sending and stays until the response fi
   assert.match(ui.elements.get("history").textContent, /The answer/);
 });
 
+for (const kind of ["model", "validation"]) {
+  test(`stop ${kind} is available beside Send and preserves the unsent draft`, async () => {
+    const current = snapshot();
+    current.job = {
+      id: "working",
+      task_id: "example",
+      running: true,
+      operation: "respond",
+      log: [],
+    };
+    current.can_stop = true;
+    current.activity_kind = kind;
+    let finishStop;
+    let requests = 0;
+    const ui = await app({
+      fetcher: async (path) => {
+        if (path === "/api/stop") {
+          requests++;
+          return new Promise((resolve) => {
+            finishStop = resolve;
+          });
+        }
+        return response(current);
+      },
+    });
+    ui.run("render()");
+    const stop = ui.elements.get("composer-stop");
+    const topStop = ui.elements.get("stop");
+    assert.equal(stop.hidden, false);
+    assert.equal(stop.disabled, false);
+    assert.match(
+      stop.textContent,
+      kind === "model" ? /Stop model/ : /Stop checks/,
+    );
+    assert.equal(ui.elements.get("activity").dataset.running, "true");
+    ui.elements.get("message").value = "Keep my revised instructions";
+    const pending = stop.onclick();
+    assert.equal(stop.disabled, true);
+    assert.equal(topStop.disabled, true);
+    assert.equal(stop.textContent, "Stopping…");
+    await topStop.onclick();
+    assert.equal(requests, 1);
+    current.can_stop = false;
+    current.stopping = true;
+    finishStop(response({ stopping: true }));
+    await pending;
+    assert.equal(stop.disabled, true);
+    assert.equal(
+      ui.elements.get("message").value,
+      "Keep my revised instructions",
+    );
+    current.job.running = false;
+    current.stopping = false;
+    await ui.run("refresh()");
+    assert.equal(stop.hidden, true);
+    assert.equal(topStop.hidden, true);
+    assert.equal(ui.elements.get("send").disabled, false);
+    assert.equal(
+      ui.elements.get("message").value,
+      "Keep my revised instructions",
+    );
+  });
+}
+
+test("stop remains available for the running task when viewing another conversation", async () => {
+  const current = snapshot();
+  current.job = {
+    id: "other",
+    task_id: "other task",
+    running: true,
+    operation: "respond",
+    log: [],
+  };
+  current.can_stop = true;
+  const ui = await app({ fetcher: async () => response(current) });
+  ui.run("render()");
+  assert.equal(ui.elements.get("composer-stop").hidden, true);
+  assert.equal(ui.elements.get("stop").hidden, false);
+  assert.equal(ui.elements.get("stop").disabled, false);
+  assert.match(ui.elements.get("activity-label").textContent, /other task/);
+});
+
 test("thinking status handles connection loss, other tasks, and backend errors", async () => {
   const current = snapshot();
   current.job = {

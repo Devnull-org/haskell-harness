@@ -234,6 +234,10 @@ Its transcript is also saved as `chat.md` in the report directory.
 
 After sending a question, a **Thinking…** indicator appears in the conversation
 until the response arrives. It also shows sending, stopping, or connection loss.
+Use **Stop model** beside **Send** or in the pinned activity panel to interrupt it.
+Your conversation is saved; edit your instructions or retry when ready. During
+validation, the same button becomes **Stop checks**. This saves partial logs and
+pauses the task without triggering repairs. Use **Recheck** to run the checks again.
 
 All task conversations support model selection, including explorations, interviews,
 reviews, and the agent workshop. Use **Model for this reply** when starting a task,

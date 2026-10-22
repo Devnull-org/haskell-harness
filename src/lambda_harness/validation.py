@@ -2,13 +2,14 @@
 
 import re
 import time
+from contextlib import nullcontext
 from pathlib import Path, PurePosixPath
 from string import Formatter
 from xml.etree import ElementTree
 
 from pydantic import Field, model_validator
 
-from .process import run_process
+from .process import ProcessError, run_process
 from .schemas import Record
 
 
@@ -178,16 +179,42 @@ def classify_validation(results, expected_failures, *, phase, allow_cabal=False)
     return "expected_red" if results["nix"]["exit_code"] == 0 else "needs_red_review"
 
 
+class ValidationInterrupted(RuntimeError):
+    """Keep partial check output without treating a stop as a failed test."""
+
+    def __init__(self, argv, error):
+        super().__init__("Validation stopped")
+        self.result = {
+            "argv": argv,
+            "exit_code": None,
+            "stdout": error.stdout,
+            "stderr": error.stderr,
+            "cancelled": True,
+        }
+
+
 class LocalExecutor:
-    def __init__(self, *, nix_flake=None, timeout=3600, cancel=None):
+    def __init__(self, *, nix_flake=None, timeout=3600, cancel=None, cancellation=None):
         self.nix_flake = str(Path(nix_flake).expanduser().resolve()) if nix_flake else None
         self.timeout = timeout
         self.cancel = cancel
+        self.cancellation = cancellation
 
     def __call__(self, argv, cwd, *, report_glob=None):
         actual = ["nix", "develop", self.nix_flake or str(cwd), "--command", *argv]
         started = time.time_ns()
-        code, stdout, stderr = run_process(actual, cwd, timeout=self.timeout, cancel=self.cancel)
+        scope = (
+            self.cancellation.request(kind="validation")
+            if self.cancellation
+            else nullcontext(self.cancel)
+        )
+        try:
+            with scope as cancel:
+                code, stdout, stderr = run_process(actual, cwd, timeout=self.timeout, cancel=cancel)
+        except ProcessError as error:
+            if error.kind == "cancelled":
+                raise ValidationInterrupted(actual, error) from error
+            raise
         reports = []
         if report_glob:
             for path in sorted(cwd.glob(report_glob)):

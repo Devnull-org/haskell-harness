@@ -16,6 +16,7 @@ let selected = null,
   historyTask = null,
   pendingMessage = null,
   submitting = false,
+  stopPending = false,
   refreshId = 0,
   connectionError = null;
 let memoryLoaded = false,
@@ -559,7 +560,20 @@ function render() {
   renderModelPicker();
   if (state.task) renderTask(state.task, busy);
   $("activity").hidden = page !== "workspace" || !state.job;
+  $("activity").dataset.running = String(running);
   $("activity-spinner").hidden = !running || !!connectionError;
+  $("composer-stop").hidden = !running || state.job.task_id !== selected;
+  for (const id of ["stop", "composer-stop"]) {
+    $(id).disabled = !state.can_stop || stopPending || !!connectionError;
+    $(id).textContent =
+      state.stopping || stopPending
+        ? "Stopping…"
+        : state.activity_kind === "validation"
+          ? "■ Stop checks"
+          : state.job?.operation === "review_action"
+            ? "■ Stop action"
+            : "■ Stop model";
+  }
   if (state.job) {
     const job = state.job;
     $("activity-label").textContent = running
@@ -570,14 +584,6 @@ function render() {
     $("activity-message").textContent = job.log.at(-1) || "Preparing…";
     $("log").textContent = job.log.join("\n");
     $("stop").hidden = !running;
-    $("stop").disabled = !state.can_stop;
-    $("stop").textContent = state.stopping
-      ? "Stopping…"
-      : state.can_stop
-        ? job.operation === "review_action"
-          ? "■ Stop action"
-          : "■ Stop model"
-        : "Preparing / checking";
     if (!running && seenJob !== job.id) {
       seenJob = job.id;
       if (job.result?.stage === "agent_ready") guard(loadAgents);
@@ -624,8 +630,9 @@ function responseProgress(taskId) {
   const working = state?.job?.running && state.job.task_id === taskId;
   if (!sending && !working) return null;
   if (connectionError) return "Connection lost · reconnecting…";
-  if (state.stopping) return "Stopping…";
+  if (state.stopping || stopPending) return "Stopping…";
   if (!working) return "Sending…";
+  if (state.activity_kind === "validation") return "Running checks…";
   return state.job.operation === "review_action" ? "Working…" : "Thinking…";
 }
 function renderHistory(task) {
@@ -1660,12 +1667,19 @@ $("edit-previous").onclick = () => {
   $("message").value = state.task.prompt.draft;
   $("message").focus();
 };
-$("stop").onclick = () =>
-  guard(async () => {
-    $("stop").disabled = true;
+async function stopWork() {
+  if (stopPending || !state?.can_stop) return;
+  stopPending = true;
+  render();
+  try {
     await api("/api/stop", {});
     await refresh();
-  });
+  } finally {
+    stopPending = false;
+    render();
+  }
+}
+$("stop").onclick = $("composer-stop").onclick = () => guard(stopWork);
 $("resume").onclick = () =>
   guard(() => command({ command: "resume", task_id: selected }));
 $("choose-backend").onclick = () =>

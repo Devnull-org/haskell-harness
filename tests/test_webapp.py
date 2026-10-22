@@ -564,6 +564,79 @@ def test_browser_stop_edit_resume_and_approval_use_existing_workflow(browser_app
     assert len(calls.read_text().splitlines()) == 2
 
 
+def test_browser_can_stop_validation_keep_changes_and_recheck(browser_app, monkeypatch):
+    from lambda_harness.process import run_process
+
+    from .conftest import reach_test_review
+
+    app, call, calls, ready = browser_app
+    agent, executor = ScriptedAgent(), ScriptedExecutor()
+    harness = app.harness(agent)
+    harness.execute = executor
+    try:
+        original = reach_test_review(harness)
+        baseline = git(Path(original["worktree"]), "rev-parse", "HEAD")
+    finally:
+        harness.close()
+    before_calls = list(agent.calls)
+    script = executable(
+        calls.parent,
+        "import os, time\nfrom pathlib import Path\n"
+        f"Path({str(ready)!r}).write_text(str(os.getpid()))\n"
+        "print('partial check output', flush=True)\ntime.sleep(60)\n",
+    )
+    commands = []
+
+    def check(argv, cwd, **kwargs):
+        commands.append(argv)
+        return run_process([script], cwd, **kwargs)
+
+    monkeypatch.setattr("lambda_harness.validation.run_process", check)
+    monkeypatch.setattr("lambda_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", lambda *a: "test")
+    assert (
+        call("/api/command", {"command": "respond", "task_id": "increment", "action": "recheck"})[0]
+        == 202
+    )
+    wait_for(ready.exists)
+    running = call("/api/state?task=increment")[1]
+    assert running["can_stop"] and running["activity_kind"] == "validation"
+    assert call("/api/stop", {})[1]["stopping"]
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    stopped = call("/api/state?task=increment")[1]
+    assert stopped["task"]["stage"] == "validation_blocked"
+    assert "recheck" in stopped["task"]["prompt"]["actions"]
+    assert "Checks stopped" in stopped["task"]["prompt"]["summary"]
+    assert stopped["task"]["prompt"]["validation"]["status"] == "stopped"
+    assert not stopped["can_stop"] and not stopped["stopping"]
+    assert stopped["activity_kind"] is None
+    assert len(commands) == 1  # No further checks or repair calls after Stop.
+    assert agent.calls == before_calls
+    assert git(Path(original["worktree"]), "rev-parse", "HEAD") == baseline
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(ready.read_text()), 0)
+    logs = Path(stopped["task"]["prompt"]["validation"]["log_directory"])
+    interrupted = [json.loads(path.read_text()) for path in logs.glob("*.json")]
+    interrupted = [result for result in interrupted if result.get("cancelled")]
+    assert len(interrupted) == 1
+    assert interrupted[0]["exit_code"] is None
+    assert "partial check output" in interrupted[0]["stdout"]
+    harness = app.harness(agent)
+    harness.execute = executor
+    try:
+        assert (
+            "validated_fingerprint"
+            not in harness.graph.get_state(harness._config("increment")).values
+        )
+        assert harness.resume("increment")["stage"] == "validation_blocked"
+        rechecked = harness.respond("increment", "recheck")
+        assert rechecked["stage"] == "test_review"
+        assert rechecked["prompt"]["diff"] == original["prompt"]["diff"]
+        assert agent.calls == before_calls
+    finally:
+        harness.close()
+
+
 def test_browser_rejects_foreign_sites_and_unauthenticated_api_access(browser_app):
     _, call, _, _ = browser_app
     assert call("/api/state", authenticated=False)[0] == 403

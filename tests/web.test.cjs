@@ -1045,6 +1045,55 @@ test("general chat submits a chat task and renders plain conversation without ap
   );
 });
 
+test("the message action picker only appears for a choice and sends the active action", async () => {
+  const current = snapshot({
+    ...task(),
+    stage: "agent_error",
+    prompt: { actions: ["retry"] },
+  });
+  const posted = [];
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path === "/api/command") posted.push(JSON.parse(options.body));
+      return response(current);
+    },
+  });
+  const picker = ui.elements.get("message-action");
+  assert.equal(picker.hidden, true);
+  assert.equal(ui.elements.get("send").disabled, true);
+
+  current.task.stage = "exploration";
+  current.task.prompt = { actions: ["question", "done"] };
+  await ui.run("refresh()");
+  assert.equal(picker.hidden, true);
+  assert.equal(picker.value, "question");
+  assert.equal(ui.elements.get("send").disabled, false);
+  ui.elements.get("message").value = "What are the alternatives?";
+  ui.elements.get("message").onkeydown({
+    key: "Enter",
+    ctrlKey: true,
+    preventDefault() {},
+  });
+  await settle();
+  assert.equal(posted[0].action, "question");
+
+  current.task.stage = "specification_review";
+  current.task.prompt = { actions: ["approve", "question", "revise"] };
+  await ui.run("refresh()");
+  assert.equal(picker.hidden, false);
+  assert.deepEqual(
+    picker.children.map((option) => option.textContent),
+    ["Ask a question", "Revise instructions"],
+  );
+  picker.value = "revise";
+  await ui.run("refresh()");
+  assert.equal(picker.value, "revise");
+  ui.elements.get("message").value = "Keep the existing interface";
+  ui.elements.get("send").click();
+  await settle();
+  assert.equal(posted[1].action, "revise");
+});
+
 test("standalone review history shows findings once and keeps the finish action clear", async () => {
   const ui = await app();
   ui.run(`state.task.task_kind = "review";

@@ -764,6 +764,7 @@ function renderHistory(task) {
 function renderTask(task, running) {
   const prompt = task.prompt || {},
     actions = prompt.actions || [],
+    messageActions = actions.filter((action) => textActions.includes(action)),
     key = JSON.stringify([
       task.task_id,
       task.stage,
@@ -910,11 +911,12 @@ function renderTask(task, running) {
     section(packet, "Feedback", prompt.feedback);
     packet.hidden = !packet.children.length;
     $("message-action").replaceChildren();
-    for (const action of actions.filter((a) => textActions.includes(a))) {
+    for (const action of messageActions) {
       const option = el("option", labels[action]);
       option.value = action;
       $("message-action").append(option);
     }
+    $("message-action").value = messageActions[0] || "";
     $("findings").replaceChildren();
     for (const finding of prompt.findings || []) {
       const label = el("label"),
@@ -934,9 +936,9 @@ function renderTask(task, running) {
   $("message").placeholder = chatting
     ? "Ask a question or continue the conversation."
     : "Ask a follow-up or describe what should change.";
-  $("message-action").hidden = chatting;
+  $("message-action").hidden = messageActions.length < 2;
   $("message").disabled = false;
-  $("send").disabled = running || !actions.some((a) => textActions.includes(a));
+  $("send").disabled = running || !messageActions.length;
   $("message-action").disabled = running;
   $("edit-previous").hidden = !prompt.draft;
   $("edit-previous").disabled = running;

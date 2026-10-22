@@ -107,8 +107,13 @@ def test_saved_response_can_restore_the_interview_without_repeating_the_answer(r
     saved = harness.state_dir / "recover/backend-responses/0003-interviewer/stdout.txt"
 
     def replay(role, context, cwd):
-        assert context["messages"] == [
-            {"stage": "interview", "action": "answer", "text": "Negative integers too."}
+        assert [message for message in context["messages"] if message.get("text")] == [
+            {
+                "stage": "interview",
+                "action": "answer",
+                "text": "Negative integers too.",
+                "agent_role": "interviewer",
+            }
         ]
         result = decode_response(decode_response(saved.read_text())["result"])
         return validate_response(role, context, result)

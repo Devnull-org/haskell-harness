@@ -207,6 +207,22 @@ your project task list. **Save to repository** does not automatically assign a
 new agent. Assignments are personal to this project; sharing definitions does not
 force teammates to use them.
 
+### Fresh context for each agent
+
+Each workflow role gets its own conversation. Agents share the task request,
+requirements, project memory, code, approved tests, and recorded check results.
+They do not receive other agents' discussions, exploration conclusions, or patch
+summaries. Findings you select for repair are passed to the coding agents.
+
+Follow-up questions keep that agent's own conversation. Code, security, and
+documentation reviewers cannot see one another's findings in their prompts; a
+new review pass also leaves out earlier review conclusions. The website retains
+the complete history for you. Older answers without a recorded author remain
+visible but are left out of agent prompts when their owner cannot be determined.
+
+This separates prompt context, not filesystem access. Agents still inspect the
+same task worktree and are instructed not to look up other agents' reports.
+
 ## Choose a starting point
 
 **General chat** is an ongoing conversation for questions, explanations, or brainstorming.

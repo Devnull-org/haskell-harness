@@ -14,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
+from .agent_context import CODING_ROLES, NODE_ROLES, messages_for_agent
 from .agent_library import AVATARS, ROLES, AgentLibrary
 from .cleanup import cleanup_plan, remove_resources
 from .failures import AgentInterrupted, BackendError, BackendResponseError
@@ -685,11 +686,12 @@ class Harness:
         state["next"] = "reply"
         return state
 
-    def _context(self, state, **extra):
+    def _context(self, state, role, **extra):
+        messages = messages_for_agent(state, role, explain=extra.get("intent") == "explain")
         if state.get("task_kind") == "agent_builder":
             return {
                 "request": state["request"],
-                "messages": state["messages"],
+                "messages": messages,
                 "definition": state.get("draft_definition"),
                 "roles": ROLES,
                 "coding_toolchains": ["haskell"],
@@ -703,17 +705,22 @@ class Harness:
             "test_expectation": state.get("test_expectation", "red"),
             "review_source": state.get("review_source"),
             "specification": state.get("specification"),
-            "messages": state["messages"],
+            "messages": messages,
             "revision": workspace.revision,
             "base_revision": state["base"],
             "approved_tests": state.get("approved_tests", {}),
-            "selected_findings": state.get("selected_findings", []),
             "validation_config": state.get("validation_config", self.validation.model_dump()),
             "patches": [
-                {key: patch[key] for key in ("revision", "role", "summary")}
+                {
+                    "revision": patch["revision"],
+                    "role": patch["role"],
+                    **({"summary": patch["summary"]} if patch["role"] == role else {}),
+                }
                 for patch in state["commits"]
             ],
         }
+        if role in CODING_ROLES:
+            context["selected_findings"] = state.get("selected_findings", [])
         if state.get("task_kind") == "review":
             context.update(
                 review_diff(workspace, state["review_source"], state["report_directory"])
@@ -726,12 +733,12 @@ class Harness:
             )
         if state.get("validation"):
             context["validation"] = state["validation"]
-        if state.get("exploration"):
+        if role == "explorer" and state.get("exploration"):
             context["exploration"] = state["exploration"]
         return {**context, **extra}
 
     def _ask(self, state, role, **extra):
-        context = self._context(state, **extra)
+        context = self._context(state, role, **extra)
         if profile := state.get("agent_profiles", {}).get(role):
             context["agent_profile"] = profile
         workspace = self._workspace(state)
@@ -757,7 +764,7 @@ class Harness:
                     latest = next(
                         (
                             message["text"]
-                            for message in reversed(state["messages"])
+                            for message in reversed(context["messages"])
                             if message.get("text")
                         ),
                         state["request"],
@@ -1325,6 +1332,7 @@ class Harness:
                         "stage": stage,
                         "action": "revise",
                         "text": response["text"],
+                        "agent_role": NODE_ROLES.get(state["retry_node"], state.get("role")),
                         "replaces_interrupted_instructions": state["interrupted_draft"],
                     }
                 )
@@ -1367,6 +1375,7 @@ class Harness:
                 )
             elif action == "question":
                 answers = []
+                answers_by_role = {}
                 for role in state["standalone_reviews"]:
                     answer = self._ask(
                         state,
@@ -1375,9 +1384,16 @@ class Harness:
                         question=response["text"],
                         review_packet=state["standalone_reviews"][role],
                     )
+                    answers_by_role[role] = answer
                     answers.append(f"{role.replace('_', ' ').capitalize()}: {answer['answer']}")
                 answer = "\n\n".join(answers)
-                state["messages"].append({"question": response["text"], "answer": answer})
+                state["messages"].append(
+                    {
+                        "question": response["text"],
+                        "answer": answer,
+                        "answers_by_role": answers_by_role,
+                    }
+                )
                 self._gate(
                     state,
                     stage,
@@ -1410,9 +1426,9 @@ class Harness:
                 role,
                 intent="explain",
                 question=response["text"],
-                review_packet=state["prompt"],
+                review_packet=state[role] if stage == "review_findings" else state["prompt"],
             )
-            state["messages"].append({"question": response["text"], **answer})
+            state["messages"].append({"agent_role": role, "question": response["text"], **answer})
             self._gate(state, stage, {**state["prompt"], **answer}, state["prompt"]["actions"])
         elif action == "approve":
             state["next"] = (
@@ -1433,7 +1449,12 @@ class Harness:
                 state.update(state.pop("failed_reply"))
             state["next"] = state["retry_node"]
         elif action == "reject":
-            state["messages"].append({"rejected_test_change": state["proposed_test_change"]})
+            state["messages"].append(
+                {
+                    "agent_role": state["role"],
+                    "rejected_test_change": state["proposed_test_change"],
+                }
+            )
             state["attempts"] = 0
             state["next"] = "implement" if state["role"] == "implementer" else "refactor"
         elif stage == "walkthrough":
@@ -1490,9 +1511,6 @@ class Harness:
                         state, next_stage, "Fix selected. Start the indicated phase to address it."
                     )
         else:
-            state["messages"].append(
-                {"stage": stage, "action": action, "text": response.get("text", "")}
-            )
             state["attempts"] = 0
             if stage in {"interview", "specification_review"}:
                 state["next"] = "interview"
@@ -1500,11 +1518,19 @@ class Harness:
                 stage in {"test_review", "test_change_review"} or state.get("role") == "test_author"
             ):
                 state["next"] = "tests"
-                if stage == "test_change_review" and state["mode"] == "phased":
-                    self._phase_complete(
-                        state,
-                        "tests_requested",
-                        "Test revision requested. Start the tests phase to discuss it.",
-                    )
             else:
                 state["next"] = "implement" if state["role"] == "implementer" else "refactor"
+            state["messages"].append(
+                {
+                    "stage": stage,
+                    "action": action,
+                    "text": response.get("text", ""),
+                    "agent_role": NODE_ROLES[state["next"]],
+                }
+            )
+            if stage == "test_change_review" and state["mode"] == "phased":
+                self._phase_complete(
+                    state,
+                    "tests_requested",
+                    "Test revision requested. Start the tests phase to discuss it.",
+                )

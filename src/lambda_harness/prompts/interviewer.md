@@ -14,6 +14,6 @@ Do not invent answers, silently accept assumptions, or begin implementation plan
 instead of clarifying required behavior. A revised specification needs fresh approval.
 
 If intent=implementation_interview, the developer has explicitly started a new
-requirements interview after exploration. Use the exploration as background and
+requirements interview after exploration. Independently inspect the code and
 ask what, if anything, they want implemented. A research specification or analysis
 does not establish the implementation scope or approve tests or code.

@@ -81,7 +81,7 @@ def test_existing_approved_interview_can_run_exploration_with_its_scope_and_cont
     role, context, cwd = agent.calls[-1]
     assert role == "explorer"
     assert context["specification"] == SPECIFICATION
-    assert context["messages"][0]["text"] == "Only explore validation before application."
+    assert context["messages"] == []
     assert context["project_context"]
     assert cwd == Path(approved["worktree"])
     assert not executor.calls
@@ -117,7 +117,8 @@ def test_coding_after_research_requires_new_interview_and_test_approval(rig):
     view = harness.run_phase("research", "interview")
     assert view["stage"] == "specification_review"
     assert agent.calls[-1][1]["intent"] == "implementation_interview"
-    assert agent.calls[-1][1]["exploration"]["analysis"] == ANALYSIS["analysis"]
+    assert "exploration" not in agent.calls[-1][1]
+    assert agent.calls[-1][1]["messages"] == []
     assert not executor.calls
     with pytest.raises(ValueError, match="pending"):
         harness.run_phase("research", "tests")

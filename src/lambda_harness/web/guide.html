@@ -325,6 +325,28 @@
           permissions.
         </p>
       </section>
+      <section class="panel">
+        <h2>Fresh context for each agent</h2>
+        <p>
+          Agents share the task request, requirements, project memory, code,
+          approved tests, and recorded check results. Each role gets its own
+          conversation, without other agents' discussions, exploration
+          conclusions, or patch summaries. Findings you select for repair are
+          passed to the coding agents.
+        </p>
+        <p>
+          Follow-up questions keep that agent's own conversation. Reviewers do
+          not receive one another's findings; a new review pass also leaves out
+          earlier review conclusions. Your complete history stays visible here.
+          Older answers without a recorded author stay visible but are left out
+          of prompts when their owner cannot be determined.
+        </p>
+        <p>
+          This separates prompt context, not filesystem access. Agents still
+          inspect the same task worktree and are instructed not to look up other
+          agents' reports.
+        </p>
+      </section>
       <section id="context" class="panel">
         <h2>Project memory</h2>
         <p>

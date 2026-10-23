@@ -755,7 +755,10 @@ def test_browser_creates_and_deletes_tasks_with_spaces(browser_app, monkeypatch)
     state = call("/api/state?task=" + quote(name))[1]
     assert state["job"]["error"] is None, state["job"]
     assert state["task"]["task_id"] == name
-    assert state["tasks"] == [{"task_id": name, "stage": "specification_review"}]
+    assert state["tasks"] == [
+        {"task_id": name, "stage": "specification_review", "outcome": state["task"]["outcome"]}
+    ]
+    assert state["task"]["outcome"]["kind"] == "waiting"
     code, error = call(
         "/api/command", {"command": "start", "task_id": "../Escape", "request": "Invalid"}
     )
@@ -1481,3 +1484,58 @@ def test_blocked_validation_emits_stable_attention_notification(browser_app, rep
         assert app.state()["tasks"][0]["attention_request"] == attention
     finally:
         harness.close()
+
+
+def test_browser_automatic_execution_stops_on_error_and_accepts_selected_repair(
+    browser_app, monkeypatch
+):
+    from .test_phases import approved_tests
+
+    app, call, _, _ = browser_app
+    agent, executor = ScriptedAgent(), ScriptedExecutor()
+    monkeypatch.setattr("lambda_harness.webapp.RoutedAgent", lambda *a, **kw: agent)
+    monkeypatch.setattr("lambda_harness.webapp.select_backend", lambda *a: "test")
+    monkeypatch.setattr("lambda_harness.webapp.LocalExecutor", lambda **kw: executor)
+    harness = app.harness(agent)
+    try:
+        approved_tests(harness)
+    finally:
+        harness.close()
+    executor.lint_error = True
+    assert (
+        call(
+            "/api/command",
+            {"command": "run", "task_id": "task", "phase": "implement", "automatic": True},
+        )[0]
+        == 202
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    state = call("/api/state?task=task")[1]
+    assert state["job"]["error"] is None
+    assert state["task"]["outcome"]["kind"] == "error"
+    assert state["task"]["mode"] == "full"
+    assert [r for r, _, _ in agent.calls].count("implementer") == 1
+    executor.lint_error = False
+    assert (
+        call(
+            "/api/command",
+            {"command": "respond", "task_id": "task", "action": "repair", "automatic": False},
+        )[0]
+        == 202
+    )
+    wait_for(lambda: not call("/api/state")[1]["job"]["running"])
+    state = call("/api/state?task=task")[1]
+    assert state["task"]["stage"] == "implementation_ready"
+    assert state["task"]["mode"] == "phased"
+    assert state["task"]["outcome"]["kind"] == "success"
+    assert "refactorer" not in [r for r, _, _ in agent.calls]
+
+
+def test_browser_rejects_invalid_automatic_choice(browser_app):
+    _, call, _, _ = browser_app
+    code, response = call(
+        "/api/command",
+        {"command": "run", "task_id": "task", "phase": "implement", "automatic": "yes"},
+    )
+    assert code == 400
+    assert "Automatic" in response["error"]

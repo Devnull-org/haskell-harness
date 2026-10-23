@@ -14,7 +14,8 @@ def blocked_implementation(rig, repository):
     executor.lint_error = True
     view = approve(harness, view)
     assert view["stage"] == "validation_blocked"
-    assert harness._state("task")["attempts"] == harness.max_repair_rounds
+    expected_attempts = 1 if harness.pause_on_error else harness.max_repair_rounds
+    assert harness._state("task")["attempts"] == expected_attempts
     return view
 
 

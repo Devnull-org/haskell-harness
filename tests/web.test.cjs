@@ -2804,3 +2804,92 @@ test("blocked validation rings the attention bell once", async () => {
   await ui.run("refresh()");
   assert.equal(sounds.length, 1);
 });
+
+test("task status distinguishes a saved failure, running work, and success", async () => {
+  const current = snapshot({
+    ...task(),
+    outcome: {
+      kind: "error",
+      title: "Stopped: action needed",
+      detail: "Validation failed: build",
+      guidance: "Choose a recovery action.",
+    },
+  });
+  const ui = await app({ fetcher: async () => response(current) });
+  assert.match(
+    ui.elements.get("task-outcome").textContent,
+    /Validation failed: build/,
+  );
+  assert.equal(ui.elements.get("task-outcome").dataset.kind, "error");
+  current.job = {
+    id: "run",
+    task_id: "example",
+    running: true,
+    log: ["Checking build"],
+  };
+  await ui.run("refresh()");
+  assert.match(ui.elements.get("task-outcome").textContent, /Working/);
+  assert.doesNotMatch(
+    ui.elements.get("task-outcome").textContent,
+    /Validation failed/,
+  );
+  current.task.outcome = {
+    kind: "success",
+    title: "Step complete",
+    detail: "Implementation complete and validated.",
+  };
+  current.job = { ...current.job, running: false, result: current.task };
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("task-outcome").dataset.kind, "success");
+  assert.match(
+    ui.elements.get("activity-message").textContent,
+    /Implementation complete/,
+  );
+});
+
+test("automatic choice survives polling and reaches phase and recovery commands", async () => {
+  const current = snapshot({
+    ...task(),
+    mode: "phased",
+    prompt: { actions: ["repair"], available_phases: ["implement"] },
+  });
+  const posted = [];
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path === "/api/command") {
+        posted.push(JSON.parse(options.body));
+        return response({});
+      }
+      return response(current);
+    },
+  });
+  const picker = ui.elements.get("execution-mode");
+  picker.value = "full";
+  picker.onchange();
+  await ui.run("refresh()");
+  assert.equal(picker.value, "full");
+  await ui.elements.get("phases").children[0].onclick();
+  assert.equal(posted[0].automatic, true);
+  await ui.run('respond("repair")');
+  assert.equal(posted[1].automatic, true);
+  picker.value = "phased";
+  picker.onchange();
+  await ui.run('respond("repair")');
+  assert.equal(posted[2].automatic, false);
+});
+
+test("saved automatic mode is restored without treating a mode change as a command", async () => {
+  const current = snapshot({ ...task(), mode: "full" });
+  let commands = 0;
+  const ui = await app({
+    fetcher: async (path) => {
+      if (path === "/api/command") commands++;
+      return response(current);
+    },
+  });
+  const picker = ui.elements.get("execution-mode");
+  assert.equal(picker.value, "full");
+  picker.value = "phased";
+  picker.onchange();
+  assert.equal(commands, 0);
+});

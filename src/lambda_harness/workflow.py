@@ -73,6 +73,7 @@ class Harness:
         progress=None,
         validation=None,
         agent_repository=None,
+        pause_on_error=False,
     ):
         self.repository = Path(repository).expanduser().resolve()
         if Path(git(self.repository, "rev-parse", "--show-toplevel")).resolve() != self.repository:
@@ -83,6 +84,7 @@ class Harness:
         self.agents = AgentLibrary(Path(state_dir) / "agents", agent_repository)
         self.agent, self.execute = agent, execute
         self.max_repair_rounds = max(1, max_repair_rounds)
+        self.pause_on_error = pause_on_error
         self.unsigned_commits = unsigned_commits
         self.progress = progress or (lambda message: None)
         self.validation = validation or ValidationConfig()
@@ -389,8 +391,10 @@ class Harness:
                 state = self._state(task_id)
             return self._view(state)
 
-    def run_phase(self, task_id, phase):
+    def run_phase(self, task_id, phase, *, automatic=False):
         """Start one eligible phase from a saved boundary, never bypass a pending gate."""
+        if not isinstance(automatic, bool):
+            raise ValueError("Automatic must be enabled or disabled")
         with self._lock():
             state = copy.deepcopy(self._state(task_id))
             config = self._config(task_id)
@@ -408,7 +412,8 @@ class Harness:
                     "Checkout changed since the completed phase; restore the saved revision "
                     "and files, or start a new task for the changed checkout"
                 )
-            state["mode"], state["selected_phase"] = "phased", phase
+            state["mode"] = "full" if automatic else "phased"
+            state["selected_phase"] = phase
             if phase == "interview":
                 state.pop("specification", None)
             state["next"] = "worktree" if phase == "tests" else PHASE_NODES[phase]
@@ -444,13 +449,15 @@ class Harness:
             return self._view(self._state(task_id))
 
     def respond(self, task_id, action, **fields):
+        if "automatic" in fields and not isinstance(fields["automatic"], bool):
+            raise ValueError("Automatic must be enabled or disabled")
         with self._lock():
             state = self._state(task_id)
             actions = list(state.get("prompt", {}).get("actions", []))
             if self._can_choose_phase(state):
                 actions.append("choose_phase")
             if self._can_discuss_implementation(state):
-                actions.append("question")
+                actions.extend(["question", "repair"])
             if state["stage"] == "test_change_review":
                 actions.extend(
                     [
@@ -594,6 +601,7 @@ class Harness:
             for key in (
                 "task_id",
                 "stage",
+                "mode",
                 "prompt",
                 "worktree",
                 "base",
@@ -654,7 +662,7 @@ class Harness:
                 **self._validation_feedback(state),
                 **view["prompt"],
                 "summary": "Implementation needs attention",
-                "actions": list(dict.fromkeys(["question", *view["prompt"]["actions"]])),
+                "actions": list(dict.fromkeys(["question", "repair", *view["prompt"]["actions"]])),
             }
         if self._can_choose_phase(state):
             view["prompt"] = {
@@ -667,7 +675,56 @@ class Harness:
             }
         if actions := self._review_actions(state):
             view["review_actions"] = actions
+        view["outcome"] = self._outcome(state, view["prompt"])
         return view
+
+    @staticmethod
+    def _outcome(state, prompt):
+        """Report saved workflow evidence without asking a model to invent a status."""
+        stage = state["stage"]
+        errors = {"backend_blocked", "agent_error", "validation_blocked"}
+        completed = {"ready", "review_complete", "tests_complete", "agent_ready"}
+        if stage == "validation_blocked" and state.get("validation", {}).get("status") == "stopped":
+            kind, title = "paused", "Checks stopped"
+            detail = "Validation was interrupted. The changes are saved but are not yet validated."
+            guidance = "Run checks again or give the agent new instructions."
+        elif stage in errors:
+            kind, title = "error", "Stopped: action needed"
+            detail = prompt.get("error") or prompt.get("summary") or "The last step failed."
+            if stage == "validation_blocked":
+                validation = state.get("validation", {})
+                failed = [
+                    name
+                    for name, result in validation.get("commands", {}).items()
+                    if result.get("exit_code") != 0
+                ]
+                detail = "Validation failed" + (": " + ", ".join(failed) if failed else ".")
+                if validation.get("evidence_error"):
+                    detail += "\n" + validation["evidence_error"]
+                if validation.get("skipped_commands"):
+                    detail += "\nNot run: " + ", ".join(validation["skipped_commands"])
+            guidance = (
+                prompt.get("guidance", "") + " Choose a recovery action below. "
+                "Nothing will retry automatically."
+            ).strip()
+        elif stage == "agent_paused":
+            kind, title = "paused", "Stopped by request"
+            detail = prompt.get("summary", "The operation was stopped.")
+            guidance = "Choose Retry or send new instructions when you want to continue."
+        elif stage in completed or state.get("next") == "end":
+            kind = "success"
+            title = "Task complete" if stage in completed else "Step complete"
+            detail = prompt.get("summary", "The selected step completed.")
+            guidance = (
+                "Choose the next step below, or run the remaining steps automatically."
+                if prompt.get("available_phases")
+                else "No further steps are running."
+            )
+        else:
+            kind, title = "waiting", "Your input is needed"
+            detail = prompt.get("summary", stage.replace("_", " ").capitalize())
+            guidance = "Choose an action below to continue."
+        return {"kind": kind, "title": title, "detail": detail, "guidance": guidance}
 
     @staticmethod
     def _can_choose_phase(state):
@@ -1487,7 +1544,9 @@ class Harness:
                     "agent_role": state["role"],
                     **self._validation_feedback(
                         state,
-                        retrying=status == "blocked" and state["attempts"] < self.max_repair_rounds,
+                        retrying=status == "blocked"
+                        and not self.pause_on_error
+                        and state["attempts"] < self.max_repair_rounds,
                     ),
                 }
             )
@@ -1507,6 +1566,7 @@ class Harness:
                 self._gate(state, "validation_blocked", {"validation": validation}, ["recheck"])
             elif (
                 state["role"] in {"implementer", "refactorer"}
+                and not self.pause_on_error
                 and state["attempts"] < self.max_repair_rounds
             ):
                 state["next"] = "implement" if state["role"] == "implementer" else "refactor"
@@ -1614,13 +1674,20 @@ class Harness:
         state["next"] = next_node
 
     def _review_haskell(self, state):
-        following = "review_gate" if state["mode"] == "phased" else "review_security"
-        self._review(state, "haskell_reviewer", following)
+        self._review(state, "haskell_reviewer", "review_gate")
 
     def _review_security(self, state):
         self._review(state, "security_reviewer", "review_gate")
 
     def _review_gate(self, state):
+        if state["mode"] == "full":
+            for role, node in (
+                ("haskell_reviewer", "review_haskell"),
+                ("security_reviewer", "review_security"),
+            ):
+                if state.get(role, {}).get("revision") != state["review_revision"]:
+                    state["next"] = node
+                    return
         findings = [
             finding
             for role in ("haskell_reviewer", "security_reviewer")
@@ -1679,6 +1746,8 @@ class Harness:
     def _reply(self, state):
         response = state.pop("response")
         action, stage = response["action"], state["stage"]
+        if "automatic" in response:
+            state["mode"] = "full" if response["automatic"] else "phased"
         if action == "choose_phase":
             for key in (
                 "checking_baseline",
@@ -1794,6 +1863,8 @@ class Harness:
             self._phase_complete(
                 state, "exploration_ready", "Exploration saved. Start any further phase explicitly."
             )
+            if state["mode"] == "full":
+                state["next"] = "interview"
         elif stage == "exploration" and action == "question":
             state["messages"].append({"stage": stage, "action": action, "text": response["text"]})
             state["next"] = "explore"
@@ -1897,6 +1968,9 @@ class Harness:
             save_json(Path(state["report_directory"]) / "validation.json", state["validations"])
             state["validated_fingerprint"] = self._workspace(state).fingerprint()
             self._validated(state)
+        elif action == "repair":
+            state["attempts"] = 0
+            state["next"] = "implement" if state["role"] == "implementer" else "refactor"
         elif action == "recheck":
             state["next"] = "validate"
         elif action == "retry":

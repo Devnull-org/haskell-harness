@@ -120,6 +120,14 @@ let modelCatalog = null,
   modelLoadingKey = "",
   modelRequestId = 0;
 const modelChoices = new Map();
+const executionChoices = new Map();
+function executionKey(task) {
+  return JSON.stringify([activeProject?.id || state?.repository, task.task_id]);
+}
+$("execution-mode").onchange = () => {
+  if (state?.task)
+    executionChoices.set(executionKey(state.task), $("execution-mode").value);
+};
 const pages = {
   projects: { path: "/projects", title: "Projects", link: "projects-link" },
   workspace: { path: "/", title: "Workspace", link: "workspace-link" },
@@ -206,6 +214,7 @@ const phaseLabels = {
   walkthrough: "Code walkthrough",
   handoff: "Prepare local handoff",
 };
+labels.repair = "Ask agent to fix the failure";
 const textActions = ["answer", "question", "revise", "revise_changes"];
 function stageLabel(stage) {
   return stage === "test_change_review"
@@ -553,6 +562,24 @@ async function command(body) {
       "An operation is still running. Stop it before sending another.",
     );
   if (
+    body.command === "resume" &&
+    state?.task?.task_id === body.task_id &&
+    state.task.stage === "backend_blocked"
+  )
+    body = { ...body, command: "respond", action: "retry" };
+  if (
+    ["run", "respond"].includes(body.command) &&
+    state?.task?.task_id === body.task_id &&
+    body.automatic === undefined &&
+    (state.task.task_kind || "feature") === "feature"
+  )
+    body = {
+      ...body,
+      automatic:
+        (executionChoices.get(executionKey(state.task)) || state.task.mode) ===
+        "full",
+    };
+  if (
     [
       "chat",
       "explore",
@@ -668,7 +695,14 @@ function render() {
       },
       "task-open",
     );
-    item.append(el("small", stageLabel(task.stage)));
+    item.append(
+      el(
+        "small",
+        running && state.job.task_id === task.task_id
+          ? "Working…"
+          : task.outcome?.title || stageLabel(task.stage),
+      ),
+    );
     const remove = button(
       "×",
       () => openDeleteTask(task.task_id),
@@ -717,8 +751,13 @@ function render() {
       ? "Working on " + job.task_id
       : job.error
         ? "Operation stopped"
-        : "Latest activity";
-    $("activity-message").textContent = job.log.at(-1) || "Preparing…";
+        : job.result?.outcome?.title || "Latest activity";
+    $("activity-message").textContent = running
+      ? job.log.at(-1) || "Preparing…"
+      : job.error ||
+        job.result?.outcome?.detail ||
+        job.log.at(-1) ||
+        "Operation finished.";
     $("log").textContent = job.log.join("\n");
     $("stop").hidden = !running;
     if (!running && seenJob !== job.id) {
@@ -986,6 +1025,52 @@ async function copyWorktree() {
 $("copy-worktree").onclick = copyWorktree;
 
 function renderTask(task, running) {
+  const working = state.job?.running && state.job.task_id === task.task_id;
+  const operationError =
+    !state.job?.running &&
+    state.job?.task_id === task.task_id &&
+    state.job.error;
+  const outcome = connectionError
+    ? {
+        kind: "paused",
+        title: "Connection lost",
+        detail: "Reconnecting to check the task status.",
+      }
+    : working
+      ? {
+          kind: "running",
+          title: state.stopping ? "Stopping…" : "Working…",
+          detail: state.job.log.at(-1) || "Starting the selected action…",
+        }
+      : operationError
+        ? {
+            kind: "error",
+            title: "Operation failed",
+            detail: operationError,
+            guidance: "Review the error and choose an action to try again.",
+          }
+        : task.outcome || { kind: "waiting", title: stageLabel(task.stage) };
+  const status = $("task-outcome");
+  // Avoid repeated screen-reader announcements when polling an unchanged result.
+  const outcomeKey = JSON.stringify(outcome);
+  if (status.dataset.outcome !== outcomeKey) {
+    status.dataset.outcome = outcomeKey;
+    status.dataset.kind = outcome.kind;
+    status.replaceChildren(el("h2", outcome.title));
+    if (outcome.detail) status.append(prose(outcome.detail));
+    if (outcome.guidance) status.append(prose(outcome.guidance));
+    if (!working && task.prompt?.actions?.length) {
+      const link = el("a", "Choose next action ↓");
+      link.href = "#composer";
+      status.append(link);
+    }
+  }
+  $("execution-controls").hidden =
+    (task.task_kind || "feature") !== "feature" || task.stage === "ready";
+  $("execution-mode").value =
+    executionChoices.get(executionKey(task)) ||
+    (task.mode === "full" ? "full" : "phased");
+  $("execution-mode").disabled = running;
   const prompt = task.prompt || {},
     actions = prompt.actions || [],
     messageActions = actions.filter((action) => textActions.includes(action)),

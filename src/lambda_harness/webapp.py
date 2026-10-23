@@ -223,6 +223,7 @@ class LocalApp:
             progress=self.progress,
             validation=self.settings.validation,
             agent_repository=self.agent_repository,
+            pause_on_error=True,
         )
 
     def progress(self, message):
@@ -250,10 +251,14 @@ class LocalApp:
                     continue
                 snapshots[name] = saved
                 item = {"task_id": name, "stage": saved["stage"]}
+                item["outcome"] = harness._outcome(saved, saved.get("prompt", {}))
                 if saved["stage"] == "test_change_review" and saved.get("next") == "pause":
                     # Questions refresh approval tokens without creating a new patch request.
                     item["permission_request"] = digest(saved["proposed_test_change"])
-                if saved["stage"] == "validation_blocked" and saved.get("next") == "pause":
+                if (
+                    saved["stage"] in {"validation_blocked", "backend_blocked", "agent_error"}
+                    and saved.get("next") == "pause"
+                ):
                     item["attention_request"] = digest(saved.get("validation", saved["prompt"]))
                 if saved.get("task_kind") == "agent_builder":
                     item.update(
@@ -359,6 +364,8 @@ class LocalApp:
             raise ValueError("Finding IDs must be a list of names")
         if not isinstance(command.get("walkthrough", False), bool):
             raise ValueError("Walkthrough must be enabled or disabled")
+        if "automatic" in command and not isinstance(command["automatic"], bool):
+            raise ValueError("Automatic must be enabled or disabled")
         for field in ("packages", "criteria"):
             if field in command and (
                 not isinstance(command[field], list)
@@ -470,7 +477,9 @@ class LocalApp:
                         cancel=cancel,
                     )
             elif action == "run":
-                result = harness.run_phase(task_id, command.get("phase", ""))
+                result = harness.run_phase(
+                    task_id, command.get("phase", ""), automatic=command.get("automatic", False)
+                )
             elif action == "respond":
                 result = harness.respond(
                     task_id,
@@ -478,6 +487,7 @@ class LocalApp:
                     text=command.get("text", ""),
                     approval_token=command.get("token"),
                     finding_ids=command.get("finding_ids", []),
+                    **({"automatic": command["automatic"]} if "automatic" in command else {}),
                 )
             elif action == "restart":
                 result = harness.restart(task_id)

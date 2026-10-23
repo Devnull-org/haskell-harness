@@ -27,6 +27,20 @@
   --diff-remove-ink: #7a1022;
   --diff-remove-border: #c5223a;
 }
+.task-outcome {
+  border-left: 5px solid var(--accent);
+}
+.task-outcome[data-kind="error"] {
+  border-color: var(--red);
+  background: var(--danger-bg);
+}
+.task-outcome[data-kind="success"] {
+  background: var(--human);
+}
+.task-outcome[data-kind="waiting"],
+.task-outcome[data-kind="paused"] {
+  border-color: #c48a21;
+}
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #121517;

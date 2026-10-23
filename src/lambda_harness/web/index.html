@@ -516,6 +516,33 @@
       <section id="work" hidden>
         <div id="task-meta" class="metadata"></div>
         <section
+          id="task-outcome"
+          class="panel task-outcome"
+          role="status"
+          aria-live="polite"
+        ></section>
+        <section id="execution-controls" class="panel">
+          <label for="execution-mode">How to continue</label>
+          <select id="execution-mode">
+            <option value="phased">One step at a time</option>
+            <option value="full">All remaining steps automatically</option>
+          </select>
+          <p class="muted">
+            Choose an action to start. Automatic mode continues after successful
+            steps and stops for errors, questions, or permissions. You can
+            change this choice before any action.
+          </p>
+        </section>
+        <section id="next-phases" class="panel" hidden>
+          <h2>Choose the next step</h2>
+          <div id="phases" class="button-row"></div>
+          <p class="muted">
+            Workflow: Requirements → New or existing tests → Implementation →
+            Refactoring → Code review → Security review → Local handoff. Each
+            step becomes available when its prerequisites are complete.
+          </p>
+        </section>
+        <section
           id="task-worktree"
           class="panel"
           aria-labelledby="worktree-title"
@@ -550,10 +577,6 @@
           tabindex="0"
         ></div>
         <div id="packet" class="panel"></div>
-        <section id="next-phases" class="panel" hidden>
-          <h2>Choose the next step</h2>
-          <div id="phases" class="button-row"></div>
-        </section>
         <div id="reply-model-picker" class="model-picker" hidden>
           <label for="reply-chat-model">Model for the next response</label>
           <div class="model-controls">

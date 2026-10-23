@@ -40,6 +40,13 @@ agents—all from a local website.
 Start where you need help: have a chat, explore an idea, write tests, review a PR,
 or take a feature through the full workflow. Every phase is a choice.
 
+The task status reports whether a step completed, needs your input, or stopped with
+an error. In **How to continue**, choose **One step at a time** or **All remaining
+steps automatically**, then choose an action to start. Automatic mode still waits
+for approvals and stops at the first error. After a failed check, choose **Ask agent
+to fix the failure**, rerun checks, or send different instructions. Existing tasks
+can continue this way without restarting.
+
 ```mermaid
 flowchart LR
   Explore --> Interview

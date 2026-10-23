@@ -161,3 +161,28 @@ def test_unsupported_recovery_cannot_disable_commits(rig):
     assert view["stage"] == "agent_error"
     assert "unavailable" in view["prompt"]["error"]
     assert harness._state("task").get("commit_policy") is None
+
+
+def test_manual_phase_completion_reports_success_without_a_commit_activity(rig, monkeypatch):
+    harness, _, _ = rig
+    view, commits = failed_commit(rig, monkeypatch)
+    progress = []
+    harness.progress = progress.append
+    view = harness.respond(
+        "task",
+        "continue_without_commits",
+        approval_token=view["prompt"]["approval_token"],
+        automatic=False,
+    )
+    assert view["stage"] == "implementation_ready"
+    assert view["outcome"]["kind"] == "success"
+    assert "No commit was created" in view["outcome"]["detail"]
+    assert "one-step mode" in view["outcome"]["guidance"]
+    assert "task: commit" not in progress
+    assert any("keeping validated changes uncommitted" in item for item in progress)
+    assert "No commit was created" in harness._state("task")["messages"][-1]["answer"]
+    view = harness.run_phase("task", "refactor")
+    assert view["stage"] == "refactor_ready"
+    assert len(commits) == 1
+    assert "Refactoring complete and validated" in progress[-1]
+    assert "one-step mode" in progress[-1]

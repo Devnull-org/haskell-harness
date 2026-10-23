@@ -727,8 +727,11 @@ class Harness:
             kind = "success"
             title = "Task complete" if stage in completed else "Step complete"
             detail = prompt.get("summary", "The selected step completed.")
+            if state.get("commit_policy") == "manual" and "uncommitted" not in detail:
+                detail += " No commit was created; changes remain uncommitted in the task worktree."
             guidance = (
-                "Choose the next step below, or run the remaining steps automatically."
+                "Waiting for your choice in one-step mode. Choose the next step below, "
+                "or select automatic continuation before starting it."
                 if prompt.get("available_phases")
                 else "No further steps are running."
             )
@@ -821,7 +824,12 @@ class Harness:
             if journal.exists():
                 return json.loads(journal.read_text())
             state["messages"] = conversation_messages(state)
-            self.progress(f"{state['task_id']}: {name.replace('_', ' ')}")
+            activity = (
+                "keeping validated changes uncommitted"
+                if name == "commit" and state.get("commit_policy") == "manual"
+                else name.replace("_", " ")
+            )
+            self.progress(f"{state['task_id']}: {activity}")
             try:
                 getattr(self, "_" + name)(state)
             except (ValueError, RuntimeError, OSError) as error:
@@ -1623,6 +1631,17 @@ class Harness:
                 }
             )
             self._after_commit(state, workspace.revision)
+            outcome = self._outcome(state, state.get("prompt", {}))
+            message = (
+                outcome["detail"] + "\n\n" + outcome["guidance"]
+                if state["next"] == "end"
+                else "No commit was created. Keeping validated changes in the task worktree "
+                "and continuing to the next step."
+            )
+            state["messages"].append(
+                {"kind": "work_update", "agent_role": state["role"], "answer": message}
+            )
+            self.progress(f"{state['task_id']}: {message}")
             return
         revision = workspace.commit(
             state["proposal"]["commit_message"],

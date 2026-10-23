@@ -682,6 +682,24 @@ function responseProgress(taskId) {
   if (state.activity_kind === "validation") return "Running checks…";
   return state.job.operation === "review_action" ? "Working…" : "Thinking…";
 }
+function patchReceipt(revision) {
+  const paths = revision?.changed_files;
+  const title = paths
+    ? paths.length
+      ? "Patch updated"
+      : "Patch unchanged"
+    : "Patch proposal received";
+  const receipt = message(
+    title,
+    paths?.length
+      ? "Updated proposed files:\n" + paths.join("\n")
+      : paths
+        ? "The returned proposal contains no file changes from the previous version."
+        : "The agent returned a patch proposal with its response.",
+  );
+  receipt.append(prose("Applying the proposed patch requires approval."));
+  return receipt;
+}
 function renderHistory(task) {
   const messages = task.messages || [];
   const progress = responseProgress(task.task_id);
@@ -717,6 +735,8 @@ function renderHistory(task) {
     else if (item.question) {
       history.append(message("You", item.question, true));
       if (item.answer) history.append(message("Agent", item.answer));
+      if (item.proposal_digest)
+        history.append(patchReceipt(item.patch_revision));
     } else if (item.action === "check_links") {
       const latest =
         messages.findLast((m) => m.action === "check_links") === item;
@@ -917,6 +937,18 @@ function renderTask(task, running) {
     const packet = $("packet"),
       notes = $("exploration-notes");
     packet.replaceChildren();
+    if (task.stage === "test_change_review") {
+      const legacyRevision = (task.messages || []).findLast(
+        (item) =>
+          item.question &&
+          item.proposal_digest &&
+          item.answer === prompt.answer,
+      );
+      if (prompt.patch_revision || legacyRevision)
+        packet.append(
+          patchReceipt(prompt.patch_revision || legacyRevision.patch_revision),
+        );
+    }
     notes.replaceChildren();
     if (prompt.definition) {
       renderAgentDefinition(packet, prompt.definition, task.agent_id);

@@ -1725,16 +1725,27 @@ class Harness:
                 ),
             )
             proposal = answer.get("proposal") if stage == "test_change_review" else None
+            revision = None
             if proposal is not None:
                 # Revision changes the pending proposal, so approval must target the new diff.
                 diff = self._workspace(state).proposed_diff(proposal["changes"])
                 blocked = self._test_changes(state, proposal)
+                previous = {c["path"]: c for c in state["proposed_test_change"]["changes"]}
+                revised = {c["path"]: c for c in proposal["changes"]}
+                revision = {
+                    "changed_files": [
+                        path
+                        for path in sorted(previous.keys() | revised.keys())
+                        if previous.get(path) != revised.get(path)
+                    ]
+                }
                 state["proposed_test_change"] = proposal
                 prompt = {
                     "proposal": proposal,
                     "blocked_paths": blocked,
                     "diff": diff,
                     "answer": answer["answer"],
+                    "patch_revision": revision,
                 }
             else:
                 prompt = {**state["prompt"], "answer": answer["answer"]}
@@ -1743,7 +1754,11 @@ class Harness:
                     "agent_role": role,
                     "question": response["text"],
                     "answer": answer["answer"],
-                    **({"proposal_digest": digest(proposal)} if proposal is not None else {}),
+                    **(
+                        {"proposal_digest": digest(proposal), "patch_revision": revision}
+                        if proposal is not None
+                        else {}
+                    ),
                 }
             )
             self._gate(state, stage, prompt, state["prompt"]["actions"])

@@ -2584,3 +2584,42 @@ for (const [action, label] of [
     );
   });
 }
+
+for (const [revision, title, detail] of [
+  [{ changed_files: ["src/Server.hs"] }, "Patch updated", "src/Server.hs"],
+  [{ changed_files: [] }, "Patch unchanged", "no file changes"],
+  [undefined, "Patch proposal received", "returned a patch proposal"],
+]) {
+  test(`patch revision receipt shows ${title} in conversation and beside diff`, async () => {
+    const ui = await app();
+    const reply = {
+      question: "Add comments to the handlers.",
+      answer: "Done.",
+      proposal_digest: "revised-patch",
+      ...(revision ? { patch_revision: revision } : {}),
+    };
+    const current = {
+      ...task(),
+      stage: "test_change_review",
+      messages: [reply],
+      prompt: {
+        actions: ["approve_changes", "question"],
+        approval_token: "revised-patch",
+        answer: reply.answer,
+        diff: "+-- GET /config\n",
+        ...(revision ? { patch_revision: revision } : {}),
+      },
+    };
+    ui.fetch(async () => response(snapshot(current)));
+    ui.run("selected = 'example'");
+    await ui.run("refresh()");
+    for (const id of ["history", "packet"]) {
+      const text = ui.elements.get(id).textContent;
+      assert(text.includes(title));
+      assert(text.includes(detail));
+      assert(text.includes("requires approval"));
+    }
+    assert(ui.elements.get("history").textContent.includes("Done."));
+    assert(ui.elements.get("packet").textContent.includes("+-- GET /config"));
+  });
+}

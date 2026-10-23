@@ -199,6 +199,8 @@ def test_question_can_revise_pending_patch_before_approval(rig, repository, lega
     assert "+  build-depends: base, servant" in updated["prompt"]["diff"]
     assert updated["prompt"]["blocked_paths"] == [CABAL]
     assert updated["prompt"]["answer"] == "Added the code comment."
+    assert updated["prompt"]["patch_revision"] == {"changed_files": [SOURCE]}
+    assert harness._state("task")["messages"][-1]["patch_revision"] == {"changed_files": [SOURCE]}
     assert agent.calls[-1][0] == role
     assert agent.calls[-1][1]["intent"] == "discuss_patch"
     assert agent.calls[-1][1]["current_proposal"] == original
@@ -230,7 +232,20 @@ def test_question_without_revision_preserves_the_original_patch(rig, repository)
     assert updated["prompt"]["diff"] == view["prompt"]["diff"]
     assert updated["prompt"]["proposal"] == original
     assert harness._state("task")["proposed_test_change"] == original
+    assert "patch_revision" not in updated["prompt"]
+    assert "patch_revision" not in harness._state("task")["messages"][-1]
     assert len(executor.calls) == 4
+
+
+def test_identical_proposal_does_not_report_updated_files(rig, repository):
+    harness, agent, _ = rig
+    permission_gate(rig, repository)
+    proposal = copy.deepcopy(harness._state("task")["proposed_test_change"])
+    proposal["summary"] = "A different summary does not alter the patch"
+    agent.responses["implementer"].append({"answer": "Done.", "proposal": proposal})
+    view = harness.respond("task", "question", text="Add comments.")
+    assert view["prompt"]["patch_revision"] == {"changed_files": []}
+    assert harness._state("task")["messages"][-1]["patch_revision"] == {"changed_files": []}
 
 
 def test_empty_revision_is_repaired_before_updating_the_patch(rig, repository):

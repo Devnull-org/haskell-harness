@@ -96,12 +96,19 @@ def test_question_does_not_enable_coding_before_baseline_passes(rig, repository)
     from .test_existing_tests import passing_base
     from .test_phases import specification
 
-    harness, _, executor = rig
+    harness, agent, executor = rig
     passing_base(repository)
     specification(harness)
     executor.lint_error = True
     view = harness.run_phase("task", "implement")
-    assert "question" not in view["prompt"]["actions"]
-    with pytest.raises(ValueError, match="not available"):
-        harness.respond("task", "question", text="Implement anyway")
+    assert "question" in view["prompt"]["actions"]
+    agent.responses["implementer"].append(
+        {
+            "answer": "The baseline must pass before implementation can start.",
+            "next_action": None,
+        }
+    )
+    view = harness.respond("task", "question", text="Can we implement anyway?")
+    assert view["stage"] == "validation_blocked"
+    assert agent.calls[-1][1]["intent"] == "recover_operation"
     assert (Path(view["worktree"]) / SOURCE).read_text() == IMPLEMENTED

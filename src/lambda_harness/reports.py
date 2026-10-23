@@ -123,6 +123,17 @@ def pr_description(state):
         if patch["validation"].get("red_exception"):
             lines.append(f"  Developer's red Nix exception: {patch['validation']['red_exception']}")
     lines += ["", "Final validation", ""]
+    if state.get("commit_policy") == "manual":
+        lines += [
+            "Changes remain uncommitted in the task worktree. Commit them manually when ready.",
+            f"Reviewed working-tree fingerprint: `{state['review_fingerprint']}`",
+            "",
+            *[
+                f"- Uncommitted: {patch['summary']}"
+                for patch in state.get("uncommitted_patches", [])
+            ],
+            "",
+        ]
     for name, command in state["validation"]["commands"].items():
         lines.append(f"- {name}: `{' '.join(command['argv'])}`; exit {command['exit_code']}")
     lines += ["", f"Reviewed revision: `{state['review_revision']}`", "", "Review results", ""]

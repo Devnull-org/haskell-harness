@@ -95,7 +95,7 @@ def test_backend_failure_is_reported_from_saved_state(rig, monkeypatch):
     assert view["outcome"]["kind"] == "error"
     assert "usage limit" in view["outcome"]["detail"]
     assert "another backend" in view["outcome"]["guidance"]
-    assert view["prompt"]["actions"] == ["retry"]
+    assert view["prompt"]["actions"] == ["retry", "question"]
     assert harness.inspect("task")["outcome"] == view["outcome"]
 
 

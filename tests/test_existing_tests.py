@@ -60,7 +60,7 @@ def test_failed_baseline_never_calls_the_implementer_or_accepts_red(rig):
     specification(harness)
     view = harness.run_phase("task", "implement")
     assert view["stage"] == "validation_blocked"
-    assert set(view["prompt"]["actions"]) == {"recheck", "choose_phase"}
+    assert set(view["prompt"]["actions"]) == {"recheck", "choose_phase", "question"}
     assert [r for r, _, _ in agent.calls] == ["interviewer"]
     assert not harness._state("task")["commits"]
     view = harness.respond("task", "choose_phase")

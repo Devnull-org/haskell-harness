@@ -159,8 +159,18 @@ class Feedback(Record):
     follow_up: str | None
 
 
+class SuggestedCommand(Record):
+    explanation: str = Field(min_length=1)
+    command: str = Field(min_length=1)
+
+
 class Explanation(Record):
     answer: str = Field(min_length=1)
+    suggested_commands: list[SuggestedCommand] = Field(default_factory=list, max_length=8)
+
+
+class RecoveryReply(Explanation):
+    next_action: Literal["retry", "recheck", "continue_without_commits"] | None = None
 
 
 class PatchConversation(Explanation):
@@ -247,6 +257,8 @@ REVIEWERS = {
 
 
 def schema_for(role, context):
+    if context.get("intent") == "recover_operation":
+        return RecoveryReply
     if context.get("intent") in {"discuss_patch", "discuss_implementation"} and role in {
         "implementer",
         "refactorer",

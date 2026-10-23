@@ -2893,3 +2893,61 @@ test("saved automatic mode is restored without treating a mode change as a comma
   picker.onchange();
   assert.equal(commands, 0);
 });
+
+test("recovery displays literal suggested commands and a no-commits action", async () => {
+  const current = snapshot({
+    ...task(),
+    stage: "agent_error",
+    prompt: {
+      actions: ["retry", "question", "continue_without_commits"],
+      approval_token: "saved-commit-error",
+      suggested_commands: [
+        {
+          explanation: "Run this yourself in a terminal.",
+          command: 'export GPG_TTY="$(tty)"\nprintf "<literal>"',
+        },
+      ],
+    },
+  });
+  const posted = [];
+  const ui = await app({
+    fetcher: async (path, options) => {
+      if (path === "/api/command") {
+        posted.push(JSON.parse(options.body));
+        return response({});
+      }
+      return response(current);
+    },
+  });
+  assert.match(ui.elements.get("packet").textContent, /Suggested commands/);
+  assert.match(ui.elements.get("packet").textContent, /\$\(tty\)/);
+  assert.match(ui.elements.get("packet").textContent, /<literal>/);
+  assert.equal(posted.length, 0);
+  assert.equal(ui.elements.get("composer").hidden, false);
+  const action = ui.elements
+    .get("actions")
+    .children.find((n) => n.textContent === "Continue without commits");
+  await action.onclick();
+  assert.equal(posted[0].action, "continue_without_commits");
+  assert.equal(posted[0].token, "saved-commit-error");
+});
+
+test("recovery commands stay visible in conversation history", async () => {
+  const current = snapshot({
+    ...task(),
+    messages: [
+      {
+        question: "What should I run?",
+        answer: "Check the tool version.",
+        suggested_commands: [
+          {
+            explanation: "Inspect the installed tool.",
+            command: "tool --version",
+          },
+        ],
+      },
+    ],
+  });
+  const ui = await app({ fetcher: async () => response(current) });
+  assert.match(ui.elements.get("history").textContent, /tool --version/);
+});

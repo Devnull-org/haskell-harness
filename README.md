@@ -47,6 +47,15 @@ for approvals and stops at the first error. After a failed check, choose **Ask a
 to fix the failure**, rerun checks, or send different instructions. Existing tasks
 can continue this way without restarting.
 
+Errors support conversation too: use **Ask a question** to ask what failed, request
+commands you can run yourself, or describe an alternative. The agent can retry a
+supported operation with your instructions; suggested commands are displayed, not
+executed automatically. A failed commit also offers **Continue without commits**
+(or ask for that in chat). This keeps subsequent changes uncommitted for this task
+while validation and reviews continue. Existing commits and Git settings are preserved.
+Signing errors include a terminal unlock suggestion based on the
+[GnuPG guidance](https://www.gnupg.org/documentation/manuals/gnupg/Common-Problems.html).
+
 ```mermaid
 flowchart LR
   Explore --> Interview

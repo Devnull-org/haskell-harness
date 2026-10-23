@@ -99,6 +99,9 @@ STATE_FIELDS = {
     "messages",
     "validations",
     "commits",
+    "commit_policy",
+    "uncommitted_patches",
+    "review_fingerprint",
     "review_round",
     "dispositions",
     "attempts",
@@ -272,6 +275,13 @@ def _validate_state(state):
         raise ValueError("Invalid validation phase")
     if state.get("test_strategy") not in {None, "new", "existing"}:
         raise ValueError("Invalid test strategy")
+    if state.get("commit_policy") not in {None, "manual"}:
+        raise ValueError("Invalid commit policy")
+    if "uncommitted_patches" in state and (
+        not isinstance(state["uncommitted_patches"], list)
+        or not all(isinstance(patch, dict) for patch in state["uncommitted_patches"])
+    ):
+        raise ValueError("Invalid uncommitted patches")
     if "checking_baseline" in state and type(state["checking_baseline"]) is not bool:
         raise ValueError("Invalid baseline check state")
     if state.get("validation_following") not in {
@@ -289,6 +299,7 @@ def _validate_state(state):
         "phase_fingerprint",
         "validated_fingerprint",
         "agent_integrity_fingerprint",
+        "review_fingerprint",
     ):
         if name in state and (
             not isinstance(state[name], str) or not re.fullmatch(r"[a-f0-9]{64}", state[name])
@@ -469,10 +480,7 @@ def export_handoff(harness, task_ids):
                 raise ValueError(
                     "Worktree changed since its saved review. Recheck it before exporting."
                 )
-            if state["stage"] == "ready" and (
-                workspace.revision != state.get("review_revision")
-                or git(workspace.path, "status", "--porcelain")
-            ):
+            if state["stage"] == "ready" and not harness._review_matches(state, workspace):
                 raise ValueError("Reviewed worktree changed; recheck it before exporting")
             _validate_state({k: v for k, v in state.items() if k not in LOCAL_FIELDS})
             head = workspace.revision

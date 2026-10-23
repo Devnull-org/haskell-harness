@@ -22,6 +22,7 @@ from .failures import AgentInterrupted, BackendError, BackendResponseError
 from .github_actions import post_review_comment
 from .link_checks import check_documentation_links
 from .project_context import ContextStore, state_directory
+from .recovery import can_recover, commit_failed, recovery_actions, recovery_prompt
 from .reports import chat_report, exploration_report, pr_description, standalone_review_report
 from .review_context import review_diff
 from .review_source import resolve_review
@@ -453,7 +454,7 @@ class Harness:
             raise ValueError("Automatic must be enabled or disabled")
         with self._lock():
             state = self._state(task_id)
-            actions = list(state.get("prompt", {}).get("actions", []))
+            actions = recovery_actions(state)
             if self._can_choose_phase(state):
                 actions.append("choose_phase")
             if self._can_discuss_implementation(state):
@@ -488,6 +489,7 @@ class Harness:
                 "approve_changes",
                 "revise_changes",
                 "deny_changes",
+                "continue_without_commits",
             }:
                 if fields.get("approval_token") != state["prompt"].get("approval_token"):
                     raise ValueError("Stale or missing approval token")
@@ -602,6 +604,7 @@ class Harness:
                 "task_id",
                 "stage",
                 "mode",
+                "commit_policy",
                 "prompt",
                 "worktree",
                 "base",
@@ -669,6 +672,15 @@ class Harness:
                 **view["prompt"],
                 "actions": list(dict.fromkeys([*view["prompt"]["actions"], "choose_phase"])),
             }
+        if can_recover(state):
+            recovery = recovery_prompt(state)
+            view["prompt"] = {**recovery, **view["prompt"]}
+            for key in ("guidance", "suggested_commands"):
+                if key in recovery:
+                    view["prompt"][key] = recovery[key]
+            view["prompt"]["actions"] = list(
+                dict.fromkeys([*view["prompt"]["actions"], *recovery_actions(state)])
+            )
         if state.get("task_kind") == "tests":
             view["test_scope"] = {
                 key: state["specification"][key] for key in ("packages", "acceptance_criteria")
@@ -1597,6 +1609,21 @@ class Harness:
 
     def _commit(self, state):
         workspace = self._workspace(state)
+        if state.get("commit_policy") == "manual":
+            if workspace.fingerprint() != state["validated_fingerprint"]:
+                raise ValueError(
+                    "Worktree changed since validation; rerun checks before continuing"
+                )
+            state.setdefault("uncommitted_patches", []).append(
+                {
+                    "summary": state["proposal"]["summary"],
+                    "role": state["role"],
+                    "fingerprint": workspace.fingerprint(),
+                    "validation": state["validation"],
+                }
+            )
+            self._after_commit(state, workspace.revision)
+            return
         revision = workspace.commit(
             state["proposal"]["commit_message"],
             expected=state["validated_fingerprint"],
@@ -1614,16 +1641,38 @@ class Harness:
                     "validation": state["validation"],
                 }
             )
+        self._after_commit(state, revision)
+
+    def _continue_without_commits(self, state):
+        if not commit_failed(state):
+            raise ValueError("Continuing without commits is only available at a failed commit")
+        if self._workspace(state).fingerprint() != state["validated_fingerprint"]:
+            raise ValueError("Worktree changed since validation; rerun checks before continuing")
+        state["commit_policy"] = "manual"
+        state["messages"].append(
+            {
+                "kind": "work_update",
+                "agent_role": state["role"],
+                "answer": "Continuing without commits for this task. Changes stay in the task "
+                "worktree; validation, permissions, and reviews still apply. Existing commits "
+                "are preserved. You can commit the remaining changes manually later.",
+            }
+        )
+        state["next"] = "commit"
+
+    def _after_commit(self, state, revision):
+        workspace = self._workspace(state)
+        saved = "left uncommitted" if state.get("commit_policy") == "manual" else "committed"
         if state["role"] == "test_author":
             state["approved_tests"] = workspace.test_manifest(state["test_paths"])
             state["attempts"], state["patch_count"], state["next"] = 0, 0, "implement"
             if state.get("task_kind") == "tests":
                 self._phase_complete(
-                    state, "tests_complete", "Approved tests committed. Test task complete."
+                    state, "tests_complete", f"Approved tests {saved}. Test task complete."
                 )
             elif state["mode"] == "phased":
                 self._phase_complete(
-                    state, "tests_ready", "Approved tests committed. Tests phase complete."
+                    state, "tests_ready", f"Approved tests {saved}. Tests phase complete."
                 )
         elif state["role"] == "implementer":
             if state["proposal"].get("complete", True):
@@ -1638,6 +1687,7 @@ class Harness:
             self._more_patches(state, "refactor")
         else:
             state["review_revision"] = revision
+            state["review_fingerprint"] = workspace.fingerprint()
             state["review_round"] += 1
             state.pop("haskell_reviewer", None)
             state.pop("security_reviewer", None)
@@ -1661,10 +1711,11 @@ class Harness:
 
     def _review(self, state, role, next_node):
         workspace = self._workspace(state)
-        if workspace.revision != state["review_revision"] or workspace.diff():
+        if not self._review_matches(state, workspace):
             raise ValueError("Review revision changed; revalidate before reviewing")
         result = self._ask(state, role)
         result["revision"] = workspace.revision
+        result["fingerprint"] = workspace.fingerprint()
         state[role] = result
         filename = "haskell-review.json" if role == "haskell_reviewer" else "security-review.json"
         save_json(Path(state["report_directory"]) / filename, result)
@@ -1672,6 +1723,14 @@ class Harness:
             Path(state["report_directory"]) / f"round-{state['review_round']}-{filename}", result
         )
         state["next"] = next_node
+
+    @staticmethod
+    def _review_matches(state, workspace):
+        if state.get("review_fingerprint"):
+            return workspace.fingerprint() == state["review_fingerprint"]
+        return workspace.revision == state["review_revision"] and not git(
+            workspace.path, "status", "--porcelain"
+        )
 
     def _review_haskell(self, state):
         self._review(state, "haskell_reviewer", "review_gate")
@@ -1696,7 +1755,13 @@ class Harness:
         if len({f["id"] for f in findings}) != len(findings):
             raise ValueError("Reviewer finding IDs must be unique")
         dismissed = {
-            d["id"] for d in state["dispositions"] if d["revision"] == state["review_revision"]
+            d["id"]
+            for d in state["dispositions"]
+            if d["revision"] == state["review_revision"]
+            and (
+                not state.get("review_fingerprint")
+                or d.get("fingerprint") == state["review_fingerprint"]
+            )
         }
         state["findings"] = [f for f in findings if f["id"] not in dismissed]
         if state["findings"]:
@@ -1729,9 +1794,7 @@ class Harness:
             return
         else:
             workspace = self._workspace(state)
-            if workspace.revision != state["review_revision"] or git(
-                workspace.path, "status", "--porcelain"
-            ):
+            if not self._review_matches(state, workspace):
                 raise ValueError(
                     "Reviewed worktree changed before handoff; revalidate and review again"
                 )
@@ -1741,6 +1804,9 @@ class Harness:
             save_json(reports / "walkthrough.json", state.get("walkthrough_answers", []))
             (reports / "pr-description.md").write_text(pr_description(state))
         state["prompt"] = {"summary": "Local work is ready for developer inspection", "actions": []}
+        if state.get("commit_policy") == "manual":
+            state["prompt"]["summary"] += ". Changes remain uncommitted in the task worktree."
+        state["phase_fingerprint"] = self._workspace(state).fingerprint()
         state["next"] = "end"
 
     def _reply(self, state):
@@ -1748,7 +1814,9 @@ class Harness:
         action, stage = response["action"], state["stage"]
         if "automatic" in response:
             state["mode"] = "full" if response["automatic"] else "phased"
-        if action == "choose_phase":
+        if action == "continue_without_commits":
+            self._continue_without_commits(state)
+        elif action == "choose_phase":
             for key in (
                 "checking_baseline",
                 "approved_tests",
@@ -1881,6 +1949,7 @@ class Harness:
                     "agent_role": state["role"],
                     "question": response["text"],
                     "answer": answer["answer"],
+                    "suggested_commands": answer.get("suggested_commands", []),
                 }
             )
             if proposal := answer.get("proposal"):
@@ -1890,9 +1959,49 @@ class Harness:
                 self._gate(
                     state,
                     stage,
-                    {**state["prompt"], "answer": answer["answer"]},
+                    {
+                        **state["prompt"],
+                        "answer": answer["answer"],
+                        "suggested_commands": answer.get("suggested_commands", []),
+                    },
                     ["question", *[a for a in state["prompt"]["actions"] if a != "question"]],
                 )
+        elif action == "question" and can_recover(state):
+            role = NODE_ROLES.get(state.get("retry_node"), state.get("role", "interviewer"))
+            if role == "reviewers":
+                role = "haskell_reviewer"
+            answer = self._ask(
+                state,
+                role,
+                intent="recover_operation",
+                question=response["text"],
+                failed_operation=state.get("retry_node", "validate"),
+                error_packet=recovery_prompt(state),
+                recovery_actions=[
+                    a
+                    for a in recovery_actions(state)
+                    if a in {"retry", "recheck", "continue_without_commits"}
+                ],
+            )
+            chosen = answer.get("next_action")
+            if chosen and chosen not in recovery_actions(state):
+                raise ValueError("The suggested recovery action is unavailable at this step")
+            state["messages"].append(
+                {
+                    "agent_role": role,
+                    "question": response["text"],
+                    **answer,
+                }
+            )
+            if chosen == "continue_without_commits":
+                self._continue_without_commits(state)
+            elif chosen in {"retry", "recheck"}:
+                state["messages"].append({"agent_role": role, "text": response["text"]})
+                if chosen == "retry" and state["retry_node"] == "reply":
+                    state.update(state.pop("failed_reply"))
+                state["next"] = "validate" if chosen == "recheck" else state["retry_node"]
+            else:
+                self._gate(state, stage, {**state["prompt"], **answer}, state["prompt"]["actions"])
         elif action == "question":
             role = {
                 "specification_review": "interviewer",
@@ -2072,6 +2181,7 @@ class Harness:
                         "id": f["id"],
                         "reason": response["text"],
                         "revision": state["review_revision"],
+                        "fingerprint": state.get("review_fingerprint"),
                     }
                     for f in selected
                 ]

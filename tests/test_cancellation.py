@@ -86,7 +86,7 @@ def test_stopping_cannot_hide_a_direct_checkout_edit(rig):
     view = harness.start("stopped", "Inspect the code")
     assert view["stage"] == "agent_error"
     assert "changed the checkout" in view["prompt"]["error"]
-    assert view["prompt"]["actions"] == ["retry"]
+    assert view["prompt"]["actions"] == ["retry", "question"]
 
 
 @pytest.mark.parametrize("check_number", [1, 2, 3, 4])

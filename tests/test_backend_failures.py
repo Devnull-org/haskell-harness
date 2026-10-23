@@ -192,7 +192,7 @@ def test_backend_failure_during_test_review_cannot_skip_the_question_by_rechecki
     harness.agent = unavailable
     view = harness.respond("increment", "question", text="Which criterion does this test cover?")
     assert view["stage"] == "backend_blocked"
-    assert view["prompt"]["actions"] == ["retry"]
+    assert view["prompt"]["actions"] == ["retry", "question"]
     with pytest.raises(ValueError, match="not available"):
         harness.respond("increment", "recheck")
     harness.agent = agent

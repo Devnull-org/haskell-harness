@@ -215,6 +215,7 @@ const phaseLabels = {
   handoff: "Prepare local handoff",
 };
 labels.repair = "Ask agent to fix the failure";
+labels.continue_without_commits = "Continue without commits";
 const textActions = ["answer", "question", "revise", "revise_changes"];
 function stageLabel(stage) {
   return stage === "test_change_review"
@@ -839,6 +840,15 @@ function renderFailureDetails(parent, failures) {
     parent.append(details);
   }
 }
+function renderSuggestedCommands(parent, commands) {
+  if (!commands?.length) return;
+  const section = el("section", undefined, "suggested-commands");
+  section.append(el("h3", "Suggested commands · run yourself"));
+  for (const item of commands) {
+    section.append(prose(item.explanation), el("pre", item.command));
+  }
+  parent.append(section);
+}
 function renderHistory(task) {
   const messages = task.messages || [];
   const progress = responseProgress(task.task_id);
@@ -873,7 +883,11 @@ function renderHistory(task) {
     if (item.text) history.append(message("You", item.text, true));
     else if (item.question) {
       history.append(message("You", item.question, true));
-      if (item.answer) history.append(message("Agent", item.answer));
+      if (item.answer) {
+        const entry = message("Agent", item.answer);
+        renderSuggestedCommands(entry, item.suggested_commands);
+        history.append(entry);
+      }
       if (item.proposal_digest)
         history.append(patchReceipt(item.patch_revision));
     } else if (item.kind === "work_update") {
@@ -1118,6 +1132,13 @@ function renderTask(task, running) {
     );
   }
   $("restart").hidden = task.task_kind === "agent_builder";
+  if (task.commit_policy === "manual")
+    $("task-meta").append(
+      el(
+        "strong",
+        "Commits disabled for this task · changes stay in the worktree",
+      ),
+    );
   $("export-task").hidden = task.task_kind === "agent_builder";
   renderWorktree(task);
   renderHistory(task);
@@ -1162,6 +1183,7 @@ function renderTask(task, running) {
       packet.append(el("h2", prompt.summary));
     if (prompt.error) packet.append(prose(prompt.error));
     if (prompt.guidance) packet.append(prose(prompt.guidance));
+    renderSuggestedCommands(packet, prompt.suggested_commands);
     if (prompt.explanation) packet.append(prose(prompt.explanation));
     if (prompt.permission_reason)
       section(packet, "Why permission is needed", prompt.permission_reason);

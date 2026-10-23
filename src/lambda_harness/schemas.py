@@ -90,6 +90,11 @@ class Patch(Record):
     changes: list[Change]
     commit_message: str = Field(min_length=1, max_length=2000)
     complete: bool = True
+    permission_request: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Reason to ask the developer before applying this exact patch; null otherwise.",
+    )
 
 
 class Tests(Record):

@@ -248,12 +248,10 @@ def test_saved_blocked_patch_can_continue_coding_after_explanation(rig, reposito
     )
     view = harness.run_phase("task", "implement")
     assert view["stage"] == "test_change_review"
-    # Old checkpoints have only these actions; inspection must add the recovery path.
-    assert harness._state("task")["prompt"]["actions"] == ["question", "revise", "reject"]
     view = harness.respond("task", "question", text="When will implementation continue?")
     assert agent.calls[-1][1]["intent"] == "explain"
     assert len(executor.calls) == 4
-    assert "continue_implementation" in harness.inspect("task")["prompt"]["actions"]
+    assert "approve_changes" in harness.inspect("task")["prompt"]["actions"]
     with pytest.raises(ValueError, match="token"):
         harness.respond("task", "continue_implementation", approval_token="stale")
     content = CABAL_CONTENT.replace("build-depends: base", "build-depends: base, servant", 1)

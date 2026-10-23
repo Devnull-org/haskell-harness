@@ -1,5 +1,6 @@
 """Local worktree changes with explicit boundaries around tests and validation."""
 
+import difflib
 import hashlib
 import json
 import os
@@ -168,7 +169,26 @@ class Workspace:
             raise ValueError(f"File path escapes the worktree: {name}")
         return path
 
-    def apply(self, changes, *, tests_only=False):
+    def proposed_diff(self, changes):
+        patches = []
+        for change in changes:
+            name, content = change["path"], change["content"]
+            path = self.safe_path(name)
+            before = path.read_text() if path.is_file() else ""
+            patches.extend(
+                difflib.unified_diff(
+                    before.splitlines(keepends=True),
+                    (content or "").splitlines(keepends=True),
+                    fromfile=f"a/{name}" if path.is_file() else "/dev/null",
+                    tofile=f"b/{name}" if content is not None else "/dev/null",
+                )
+            )
+        return "".join(
+            line if line.endswith("\n") else line + "\n\\ No newline at end of file\n"
+            for line in patches
+        )
+
+    def apply(self, changes, *, tests_only=False, approved_paths=()):
         planned = []
         seen = set()
         for change in changes:
@@ -177,7 +197,7 @@ class Workspace:
             if name in seen:
                 raise ValueError(f"Duplicate file path: {name}")
             seen.add(name)
-            if protected_configuration(name):
+            if protected_configuration(name) and name not in approved_paths:
                 raise ValueError(f"Validation/configuration path requires a manual change: {name}")
             if tests_only and not (is_test_path(name) or name.endswith(".cabal")):
                 raise ValueError(f"Test author cannot change production file path: {name}")

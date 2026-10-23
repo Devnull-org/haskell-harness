@@ -239,6 +239,15 @@
           can lead to an interview later; it does not approve coding.
         </p>
         <p>
+          A coding agent can ask for permission before applying a patch. Changes
+          to tests, protected Cabal settings, or build configuration request it
+          automatically. Review the reason, affected files, and proposed diff.
+          <strong>Approve changes and continue</strong> applies that exact patch
+          and runs validation. <strong>Deny and revise</strong> sends it back
+          without applying it; <strong>Request changes</strong> lets you provide
+          revised instructions. Approval covers one patch, not future changes.
+        </p>
+        <p>
           After the interview you can also choose <strong>Explore</strong> for
           an assessment or <strong>Requirements interview</strong> to revise the
           scope. If no test patch is appropriate, the test author explains why

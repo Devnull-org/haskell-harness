@@ -7,6 +7,9 @@ Review comments: short plain English, present tense, intent and invariants expla
 simply. Remove redundant narration and excessive prose while preserving explanations
 needed for correctness. A long comment is not automatically wrong.
 
-Do not change approved tests. Every refactoring patch must remain test-green and compile
+If refactoring needs test, dependency, or build configuration changes, include them
+in the patch and set permission_request to explain why. The developer can approve
+that patch in the UI. Preserve coverage and do not weaken assertions to hide failures.
+Every refactoring patch must remain test-green and compile
 with -Werror. Propose each cohesive refactoring as its own commit. If no change improves
 the implementation, return changes=[] and complete=true with a brief explanation.

@@ -40,6 +40,7 @@ from .workspace import (
     digest,
     git,
     is_test_path,
+    protected_configuration,
     resolve_base,
     save_json,
     task_branch,
@@ -449,7 +450,16 @@ class Harness:
             if self._can_choose_phase(state):
                 actions.append("choose_phase")
             if state["stage"] == "test_change_review":
-                actions.append("continue_implementation")
+                actions.extend(
+                    [
+                        "continue_implementation",
+                        "approve_changes",
+                        "revise_changes",
+                        "deny_changes",
+                        "revise",
+                        "reject",
+                    ]
+                )
             if action not in actions:
                 raise ValueError(f"Action {action!r} is not available at {state.get('stage')}")
             if action == "choose_phase":
@@ -466,6 +476,9 @@ class Harness:
                 "save_agent",
                 "continue_handoff",
                 "continue_implementation",
+                "approve_changes",
+                "revise_changes",
+                "deny_changes",
             }:
                 if fields.get("approval_token") != state["prompt"].get("approval_token"):
                     raise ValueError("Stale or missing approval token")
@@ -473,7 +486,14 @@ class Harness:
                     raise ValueError(
                         "Worktree changed since review; approval is stale. Recheck first."
                     )
-            if action in {"answer", "question", "revise", "dismiss", "accept_red"}:
+            if action in {
+                "answer",
+                "question",
+                "revise",
+                "revise_changes",
+                "dismiss",
+                "accept_red",
+            }:
                 if not fields.get("text", "").strip():
                     raise ValueError(f"{action} requires text")
             if action in {"fix", "dismiss"}:
@@ -607,24 +627,24 @@ class Harness:
         if state["stage"] == "specification_ready":
             view["prompt"] = {**view["prompt"], "available_phases": self._available_phases(state)}
         if state["stage"] == "test_change_review":
+            proposal = state["proposed_test_change"]
             view["prompt"] = {
                 **view["prompt"],
+                "summary": "Permission requested",
                 "explanation": (
-                    "The whole patch is paused because it proposes changes to tests or "
-                    "protected Cabal settings. Continue implementation to revise the patch "
-                    "with tests unchanged. Asking a question only requests an explanation."
+                    "Review the proposed patch below. Approval applies this patch and runs "
+                    "validation. Deny or request changes to send it back to the coding agent. "
+                    "Permission applies only to this patch, not future changes."
                 ),
-                "blocked_paths": state["prompt"].get(
-                    "blocked_paths",
-                    [
-                        change["path"]
-                        for change in state["proposed_test_change"]["changes"]
-                        if is_test_path(change["path"]) or change["path"].endswith(".cabal")
-                    ],
-                ),
-                "actions": list(
-                    dict.fromkeys(["continue_implementation", *view["prompt"]["actions"]])
-                ),
+                "permission_reason": proposal.get("permission_request") or proposal["summary"],
+                "permission_files": [
+                    {"path": c["path"], "operation": "delete" if c["content"] is None else "write"}
+                    for c in proposal["changes"]
+                ],
+                "diff": state["prompt"].get("diff")
+                if "diff" in state["prompt"]
+                else self._workspace(state).proposed_diff(proposal["changes"]),
+                "actions": ["approve_changes", "question", "revise_changes", "deny_changes"],
             }
         if self._can_choose_phase(state):
             view["prompt"] = {
@@ -1142,7 +1162,7 @@ class Harness:
         proposal = self._ask(state, role)
         state["role"] = role
         blocked = self._test_changes(state, proposal)
-        if blocked:
+        if blocked or proposal.get("permission_request"):
             state["proposed_test_change"] = proposal
             self._gate(
                 state,
@@ -1150,18 +1170,27 @@ class Harness:
                 {
                     "proposal": proposal,
                     "blocked_paths": blocked,
-                    "explanation": "The patch has not been applied. Continue implementation "
-                    "to revise it with tests and protected Cabal settings unchanged.",
+                    "diff": self._workspace(state).proposed_diff(proposal["changes"]),
                 },
-                ["question", "revise", "reject"],
+                ["approve_changes", "question", "revise_changes", "deny_changes"],
             )
             return
-        self._workspace(state).apply(proposal["changes"])
+        self._apply_code(state, proposal)
+
+    def _apply_code(self, state, proposal, *, approved=False):
+        workspace = self._workspace(state)
+        workspace.apply(
+            proposal["changes"],
+            approved_paths=[c["path"] for c in proposal["changes"]] if approved else (),
+        )
+        if approved:
+            state["approved_tests"] = workspace.test_manifest(state.get("test_paths", []))
         self._assert_tests(state)
         state["proposal"] = proposal
         state["phase"] = (
             "red"
-            if role == "implementer"
+            if state["role"] == "implementer"
+            and not approved
             and not proposal.get("complete", True)
             and state.get("test_strategy") != "existing"
             else "green"
@@ -1174,7 +1203,11 @@ class Harness:
         blocked = []
         for change in proposal["changes"]:
             name = change["path"]
-            if is_test_path(name) or name in state["approved_tests"]:
+            if (
+                is_test_path(name)
+                or name in state["approved_tests"]
+                or protected_configuration(name)
+            ):
                 blocked.append(name)
             elif name.endswith(".cabal"):
                 path = workspace.safe_path(name)
@@ -1702,6 +1735,35 @@ class Harness:
             if state["retry_node"] == "reply":
                 state.update(state.pop("failed_reply"))
             state["next"] = state["retry_node"]
+        elif action == "approve_changes":
+            proposal = state["proposed_test_change"]
+            self._assert_tests(state)
+            state["messages"].append(
+                {
+                    "agent_role": state["role"],
+                    "action": action,
+                    "text": "The developer approved this exact patch. Apply it and validate it.",
+                    "proposal_digest": digest(proposal),
+                    "approved_paths": [c["path"] for c in proposal["changes"]],
+                }
+            )
+            self._apply_code(state, proposal, approved=True)
+        elif action in {"revise_changes", "deny_changes"}:
+            state["messages"].append(
+                {
+                    "agent_role": state["role"],
+                    "action": action,
+                    "rejected_test_change": state["proposed_test_change"],
+                    "text": (
+                        "The developer requests a revised patch. "
+                        if action == "revise_changes"
+                        else "The developer denied this patch. Continue without those changes. "
+                    )
+                    + response.get("text", ""),
+                }
+            )
+            state["attempts"] = 0
+            state["next"] = "implement" if state["role"] == "implementer" else "refactor"
         elif action == "continue_implementation":
             state["messages"].append(
                 {

@@ -2528,3 +2528,59 @@ test("blocked code patches expose an implementation continuation with its approv
   assert.equal(commands[0].action, "continue_implementation");
   assert.equal(commands[0].token, "blocked-patch");
 });
+
+for (const [action, label] of [
+  ["approve_changes", "Approve changes and continue"],
+  ["deny_changes", "Deny and revise"],
+]) {
+  test(`permission UI shows reason and patch and sends ${action} with its token`, async () => {
+    const ui = await app();
+    const current = {
+      ...task(),
+      stage: "test_change_review",
+      prompt: {
+        summary: "Permission requested",
+        actions: [
+          "approve_changes",
+          "question",
+          "revise_changes",
+          "deny_changes",
+        ],
+        approval_token: "exact-patch",
+        permission_reason: "Add a dependency needed by the new endpoint tests.",
+        permission_files: [
+          { path: "example-app/example-app.cabal", operation: "write" },
+        ],
+        diff: "--- a/example-app/example-app.cabal\n+++ b/example-app/example-app.cabal\n+    servant\n",
+      },
+    };
+    const commands = [];
+    ui.fetch(async (path, options) => {
+      if (path === "/api/command") {
+        commands.push(JSON.parse(options.body));
+        return response({ accepted: true });
+      }
+      return response(snapshot(current));
+    });
+    ui.run("selected = 'example'");
+    await ui.run("refresh()");
+    assert.match(ui.elements.get("packet").textContent, /dependency needed/);
+    assert.match(ui.elements.get("packet").textContent, /write: example-app/);
+    assert.match(ui.elements.get("packet").textContent, /\+    servant/);
+    const control = ui.elements
+      .get("actions")
+      .children.find((n) => n.textContent === label);
+    assert(control);
+    await control.onclick();
+    assert.equal(commands[0].action, action);
+    assert.equal(commands[0].token, "exact-patch");
+    assert(
+      ui.elements
+        .get("message-action")
+        .children.some(
+          (n) =>
+            n.value === "revise_changes" && n.textContent === "Request changes",
+        ),
+    );
+  });
+}

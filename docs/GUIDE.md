@@ -373,14 +373,18 @@ After specification approval, choose the step that fits the task:
   the existing suite, lint, strict compilation, and Nix checks. All must pass before
   coding, and every subsequent patch must stay green. Existing tests remain protected.
 
-If a code patch proposes changes to tests or protected Cabal settings, the whole
-patch pauses before any files are changed. Choose **Continue implementation with
-tests unchanged** to send it back to the coding agent for revision and validation.
-This also works for previously saved blocked tasks. **Ask a question** only requests
-an explanation; **Request test changes** starts the separate test revision flow.
-Main-library `build-depends` edits can proceed with implementation. Test suites,
-test libraries, shared stanzas, and other Cabal settings remain protected. Passing
-baseline checks do not mean the proposed implementation has been applied or tested.
+Coding agents can request permission for a proposed patch by explaining why a
+decision is needed. Changes to tests, protected Cabal settings, or build and
+validation configuration automatically request permission. The UI shows the reason,
+affected files, and complete proposed diff before any part of the patch is applied.
+Choose **Approve changes and continue** to apply that exact patch and validate it,
+**Deny and revise** to continue without the denied changes, or **Request changes**
+to give the coding agent revised instructions. **Ask a question** explains the
+proposal without approving it. This also works for previously saved blocked tasks.
+Approval applies only to that patch; changed worktrees invalidate it and later
+protected changes need another decision. Main-library `build-depends` edits can
+proceed without a permission stop. Passing baseline checks do not mean a proposed
+implementation has been applied or tested.
 
 If the test author concludes that no test patch is appropriate, its explanation
 appears as a scope decision. Ask questions, revise the request, or use **Choose

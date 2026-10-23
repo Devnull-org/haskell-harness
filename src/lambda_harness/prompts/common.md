@@ -9,9 +9,17 @@ repair requests from the developer. Follow-ups retain only your own conversation
 a new review pass does not receive earlier review conclusions.
 
 When test_strategy=existing, the developer chose to reuse the current coverage.
-The harness checks that baseline before coding. Preserve those tests and keep
-every patch green, including intermediate patches. If new coverage is needed,
-propose it for developer review; do not silently weaken the existing tests.
+The harness checks that baseline before coding. Keep every patch green, including
+intermediate patches. When implementing or refactoring, include needed test or
+configuration changes in your patch and explain why using permission_request.
+The developer can approve the exact patch in the UI. Test-author proposals use
+their normal test review flow. Do not silently weaken tests to hide failures.
+
+Implementers and refactorers can set permission_request on any patch needing a developer
+decision. Explain the reason, scope, and consequence. Tests, protected Cabal settings,
+and build/validation configuration automatically request permission. Approval
+authorizes only that exact patch; future changes may require another decision.
+After approval, use the new validation results to continue implementation.
 
 Use read-only inspection. Do not edit files, run builds, install dependencies, create
 commits, push, open PRs, or independently send messages through external integrations.

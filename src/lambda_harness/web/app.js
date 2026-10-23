@@ -86,6 +86,9 @@ let reviewFromPR = false,
   prBase = "",
   baseInitialized = false;
 const labels = {
+  approve_changes: "Approve changes and continue",
+  deny_changes: "Deny and revise",
+  revise_changes: "Request changes",
   continue_implementation: "Continue implementation with tests unchanged",
   continue_handoff: "Continue from saved step",
   save_agent: "Save to repository",
@@ -114,7 +117,12 @@ const phaseLabels = {
   walkthrough: "Code walkthrough",
   handoff: "Prepare local handoff",
 };
-const textActions = ["answer", "question", "revise"];
+const textActions = ["answer", "question", "revise", "revise_changes"];
+function stageLabel(stage) {
+  return stage === "test_change_review"
+    ? "Permission requested"
+    : stage.replaceAll("_", " ");
+}
 function el(tag, text, cls) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -532,7 +540,7 @@ function render() {
       },
       "task-open",
     );
-    item.append(el("small", task.stage.replaceAll("_", " ")));
+    item.append(el("small", stageLabel(task.stage)));
     const remove = button(
       "×",
       () => openDeleteTask(task.task_id),
@@ -830,14 +838,14 @@ function renderTask(task, running) {
       running,
     ]);
   $("task-meta").replaceChildren(
-    el("strong", task.stage.replaceAll("_", " ")),
+    el("strong", stageLabel(task.stage)),
     el("div", "Base: " + task.base_ref + " · " + task.base.slice(0, 12)),
     el("div", "Reports: " + task.report_directory),
   );
   if (task.review_source) {
     const source = task.review_source;
     $("task-meta").replaceChildren(
-      el("strong", task.stage.replaceAll("_", " ")),
+      el("strong", stageLabel(task.stage)),
       el("div", `Review: ${source.head_ref} → ${source.base_ref}`),
       el(
         "div",
@@ -848,7 +856,7 @@ function renderTask(task, running) {
   }
   if (task.task_kind === "agent_builder") {
     $("task-meta").replaceChildren(
-      el("strong", task.stage.replaceAll("_", " ")),
+      el("strong", stageLabel(task.stage)),
       button("← All agents", openAgents, "quiet"),
     );
   } else if (Object.keys(task.agent_profiles || {}).length) {
@@ -896,10 +904,20 @@ function renderTask(task, running) {
     if (prompt.error) packet.append(prose(prompt.error));
     if (prompt.guidance) packet.append(prose(prompt.guidance));
     if (prompt.explanation) packet.append(prose(prompt.explanation));
+    if (prompt.permission_reason)
+      section(packet, "Why permission is needed", prompt.permission_reason);
+    if (prompt.permission_files)
+      section(
+        packet,
+        "Proposed files",
+        prompt.permission_files
+          .map((file) => `${file.operation}: ${file.path}`)
+          .join("\n"),
+      );
     if (prompt.blocked_paths?.length)
       section(
         packet,
-        "Files requiring revision",
+        "Files requiring permission",
         prompt.blocked_paths.join("\n"),
       );
     const interview = (task.messages || []).findLast(
@@ -970,7 +988,9 @@ function renderTask(task, running) {
           .map(([id, tests]) => `${id}: ${tests.join(", ")}`)
           .join("\n"),
       );
-    section(packet, "Test / code diff", prompt.diff);
+    if (prompt.permission_files && prompt.diff) {
+      packet.append(el("h3", "Proposed patch"), el("pre", prompt.diff));
+    } else section(packet, "Test / code diff", prompt.diff);
     section(packet, "Validation", prompt.validation);
     section(packet, "Findings", prompt.findings);
     section(packet, "Feedback", prompt.feedback);
@@ -1052,7 +1072,12 @@ function renderTask(task, running) {
     const control = button(
       label,
       () => respond(action),
-      ["approve", "save_agent", "continue_implementation"].includes(action)
+      [
+        "approve",
+        "approve_changes",
+        "save_agent",
+        "continue_implementation",
+      ].includes(action)
         ? "primary"
         : "",
     );
@@ -1411,7 +1436,7 @@ function openHandoff(mode, taskId = null) {
     handoffTasks.push(input);
     label.append(
       input,
-      el("span", `${task.task_id} · ${task.stage.replaceAll("_", " ")}`),
+      el("span", `${task.task_id} · ${stageLabel(task.stage)}`),
     );
     $("handoff-tasks").append(label);
   }
@@ -1487,7 +1512,7 @@ $("handoff-file").onchange = () => {
         el("p", task.request, "handoff-request"),
         el(
           "small",
-          `${task.stage.replaceAll("_", " ")} · ${task.commits} commits${task.uncommitted ? " · unfinished edits" : ""}`,
+          `${stageLabel(task.stage)} · ${task.commits} commits${task.uncommitted ? " · unfinished edits" : ""}`,
         ),
       );
       if (task.task_id !== task.original)

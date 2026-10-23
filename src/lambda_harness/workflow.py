@@ -1343,6 +1343,15 @@ class Harness:
                 return
             if name == "lint":
                 lint_fingerprint = workspace.fingerprint()
+            self.progress(
+                f"{state['task_id']}: {name} "
+                + ("passed" if results[name]["exit_code"] == 0 else "failed")
+            )
+            # Gather lint and compiler diagnostics before sending a broken patch back.
+            # Nix and test runs cannot make a patch with these failures acceptable.
+            if name == "build" and any(results[k]["exit_code"] != 0 for k in ("lint", "build")):
+                self.progress(f"{state['task_id']}: skipping Nix and tests until lint/build passes")
+                break
         if workspace.fingerprint() != lint_fingerprint:
             raise ValueError("Files changed while checks ran; inspect the worktree and recheck")
         if state["role"] != "test_author":
@@ -1377,6 +1386,7 @@ class Harness:
                 }
                 for k, v in results.items()
             },
+            "skipped_commands": [name for name, _ in commands if name not in results],
         }
         try:
             validation["test_evidence"] = test_evidence(results, allow_cabal=allow_cabal)

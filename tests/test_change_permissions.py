@@ -265,3 +265,36 @@ def test_empty_revision_is_repaired_before_updating_the_patch(rig, repository):
     assert "revised file changes" in agent.calls[-1][1]["response_repair"]["validation_error"]
     assert view["prompt"]["answer"] == "Here is the revised patch."
     assert view["prompt"]["proposal"] == revised
+
+
+@pytest.mark.parametrize("failed_check", ["lint", "build"])
+def test_failed_approved_patch_returns_to_coder_before_expensive_checks(
+    rig, repository, failed_check
+):
+    harness, agent, executor = rig
+    view = permission_gate(rig, repository)
+    failed = False
+
+    def execute(argv, cwd, **options):
+        nonlocal failed
+        result = executor(argv, cwd, **options)
+        matches = argv[:2] == (["hlint", "."] if failed_check == "lint" else ["cabal", "build"])
+        if matches and not failed:
+            failed = True
+            result.update(exit_code=1, stderr="Compiler or lint diagnostic to repair")
+        return result
+
+    harness.execute = execute
+    view = approve(harness, view)
+    assert view["stage"] == "implementation_ready"
+    validation = agent.calls[-1][1]["validation"]
+    assert validation["status"] == "blocked"
+    assert set(validation["commands"]) == {"lint", "build"}
+    assert validation["skipped_commands"] == ["nix", "test:example-app"]
+    assert (
+        validation["commands"][failed_check]["stderr_tail"]
+        == "Compiler or lint diagnostic to repair"
+    )
+    # Baseline: four checks; broken patch: two; repaired patch: all four again.
+    assert len(executor.calls) == 10
+    assert harness._state("task")["validation"]["skipped_commands"] == []

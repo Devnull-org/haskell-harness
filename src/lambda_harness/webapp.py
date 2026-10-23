@@ -34,7 +34,7 @@ from .projects import ProjectRegistry, validate_repository
 from .review_source import resolve_review
 from .validation import LocalExecutor
 from .workflow import Harness
-from .workspace import Workspace, git, validate_task_name
+from .workspace import Workspace, digest, git, validate_task_name
 
 
 class LocalApp:
@@ -250,6 +250,9 @@ class LocalApp:
                     continue
                 snapshots[name] = saved
                 item = {"task_id": name, "stage": saved["stage"]}
+                if saved["stage"] == "test_change_review" and saved.get("next") == "pause":
+                    # Questions refresh approval tokens without creating a new patch request.
+                    item["permission_request"] = digest(saved["proposed_test_change"])
                 if saved.get("task_kind") == "agent_builder":
                     item.update(
                         task_kind="agent_builder",

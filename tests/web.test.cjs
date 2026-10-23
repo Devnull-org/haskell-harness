@@ -662,6 +662,8 @@ async function app({
   fetcher: initialFetch,
   mobile = false,
   clipboard,
+  audio,
+  storage,
 } = {}) {
   const elements = new Map();
   const html = readFileSync("src/lambda_harness/web/index.html", "utf8");
@@ -679,6 +681,8 @@ async function app({
   let timerId = 0;
   const timers = new Map();
   const context = vm.createContext({
+    AudioContext: audio,
+    localStorage: storage,
     matchMedia: () => ({ matches: mobile }),
     navigator: { clipboard },
     location,
@@ -728,6 +732,7 @@ async function app({
   await settle();
   vm.runInContext("selected = 'example'", context);
   return {
+    gesture: (name = "pointerdown") => listeners[name]?.(),
     elements,
     downloads,
     kind,
@@ -2623,3 +2628,124 @@ for (const [revision, title, detail] of [
     assert(ui.elements.get("packet").textContent.includes("+-- GET /config"));
   });
 }
+
+function bellAudio() {
+  const sounds = [];
+  class Audio {
+    state = "suspended";
+    currentTime = 1;
+    destination = {};
+    async resume() {
+      this.state = "running";
+    }
+    createOscillator() {
+      return {
+        frequency: { setValueAtTime() {} },
+        connect() {},
+        disconnect() {},
+        start() {
+          sounds.push("bell");
+        },
+        stop() {},
+      };
+    }
+    createGain() {
+      return {
+        gain: {
+          setValueAtTime() {},
+          linearRampToValueAtTime() {},
+          exponentialRampToValueAtTime() {},
+        },
+        connect() {},
+        disconnect() {},
+      };
+    }
+  }
+  return { Audio, sounds };
+}
+
+test("permission bell waits for interaction and rings once per new request across tasks", async () => {
+  const { Audio, sounds } = bellAudio();
+  const ui = await app({ audio: Audio });
+  const current = snapshot();
+  current.tasks.push({
+    task_id: "another task",
+    stage: "test_change_review",
+    permission_request: "patch-one",
+  });
+  ui.fetch(async () => response(current));
+  await ui.run("refresh()");
+  assert.equal(sounds.length, 0);
+  await ui.gesture();
+  assert.equal(sounds.length, 1);
+  await ui.run("refresh()");
+  await ui.gesture("keydown");
+  assert.equal(sounds.length, 1);
+  current.job = { running: true, task_id: "another task", log: [] };
+  current.tasks[1].permission_request = "patch-two";
+  await ui.run("refresh()");
+  assert.equal(sounds.length, 1);
+  current.job.running = false;
+  await ui.run("refresh()");
+  assert.equal(sounds.length, 2);
+  await ui.run("refresh()");
+  assert.equal(sounds.length, 2);
+});
+
+test("permission sound can be muted and its preference survives reload", async () => {
+  const { Audio, sounds } = bellAudio();
+  let saved = "off";
+  const storage = {
+    getItem: () => saved,
+    setItem: (_, value) => {
+      saved = value;
+    },
+  };
+  const ui = await app({ audio: Audio, storage });
+  assert.equal(ui.elements.get("permission-sound").ariaPressed, "false");
+  await ui.gesture();
+  const current = snapshot();
+  current.tasks[0].permission_request = "muted-patch";
+  ui.fetch(async () => response(current));
+  await ui.run("refresh()");
+  assert.equal(sounds.length, 0);
+  ui.elements.get("permission-sound").onclick();
+  await settle();
+  assert.equal(saved, "on");
+  current.tasks[0].permission_request = "new-patch";
+  await ui.run("refresh()");
+  assert.equal(sounds.length, 1);
+  ui.elements.get("permission-sound").onclick();
+  assert.equal(saved, "off");
+  const reopened = await app({ audio: Audio, storage });
+  assert.equal(
+    reopened.elements.get("permission-sound").textContent,
+    "Permission sound: off",
+  );
+});
+
+test("blocked audio and storage do not break permission polling", async () => {
+  const ui = await app({
+    audio: class {
+      constructor() {
+        throw new Error("Audio blocked");
+      }
+    },
+    storage: {
+      getItem() {
+        throw new Error("Storage blocked");
+      },
+      setItem() {
+        throw new Error("Storage blocked");
+      },
+    },
+  });
+  await ui.gesture();
+  const current = snapshot();
+  current.tasks[0].permission_request = "patch";
+  ui.fetch(async () => response(current));
+  await ui.run("refresh()");
+  assert.equal(ui.elements.get("error").hidden, true);
+  ui.elements.get("permission-sound").onclick();
+  assert.equal(ui.elements.get("permission-sound").ariaPressed, "false");
+});

@@ -1,6 +1,94 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="harness-token"]').content;
+let permissionSound = true,
+  permissionAudio = null,
+  pendingBell = false;
+const heardPermissions = new Set();
+try {
+  permissionSound =
+    globalThis.localStorage?.getItem("lambda-harness-permission-sound") !==
+    "off";
+} catch {
+  // Sound still works when browser storage is unavailable.
+}
+function renderPermissionSound() {
+  $("permission-sound").textContent =
+    "Permission sound: " + (permissionSound ? "on" : "off");
+  $("permission-sound").ariaPressed = String(permissionSound);
+}
+function playPermissionBell() {
+  if (!permissionSound || permissionAudio?.state !== "running") return;
+  pendingBell = false;
+  try {
+    const oscillator = permissionAudio.createOscillator();
+    const volume = permissionAudio.createGain();
+    const now = permissionAudio.currentTime;
+    oscillator.frequency.setValueAtTime(880, now);
+    volume.gain.setValueAtTime(0, now);
+    volume.gain.linearRampToValueAtTime(0.12, now + 0.01);
+    volume.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    oscillator.connect(volume);
+    volume.connect(permissionAudio.destination);
+    oscillator.onended = () => {
+      oscillator.disconnect();
+      volume.disconnect();
+    };
+    oscillator.start(now);
+    oscillator.stop(now + 0.75);
+  } catch {
+    // Audio failure must never interrupt polling or hide the permission request.
+  }
+}
+async function unlockPermissionAudio() {
+  if (!permissionSound) return;
+  try {
+    const Audio = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!Audio) return;
+    permissionAudio ||= new Audio();
+    if (permissionAudio.state === "suspended") await permissionAudio.resume();
+    if (pendingBell) playPermissionBell();
+  } catch {
+    // Retry on the next interaction if the browser has blocked audio.
+  }
+}
+function notifyPermissions(snapshot) {
+  for (const task of snapshot.tasks || []) {
+    if (
+      !task.permission_request ||
+      (snapshot.job?.running && snapshot.job.task_id === task.task_id)
+    )
+      continue;
+    const key = JSON.stringify([
+      snapshot.project?.id || snapshot.repository,
+      task.task_id,
+      task.permission_request,
+    ]);
+    if (heardPermissions.has(key)) continue;
+    heardPermissions.add(key);
+    if (permissionSound) {
+      pendingBell = true;
+      playPermissionBell();
+    }
+  }
+}
+$("permission-sound").onclick = () => {
+  permissionSound = !permissionSound;
+  pendingBell = false;
+  try {
+    globalThis.localStorage?.setItem(
+      "lambda-harness-permission-sound",
+      permissionSound ? "on" : "off",
+    );
+  } catch {
+    // Keep the preference for this page even without storage.
+  }
+  renderPermissionSound();
+  void unlockPermissionAudio();
+};
+renderPermissionSound();
+globalThis.addEventListener("pointerdown", unlockPermissionAudio);
+globalThis.addEventListener("keydown", unlockPermissionAudio);
 function collapseMobileNavigation() {
   if (globalThis.matchMedia?.("(max-width: 650px)").matches)
     $("project-navigation").open = false;
@@ -515,6 +603,7 @@ async function refresh() {
     if (requestId !== refreshId || taskId !== selected) return;
     setActiveProject(next.project);
     state = next;
+    notifyPermissions(next);
     if (next.projects) updateProjects(next.projects);
     if (next.project === null) {
       activeProject = null;

@@ -1442,3 +1442,26 @@ def test_empty_project_list_can_add_again_and_requires_authentication(browser_ap
     )
     assert call("/api/projects", {"repository": str(app.args.repo)})[0] == 200
     assert not calls.exists()
+
+
+def test_permission_notifications_include_unselected_tasks_and_ignore_question_tokens(
+    browser_app, repository
+):
+    from .test_change_permissions import permission_gate
+
+    app, _, _, _ = browser_app
+    agent, executor = ScriptedAgent(), ScriptedExecutor()
+    harness = app.harness()
+    try:
+        harness.agent, harness.execute = agent, executor
+        view = permission_gate((harness, agent, executor), repository)
+        pending = app.state()["tasks"][0]["permission_request"]
+        updated = harness.respond("task", "question", text="Why this dependency?")
+        assert updated["prompt"]["approval_token"] != view["prompt"]["approval_token"]
+        assert app.state()["tasks"][0]["permission_request"] == pending
+        state = harness._state("task")
+        state["next"] = "validate"
+        harness.graph.update_state(harness._config("task"), state, as_node="reply")
+        assert "permission_request" not in app.state()["tasks"][0]
+    finally:
+        harness.close()

@@ -20,6 +20,12 @@
   --danger-bg: #fff0ef;
   --danger-line: #ebc9c5;
   --shadow: #182a3810;
+  --diff-add-bg: #b9f6ca;
+  --diff-add-ink: #064b21;
+  --diff-add-border: #16833b;
+  --diff-remove-bg: #ffc7ce;
+  --diff-remove-ink: #7a1022;
+  --diff-remove-border: #c5223a;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -43,6 +49,12 @@
   --danger-bg: #3c2426;
   --danger-line: #825154;
   --shadow: #00000030;
+  --diff-add-bg: #164b2c;
+  --diff-add-ink: #a7ffbf;
+  --diff-add-border: #4ee57e;
+  --diff-remove-bg: #622330;
+  --diff-remove-ink: #ffd0d7;
+  --diff-remove-border: #ff7188;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -67,6 +79,12 @@
     --danger-bg: #3c2426;
     --danger-line: #825154;
     --shadow: #00000030;
+    --diff-add-bg: #164b2c;
+    --diff-add-ink: #a7ffbf;
+    --diff-add-border: #4ee57e;
+    --diff-remove-bg: #622330;
+    --diff-remove-ink: #ffd0d7;
+    --diff-remove-border: #ff7188;
   }
 }
 * {
@@ -505,13 +523,26 @@ pre {
   max-height: 500px;
   overflow: auto;
 }
+.diff-view {
+  padding: 12px 0;
+  white-space: normal;
+}
+.diff-view .diff-line {
+  display: block;
+  min-height: 1.6em;
+  padding: 0 12px;
+  border-left: 3px solid transparent;
+  white-space: pre-wrap;
+}
 .diff-view .diff-added {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--diff-add-ink);
+  background: var(--diff-add-bg);
+  border-left-color: var(--diff-add-border);
 }
 .diff-view .diff-removed {
-  color: var(--red);
-  background: color-mix(in srgb, var(--red) 13%, transparent);
+  color: var(--diff-remove-ink);
+  background: var(--diff-remove-bg);
+  border-left-color: var(--diff-remove-border);
 }
 .diff-view .diff-header {
   color: var(--muted);

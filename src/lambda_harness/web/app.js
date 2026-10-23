@@ -240,7 +240,14 @@ function diffView(diff) {
       oldLines = Math.max(0, oldLines - 1);
       newLines = Math.max(0, newLines - 1);
     }
-    view.append(el("span", line, kind));
+    view.append(
+      el(
+        "span",
+        line.replace(/\n$/, ""),
+        "diff-line" + (kind ? " " + kind : ""),
+      ),
+    );
+    if (line.endsWith("\n")) view.append(document.createTextNode("\n"));
   }
   return view;
 }

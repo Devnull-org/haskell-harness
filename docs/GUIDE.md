@@ -389,6 +389,15 @@ protected changes need another decision. Main-library `build-depends` edits can
 proceed without a permission stop. Passing baseline checks do not mean a proposed
 implementation has been applied or tested.
 
+Implementation reports applied patches and validation results in the conversation.
+If automatic repairs reach their limit, the task pauses with the failed checks,
+diagnostics, and an attention bell. Use **Ask a question** to ask what happened or
+request another fix. Repair requests continue from the current files and run
+validation again; protected changes still require approval. Ordinary questions
+leave the work and retry count unchanged. Existing blocked tasks support this
+flow without restarting the task. **Run checks again** only validates the current
+files; it does not ask the coding agent to change them first.
+
 If the test author concludes that no test patch is appropriate, its explanation
 appears as a scope decision. Ask questions, revise the request, or use **Choose
 another step**. This also works for older failed test-generation attempts when

@@ -166,8 +166,9 @@ class Explanation(Record):
 class PatchConversation(Explanation):
     proposal: Patch | None = Field(
         default=None,
-        description="Complete revised patch when the developer requests changes; "
-        "null for an informational question. Retain still-needed changes from current_proposal.",
+        description="Complete patch when the developer requests changes; null for an "
+        "informational question. When revising a pending current_proposal, retain its "
+        "other still-needed changes.",
     )
 
     @model_validator(mode="after")
@@ -246,7 +247,10 @@ REVIEWERS = {
 
 
 def schema_for(role, context):
-    if context.get("intent") == "discuss_patch" and role in {"implementer", "refactorer"}:
+    if context.get("intent") in {"discuss_patch", "discuss_implementation"} and role in {
+        "implementer",
+        "refactorer",
+    }:
         return PatchConversation
     if context.get("intent") == "explain":
         return Explanation

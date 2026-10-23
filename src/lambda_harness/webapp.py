@@ -253,6 +253,8 @@ class LocalApp:
                 if saved["stage"] == "test_change_review" and saved.get("next") == "pause":
                     # Questions refresh approval tokens without creating a new patch request.
                     item["permission_request"] = digest(saved["proposed_test_change"])
+                if saved["stage"] == "validation_blocked" and saved.get("next") == "pause":
+                    item["attention_request"] = digest(saved.get("validation", saved["prompt"]))
                 if saved.get("task_kind") == "agent_builder":
                     item.update(
                         task_kind="agent_builder",

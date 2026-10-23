@@ -2749,3 +2749,58 @@ test("blocked audio and storage do not break permission polling", async () => {
   ui.elements.get("permission-sound").onclick();
   assert.equal(ui.elements.get("permission-sound").ariaPressed, "false");
 });
+
+test("blocked implementation shows progress and accepts a repair through the same composer", async () => {
+  const ui = await app();
+  const update = {
+    kind: "work_update",
+    answer: "Validation failed: build. Describe the next fix to continue.",
+    failure_details: [
+      { check: "build", output: "Missing module Hydra.CryptoSpec" },
+    ],
+  };
+  const current = {
+    ...task(),
+    stage: "validation_blocked",
+    messages: [update],
+    prompt: {
+      actions: ["question", "recheck", "revise"],
+      answer: update.answer,
+    },
+  };
+  const commands = [];
+  ui.fetch(async (path, options) => {
+    if (path === "/api/command") {
+      commands.push(JSON.parse(options.body));
+      return response({ accepted: true });
+    }
+    return response(snapshot(current));
+  });
+  await ui.run("refresh()");
+  const history = ui.elements.get("history").textContent;
+  assert(history.includes("Validation failed: build"));
+  assert(history.includes("Missing module Hydra.CryptoSpec"));
+  assert.equal(ui.elements.get("message-action").value, "question");
+  ui.elements.get("message").value =
+    "Restore the missing modules and continue.";
+  await ui.run("respond('question')");
+  assert.equal(commands[0].action, "question");
+  assert.equal(commands[0].text, "Restore the missing modules and continue.");
+});
+
+test("blocked validation rings the attention bell once", async () => {
+  const { Audio, sounds } = bellAudio();
+  const ui = await app({ audio: Audio });
+  await ui.gesture();
+  const current = snapshot();
+  current.tasks[0] = {
+    task_id: "example",
+    stage: "validation_blocked",
+    attention_request: "failed-build",
+  };
+  ui.fetch(async () => response(current));
+  await ui.run("refresh()");
+  assert.equal(sounds.length, 1);
+  await ui.run("refresh()");
+  assert.equal(sounds.length, 1);
+});

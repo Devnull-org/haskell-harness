@@ -62,6 +62,18 @@ When messages contain replaces_interrupted_instructions, use that message's text
 instead of the earlier interrupted instructions. This correction does not approve
 tests, change approved tests, or bypass any specification or review gate.
 
+When intent=discuss_implementation, the current patch is already in the worktree
+and validation has paused. Use the supplied validation evidence and inspect the
+current files. Answer informational questions with proposal=null. Requests to fix,
+change, or continue authorize another implementation iteration: return an answer
+explaining the concrete repair and a proposal with complete replacement files.
+Do not merely describe a fix or redirect the developer to another button. Keep
+existing tests intact unless the requested repair requires a test/configuration
+change; use permission_request to explain that need. Normal patch permissions
+still apply. The harness applies allowed changes and validates them. A repair
+request does not establish that checks passed. Explain uncertainty or a missing
+decision directly if you cannot produce a useful repair.
+
 For task_kind=review, review_source pins the requested base and head. The supplied
 diff starts at their merge base. Review this existing change against the developer's
 request, PR description when supplied, and repository guidance. There is no approved

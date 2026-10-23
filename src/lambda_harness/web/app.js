@@ -55,7 +55,7 @@ async function unlockPermissionAudio() {
 function notifyPermissions(snapshot) {
   for (const task of snapshot.tasks || []) {
     if (
-      !task.permission_request ||
+      !(task.permission_request || task.attention_request) ||
       (snapshot.job?.running && snapshot.job.task_id === task.task_id)
     )
       continue;
@@ -63,6 +63,7 @@ function notifyPermissions(snapshot) {
       snapshot.project?.id || snapshot.repository,
       task.task_id,
       task.permission_request,
+      task.attention_request,
     ]);
     if (heardPermissions.has(key)) continue;
     heardPermissions.add(key);
@@ -789,6 +790,16 @@ function patchReceipt(revision) {
   receipt.append(prose("Applying the proposed patch requires approval."));
   return receipt;
 }
+function renderFailureDetails(parent, failures) {
+  for (const failure of failures || []) {
+    const details = el("details");
+    details.append(
+      el("summary", failure.check + " failure"),
+      el("pre", failure.output),
+    );
+    parent.append(details);
+  }
+}
 function renderHistory(task) {
   const messages = task.messages || [];
   const progress = responseProgress(task.task_id);
@@ -826,6 +837,10 @@ function renderHistory(task) {
       if (item.answer) history.append(message("Agent", item.answer));
       if (item.proposal_digest)
         history.append(patchReceipt(item.patch_revision));
+    } else if (item.kind === "work_update") {
+      const entry = message("Coding progress", item.answer);
+      renderFailureDetails(entry, item.failure_details);
+      history.append(entry);
     } else if (item.action === "check_links") {
       const latest =
         messages.findLast((m) => m.action === "check_links") === item;
@@ -1096,8 +1111,10 @@ function renderTask(task, running) {
     if (
       prompt.answer &&
       !(task.messages || []).some((item) => item.answer === prompt.answer)
-    )
+    ) {
       packet.append(prose(prompt.answer));
+      renderFailureDetails(packet, prompt.failure_details);
+    }
     if (
       prompt.reviews &&
       !(task.messages || []).some(

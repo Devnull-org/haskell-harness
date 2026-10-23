@@ -1465,3 +1465,19 @@ def test_permission_notifications_include_unselected_tasks_and_ignore_question_t
         assert "permission_request" not in app.state()["tasks"][0]
     finally:
         harness.close()
+
+
+def test_blocked_validation_emits_stable_attention_notification(browser_app, repository):
+    from .test_implementation_conversation import blocked_implementation
+
+    app, _, _, _ = browser_app
+    agent, executor = ScriptedAgent(), ScriptedExecutor()
+    harness = app.harness()
+    try:
+        harness.agent, harness.execute = agent, executor
+        blocked_implementation((harness, agent, executor), repository)
+        attention = app.state()["tasks"][0]["attention_request"]
+        harness.respond("task", "question", text="Why did it stop?")
+        assert app.state()["tasks"][0]["attention_request"] == attention
+    finally:
+        harness.close()

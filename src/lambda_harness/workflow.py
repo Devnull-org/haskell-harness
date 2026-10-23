@@ -449,6 +449,8 @@ class Harness:
             actions = list(state.get("prompt", {}).get("actions", []))
             if self._can_choose_phase(state):
                 actions.append("choose_phase")
+            if self._can_discuss_implementation(state):
+                actions.append("question")
             if state["stage"] == "test_change_review":
                 actions.extend(
                     [
@@ -646,6 +648,13 @@ class Harness:
                 if "diff" in state["prompt"]
                 else self._workspace(state).proposed_diff(proposal["changes"]),
                 "actions": ["approve_changes", "question", "revise_changes", "deny_changes"],
+            }
+        if self._can_discuss_implementation(state):
+            view["prompt"] = {
+                **self._validation_feedback(state),
+                **view["prompt"],
+                "summary": "Implementation needs attention",
+                "actions": list(dict.fromkeys(["question", *view["prompt"]["actions"]])),
             }
         if self._can_choose_phase(state):
             view["prompt"] = {
@@ -1162,6 +1171,10 @@ class Harness:
             return
         proposal = self._ask(state, role)
         state["role"] = role
+        self._accept_code(state, proposal)
+
+    def _accept_code(self, state, proposal):
+        self._assert_tests(state)
         blocked = self._test_changes(state, proposal)
         if blocked or proposal.get("permission_request"):
             state["proposed_test_change"] = proposal
@@ -1188,6 +1201,13 @@ class Harness:
             state["approved_tests"] = workspace.test_manifest(state.get("test_paths", []))
         self._assert_tests(state)
         state["proposal"] = proposal
+        state["messages"].append(
+            {
+                "kind": "work_update",
+                "agent_role": state["role"],
+                "answer": "Applied patch: " + proposal["summary"] + "\n\nRunning validation now.",
+            }
+        )
         state["phase"] = (
             "red"
             if state["role"] == "implementer"
@@ -1284,6 +1304,63 @@ class Harness:
             return
         state["validation_config"] = knowledge["checks"]
         state["next"] = state["validation_following"]
+
+    @staticmethod
+    def _can_discuss_implementation(state):
+        return (
+            state["stage"] == "validation_blocked"
+            and state.get("role") in {"implementer", "refactorer"}
+            and not state.get("checking_baseline")
+        )
+
+    def _validation_feedback(self, state, *, retrying=False):
+        validation = state.get("validation", {})
+        commands = validation.get("commands", {})
+        failures = [name for name, result in commands.items() if result["exit_code"] != 0]
+        details = [
+            {
+                "check": name,
+                "output": (
+                    commands[name].get("stderr_tail") or commands[name].get("stdout_tail") or ""
+                )[-2000:],
+            }
+            for name in failures
+        ]
+        if validation.get("status") == "stopped":
+            answer = "Validation stopped. Your code changes are saved."
+        elif validation.get("status") == "green":
+            answer = "Validation passed: " + ", ".join(commands) + "."
+            return {"answer": answer, "failure_details": []}
+        elif validation.get("status") in {"expected_red", "needs_red_review"}:
+            return {
+                "answer": "Expected test failures confirmed."
+                + (
+                    " Nix checks failed and need your review before proceeding."
+                    if validation["status"] == "needs_red_review"
+                    else " Continuing implementation."
+                ),
+                "failure_details": details,
+            }
+        else:
+            answer = "Validation failed: " + (", ".join(failures) or "test evidence") + "."
+            if validation.get("evidence_error"):
+                answer += "\n" + validation["evidence_error"]
+            if skipped := validation.get("skipped_commands"):
+                answer += "\nNot run: " + ", ".join(skipped) + "."
+        if retrying:
+            answer += "\n\nThe coding agent is continuing with these failures to repair the patch."
+        else:
+            if (
+                validation.get("status") != "stopped"
+                and state.get("attempts", 0) >= self.max_repair_rounds
+            ):
+                answer += f"\nAutomatic repairs paused after {state['attempts']} attempts."
+            answer += (
+                "\n\nYour changes are saved. Ask what failed or describe the next fix in the "
+                "message box to continue implementation. No task restart is needed. "
+                "Run checks again only rechecks the current files."
+            )
+        return {"answer": answer, "failure_details": details}
 
     def _validate(self, state):
         if not self._ensure_validation_knowledge(state, "validate"):
@@ -1403,6 +1480,17 @@ class Harness:
         state["validation"] = validation
         state["validations"].append(validation)
         save_json(Path(state["report_directory"]) / "validation.json", state["validations"])
+        if state["role"] in {"implementer", "refactorer"} and not state.get("checking_baseline"):
+            state["messages"].append(
+                {
+                    "kind": "work_update",
+                    "agent_role": state["role"],
+                    **self._validation_feedback(
+                        state,
+                        retrying=status == "blocked" and state["attempts"] < self.max_repair_rounds,
+                    ),
+                }
+            )
         if status == "needs_red_review":
             self._gate(
                 state,
@@ -1709,6 +1797,31 @@ class Harness:
         elif stage == "exploration" and action == "question":
             state["messages"].append({"stage": stage, "action": action, "text": response["text"]})
             state["next"] = "explore"
+        elif action == "question" and self._can_discuss_implementation(state):
+            answer = self._ask(
+                state,
+                state["role"],
+                intent="discuss_implementation",
+                question=response["text"],
+                applied_proposal=state.get("proposal"),
+            )
+            state["messages"].append(
+                {
+                    "agent_role": state["role"],
+                    "question": response["text"],
+                    "answer": answer["answer"],
+                }
+            )
+            if proposal := answer.get("proposal"):
+                state["attempts"] = 0
+                self._accept_code(state, proposal)
+            else:
+                self._gate(
+                    state,
+                    stage,
+                    {**state["prompt"], "answer": answer["answer"]},
+                    ["question", *[a for a in state["prompt"]["actions"] if a != "question"]],
+                )
         elif action == "question":
             role = {
                 "specification_review": "interviewer",

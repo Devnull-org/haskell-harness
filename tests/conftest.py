@@ -90,7 +90,7 @@ class ScriptedAgent:
             return copy.deepcopy(self.responses[role].popleft())
         if context.get("intent") == "explain":
             return {"answer": "The test establishes acceptance criterion A1."}
-        if context.get("intent") == "discuss_patch":
+        if context.get("intent") in {"discuss_patch", "discuss_implementation"}:
             return {"answer": "The patch implements acceptance criterion A1.", "proposal": None}
         defaults = {
             "interviewer": {"specification": SPECIFICATION, "questions": []},

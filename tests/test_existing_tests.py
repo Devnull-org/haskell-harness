@@ -249,7 +249,7 @@ def test_saved_blocked_patch_can_continue_coding_after_explanation(rig, reposito
     view = harness.run_phase("task", "implement")
     assert view["stage"] == "test_change_review"
     view = harness.respond("task", "question", text="When will implementation continue?")
-    assert agent.calls[-1][1]["intent"] == "explain"
+    assert agent.calls[-1][1]["intent"] == "discuss_patch"
     assert len(executor.calls) == 4
     assert "approve_changes" in harness.inspect("task")["prompt"]["actions"]
     with pytest.raises(ValueError, match="token"):

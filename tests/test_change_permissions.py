@@ -1,5 +1,6 @@
 """One reviewed patch grants permission; later patches need their own decisions."""
 
+import copy
 from pathlib import Path
 
 import pytest
@@ -170,3 +171,82 @@ def test_approval_does_not_skip_failed_validation_or_commit_failed_code(rig, rep
     assert not harness._state("task")["commits"]
     assert len(agent.calls) > calls  # Coding agent gets validation evidence for repair.
     assert agent.calls[-1][1]["validation"]["status"] == "blocked"
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("role", ["implementer", "refactorer"])
+def test_question_can_revise_pending_patch_before_approval(rig, repository, legacy, role):
+    harness, agent, executor = rig
+    view = permission_gate(rig, repository)
+    state = harness._state("task")
+    state["role"] = role
+    if legacy:
+        state["prompt"].pop("diff")
+        state["prompt"]["actions"] = ["question", "revise", "reject"]
+    harness.graph.update_state(harness._config("task"), state, as_node="implement")
+    original = copy.deepcopy(state["proposed_test_change"])
+    revised = copy.deepcopy(original)
+    comment = "-- Increment the input using the successor operation.\n"
+    revised["changes"] = [
+        {"path": SOURCE, "content": REFACTORED + comment},
+        *[change for change in revised["changes"] if change["path"] != SOURCE],
+    ]
+    agent.responses[role].append({"answer": "Added the code comment.", "proposal": revised})
+    updated = harness.respond("task", "question", text="Add a comment explaining the function.")
+    assert updated["stage"] == "test_change_review"
+    assert updated["prompt"]["proposal"] == revised
+    assert "+" + comment in updated["prompt"]["diff"]
+    assert "+  build-depends: base, servant" in updated["prompt"]["diff"]
+    assert updated["prompt"]["blocked_paths"] == [CABAL]
+    assert updated["prompt"]["answer"] == "Added the code comment."
+    assert agent.calls[-1][0] == role
+    assert agent.calls[-1][1]["intent"] == "discuss_patch"
+    assert agent.calls[-1][1]["current_proposal"] == original
+    assert (Path(updated["worktree"]) / SOURCE).read_text() == IMPLEMENTED
+    assert len(executor.calls) == 4
+    with pytest.raises(ValueError, match="token"):
+        approve(harness, view)
+
+    # A subsequent explanation must preserve the revised proposal, including on resume.
+    updated = harness.respond("task", "question", text="Why use successor here?")
+    assert agent.calls[-1][1]["current_proposal"] == revised
+    assert updated["prompt"]["proposal"] == revised
+    assert harness.resume("task")["prompt"]["diff"] == updated["prompt"]["diff"]
+    assert len(executor.calls) == 4
+    result = approve(harness, updated)
+    assert result["stage"] == (
+        "implementation_ready" if role == "implementer" else "refactor_ready"
+    )
+    assert (Path(result["worktree"]) / SOURCE).read_text() == REFACTORED + comment
+    assert len(executor.calls) == 8
+
+
+def test_question_without_revision_preserves_the_original_patch(rig, repository):
+    harness, agent, executor = rig
+    view = permission_gate(rig, repository)
+    original = copy.deepcopy(harness._state("task")["proposed_test_change"])
+    updated = harness.respond("task", "question", text="Can you explain the dependency change?")
+    assert agent.calls[-1][1]["current_proposal"] == original
+    assert updated["prompt"]["diff"] == view["prompt"]["diff"]
+    assert updated["prompt"]["proposal"] == original
+    assert harness._state("task")["proposed_test_change"] == original
+    assert len(executor.calls) == 4
+
+
+def test_empty_revision_is_repaired_before_updating_the_patch(rig, repository):
+    harness, agent, _ = rig
+    permission_gate(rig, repository)
+    original = copy.deepcopy(harness._state("task")["proposed_test_change"])
+    revised = copy.deepcopy(original)
+    revised["changes"][0]["content"] += "-- Dependency needed by the implementation.\n"
+    agent.responses["implementer"].extend(
+        [
+            {"answer": "Added comments.", "proposal": {**original, "changes": []}},
+            {"answer": "Here is the revised patch.", "proposal": revised},
+        ]
+    )
+    view = harness.respond("task", "question", text="Add comments.")
+    assert "response_repair" in agent.calls[-1][1]
+    assert "revised file changes" in agent.calls[-1][1]["response_repair"]["validation_error"]
+    assert view["prompt"]["answer"] == "Here is the revised patch."
+    assert view["prompt"]["proposal"] == revised

@@ -634,6 +634,7 @@ class Harness:
                 "explanation": (
                     "Review the proposed patch below. Approval applies this patch and runs "
                     "validation. Deny or request changes to send it back to the coding agent. "
+                    "Ask a question can also revise this proposal when you describe an edit. "
                     "Permission applies only to this patch, not future changes."
                 ),
                 "permission_reason": proposal.get("permission_request") or proposal["summary"],
@@ -1711,12 +1712,41 @@ class Harness:
             answer = self._ask(
                 state,
                 role,
-                intent="explain",
+                intent="discuss_patch" if stage == "test_change_review" else "explain",
                 question=response["text"],
-                review_packet=state[role] if stage == "review_findings" else state["prompt"],
+                **(
+                    {"current_proposal": state["proposed_test_change"]}
+                    if stage == "test_change_review"
+                    else {
+                        "review_packet": state[role]
+                        if stage == "review_findings"
+                        else state["prompt"]
+                    }
+                ),
             )
-            state["messages"].append({"agent_role": role, "question": response["text"], **answer})
-            self._gate(state, stage, {**state["prompt"], **answer}, state["prompt"]["actions"])
+            proposal = answer.get("proposal") if stage == "test_change_review" else None
+            if proposal is not None:
+                # Revision changes the pending proposal, so approval must target the new diff.
+                diff = self._workspace(state).proposed_diff(proposal["changes"])
+                blocked = self._test_changes(state, proposal)
+                state["proposed_test_change"] = proposal
+                prompt = {
+                    "proposal": proposal,
+                    "blocked_paths": blocked,
+                    "diff": diff,
+                    "answer": answer["answer"],
+                }
+            else:
+                prompt = {**state["prompt"], "answer": answer["answer"]}
+            state["messages"].append(
+                {
+                    "agent_role": role,
+                    "question": response["text"],
+                    "answer": answer["answer"],
+                    **({"proposal_digest": digest(proposal)} if proposal is not None else {}),
+                }
+            )
+            self._gate(state, stage, prompt, state["prompt"]["actions"])
         elif action == "approve":
             state["next"] = (
                 ("worktree" if state["mode"] == "full" else "finish")

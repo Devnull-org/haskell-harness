@@ -163,6 +163,20 @@ class Explanation(Record):
     answer: str = Field(min_length=1)
 
 
+class PatchConversation(Explanation):
+    proposal: Patch | None = Field(
+        default=None,
+        description="Complete revised patch when the developer requests changes; "
+        "null for an informational question. Retain still-needed changes from current_proposal.",
+    )
+
+    @model_validator(mode="after")
+    def require_changes_for_revision(self):
+        if self.proposal is not None and not self.proposal.changes:
+            raise ValueError("A patch revision must include the revised file changes")
+        return self
+
+
 class ChatReply(Explanation):
     memory_note: str | None = Field(
         default=None,
@@ -232,6 +246,8 @@ REVIEWERS = {
 
 
 def schema_for(role, context):
+    if context.get("intent") == "discuss_patch" and role in {"implementer", "refactorer"}:
+        return PatchConversation
     if context.get("intent") == "explain":
         return Explanation
     if role == "test_author" and context.get("task_kind", "feature") == "feature":

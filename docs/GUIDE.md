@@ -379,8 +379,11 @@ validation configuration automatically request permission. The UI shows the reas
 affected files, and complete proposed diff before any part of the patch is applied.
 Choose **Approve changes and continue** to apply that exact patch and validate it,
 **Deny and revise** to continue without the denied changes, or **Request changes**
-to give the coding agent revised instructions. **Ask a question** explains the
-proposal without approving it. This also works for previously saved blocked tasks.
+to give the coding agent revised instructions. **Ask a question** also accepts edits:
+ask it to add comments, rename something, or otherwise change the proposal, and the
+agent returns a revised patch in the diff preview. Informational questions receive
+an explanation without changing the proposal. Neither approves the patch; review
+the latest diff before approving it. This also works for previously saved blocked tasks.
 Approval applies only to that patch; changed worktrees invalidate it and later
 protected changes need another decision. Main-library `build-depends` edits can
 proceed without a permission stop. Passing baseline checks do not mean a proposed

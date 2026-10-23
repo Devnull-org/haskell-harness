@@ -213,6 +213,37 @@ function section(parent, title, value) {
     prose(typeof value === "string" ? value : JSON.stringify(value, null, 2)),
   );
 }
+function diffView(diff) {
+  const view = el("pre", undefined, "diff-view");
+  let oldLines = 0,
+    newLines = 0;
+  for (const line of diff.match(/[^\n]*\n|[^\n]+$/g) || []) {
+    const hunk = line.match(/^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/);
+    let kind = "";
+    if (hunk) {
+      oldLines = Number(hunk[1] ?? 1);
+      newLines = Number(hunk[2] ?? 1);
+      kind = "diff-hunk";
+    } else if (
+      !oldLines &&
+      !newLines &&
+      /^(--- |\+\+\+ |diff --git |index )/.test(line)
+    ) {
+      kind = "diff-header";
+    } else if (line.startsWith("+")) {
+      kind = "diff-added";
+      newLines = Math.max(0, newLines - 1);
+    } else if (line.startsWith("-")) {
+      kind = "diff-removed";
+      oldLines = Math.max(0, oldLines - 1);
+    } else if (line.startsWith(" ")) {
+      oldLines = Math.max(0, oldLines - 1);
+      newLines = Math.max(0, newLines - 1);
+    }
+    view.append(el("span", line, kind));
+  }
+  return view;
+}
 function message(who, text, human = false) {
   const node = el("div", undefined, "message" + (human ? " human" : ""));
   node.append(el("div", who, "eyebrow"), prose(text));
@@ -988,9 +1019,15 @@ function renderTask(task, running) {
           .map(([id, tests]) => `${id}: ${tests.join(", ")}`)
           .join("\n"),
       );
-    if (prompt.permission_files && prompt.diff) {
-      packet.append(el("h3", "Proposed patch"), el("pre", prompt.diff));
-    } else section(packet, "Test / code diff", prompt.diff);
+    if (prompt.diff) {
+      packet.append(
+        el(
+          "h3",
+          prompt.permission_files ? "Proposed patch" : "Test / code diff",
+        ),
+        diffView(prompt.diff),
+      );
+    }
     section(packet, "Validation", prompt.validation);
     section(packet, "Findings", prompt.findings);
     section(packet, "Feedback", prompt.feedback);

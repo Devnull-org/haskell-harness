@@ -505,6 +505,22 @@ pre {
   max-height: 500px;
   overflow: auto;
 }
+.diff-view .diff-added {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.diff-view .diff-removed {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 13%, transparent);
+}
+.diff-view .diff-header {
+  color: var(--muted);
+  font-weight: 600;
+}
+.diff-view .diff-hunk {
+  color: var(--muted);
+  background: var(--panel);
+}
 details {
   margin: 12px 0;
   font-size: 13px;

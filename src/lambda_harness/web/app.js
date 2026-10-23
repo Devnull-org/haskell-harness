@@ -86,6 +86,7 @@ let reviewFromPR = false,
   prBase = "",
   baseInitialized = false;
 const labels = {
+  continue_implementation: "Continue implementation with tests unchanged",
   continue_handoff: "Continue from saved step",
   save_agent: "Save to repository",
   answer: "Answer",
@@ -894,6 +895,13 @@ function renderTask(task, running) {
       packet.append(el("h2", prompt.summary));
     if (prompt.error) packet.append(prose(prompt.error));
     if (prompt.guidance) packet.append(prose(prompt.guidance));
+    if (prompt.explanation) packet.append(prose(prompt.explanation));
+    if (prompt.blocked_paths?.length)
+      section(
+        packet,
+        "Files requiring revision",
+        prompt.blocked_paths.join("\n"),
+      );
     const interview = (task.messages || []).findLast(
       (item) => item.role === "interviewer",
     );
@@ -996,7 +1004,12 @@ function renderTask(task, running) {
     packet.hidden = !packet.children.length;
     $("message-action").replaceChildren();
     for (const action of messageActions) {
-      const option = el("option", labels[action]);
+      const option = el(
+        "option",
+        task.stage === "test_change_review" && action === "revise"
+          ? "Request test changes"
+          : labels[action],
+      );
       option.value = action;
       $("message-action").append(option);
     }
@@ -1039,7 +1052,9 @@ function renderTask(task, running) {
     const control = button(
       label,
       () => respond(action),
-      ["approve", "save_agent"].includes(action) ? "primary" : "",
+      ["approve", "save_agent", "continue_implementation"].includes(action)
+        ? "primary"
+        : "",
     );
     control.disabled = running;
     $("actions").append(control);

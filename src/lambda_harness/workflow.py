@@ -36,6 +36,7 @@ from .validation_discovery import (
 )
 from .workspace import (
     Workspace,
+    cabal_library_dependencies_only,
     digest,
     git,
     is_test_path,
@@ -447,6 +448,8 @@ class Harness:
             actions = list(state.get("prompt", {}).get("actions", []))
             if self._can_choose_phase(state):
                 actions.append("choose_phase")
+            if state["stage"] == "test_change_review":
+                actions.append("continue_implementation")
             if action not in actions:
                 raise ValueError(f"Action {action!r} is not available at {state.get('stage')}")
             if action == "choose_phase":
@@ -457,7 +460,13 @@ class Harness:
                     raise ValueError(
                         "Worktree changed; restore a clean task base before changing phases"
                     )
-            if action in {"approve", "accept_red", "save_agent", "continue_handoff"}:
+            if action in {
+                "approve",
+                "accept_red",
+                "save_agent",
+                "continue_handoff",
+                "continue_implementation",
+            }:
                 if fields.get("approval_token") != state["prompt"].get("approval_token"):
                     raise ValueError("Stale or missing approval token")
                 if self._workspace(state).fingerprint() != state["gate_fingerprint"]:
@@ -597,6 +606,26 @@ class Harness:
             )
         if state["stage"] == "specification_ready":
             view["prompt"] = {**view["prompt"], "available_phases": self._available_phases(state)}
+        if state["stage"] == "test_change_review":
+            view["prompt"] = {
+                **view["prompt"],
+                "explanation": (
+                    "The whole patch is paused because it proposes changes to tests or "
+                    "protected Cabal settings. Continue implementation to revise the patch "
+                    "with tests unchanged. Asking a question only requests an explanation."
+                ),
+                "blocked_paths": state["prompt"].get(
+                    "blocked_paths",
+                    [
+                        change["path"]
+                        for change in state["proposed_test_change"]["changes"]
+                        if is_test_path(change["path"]) or change["path"].endswith(".cabal")
+                    ],
+                ),
+                "actions": list(
+                    dict.fromkeys(["continue_implementation", *view["prompt"]["actions"]])
+                ),
+            }
         if self._can_choose_phase(state):
             view["prompt"] = {
                 **view["prompt"],
@@ -1112,20 +1141,17 @@ class Harness:
             return
         proposal = self._ask(state, role)
         state["role"] = role
-        if any(
-            is_test_path(c["path"])
-            or c["path"] in state["approved_tests"]
-            or c["path"].endswith(".cabal")
-            for c in proposal["changes"]
-        ):
+        blocked = self._test_changes(state, proposal)
+        if blocked:
             state["proposed_test_change"] = proposal
             self._gate(
                 state,
                 "test_change_review",
                 {
                     "proposal": proposal,
-                    "explanation": "Approved tests are unchanged. Request a test-author "
-                    "revision to discuss this proposal.",
+                    "blocked_paths": blocked,
+                    "explanation": "The patch has not been applied. Continue implementation "
+                    "to revise it with tests and protected Cabal settings unchanged.",
                 },
                 ["question", "revise", "reject"],
             )
@@ -1142,6 +1168,20 @@ class Harness:
         )
         state["attempts"] += 1
         state["next"] = "validate"
+
+    def _test_changes(self, state, proposal):
+        workspace = self._workspace(state)
+        blocked = []
+        for change in proposal["changes"]:
+            name = change["path"]
+            if is_test_path(name) or name in state["approved_tests"]:
+                blocked.append(name)
+            elif name.endswith(".cabal"):
+                path = workspace.safe_path(name)
+                before = path.read_text() if path.is_file() else None
+                if not cabal_library_dependencies_only(before, change["content"]):
+                    blocked.append(name)
+        return blocked
 
     def _implement(self, state):
         self._code(state, "implementer")
@@ -1662,6 +1702,24 @@ class Harness:
             if state["retry_node"] == "reply":
                 state.update(state.pop("failed_reply"))
             state["next"] = state["retry_node"]
+        elif action == "continue_implementation":
+            state["messages"].append(
+                {
+                    "agent_role": state["role"],
+                    "action": action,
+                    "rejected_test_change": state["proposed_test_change"],
+                    "text": (
+                        "Continue implementation now. Revise the blocked proposal to implement "
+                        "the approved scope while preserving all existing tests and their Cabal "
+                        "configuration. Main-library build-depends edits are allowed. Return a "
+                        "code patch for the harness to apply and validate, not an explanation. "
+                        "Previous passing checks cover the baseline, not this proposed patch."
+                    )
+                    + ("\n" + response["text"] if response.get("text") else ""),
+                }
+            )
+            state["attempts"] = 0
+            state["next"] = "implement" if state["role"] == "implementer" else "refactor"
         elif action == "reject":
             state["messages"].append(
                 {

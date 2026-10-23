@@ -162,3 +162,110 @@ def test_changing_phase_does_not_discard_worktree_edits(rig):
     with pytest.raises(ValueError, match="changed|clean"):
         harness.respond("task", "choose_phase")
     assert path.read_text() == "-- Unfinished developer work\n"
+
+
+CABAL = "example-app/example-app.cabal"
+CABAL_CONTENT = """name: example-app
+library
+  exposed-modules: Example.Arithmetic
+  build-depends: base
+
+common shared
+  ghc-options: -Wall
+
+library testlib
+  build-depends: base
+
+test-suite tests
+  type: exitcode-stdio-1.0
+  build-depends: base
+"""
+
+
+def dependency_base(repository):
+    (repository / CABAL).write_text(CABAL_CONTENT)
+    passing_base(repository)
+
+
+def dependency_patch(content):
+    return {
+        "summary": "Implement using a production dependency",
+        "changes": [
+            {"path": SOURCE, "content": REFACTORED},
+            {"path": CABAL, "content": content},
+        ],
+        "commit_message": "feat: use production dependency",
+        "complete": True,
+    }
+
+
+def test_main_library_dependency_patch_is_applied_and_validated(rig, repository):
+    harness, agent, executor = rig
+    dependency_base(repository)
+    specification(harness)
+    content = CABAL_CONTENT.replace("build-depends: base", "build-depends: base, servant", 1)
+    agent.responses["implementer"].append(dependency_patch(content))
+    view = harness.run_phase("task", "implement")
+    assert view["stage"] == "implementation_ready"
+    assert (Path(view["worktree"]) / CABAL).read_text() == content
+    assert (Path(view["worktree"]) / SOURCE).read_text() == REFACTORED
+    assert (Path(view["worktree"]) / TEST).read_text() == TEST_CONTENT
+    assert len(executor.calls) == 8
+    assert len(harness._state("task")["commits"]) == 1
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        CABAL_CONTENT.replace("build-depends: base", "build-depends: base, servant"),
+        CABAL_CONTENT.replace("-Wall", "-w"),
+        CABAL_CONTENT.replace("test-suite tests", "test-suite disabled"),
+        CABAL_CONTENT.replace("library testlib\n  build-depends: base", "library testlib"),
+        None,
+    ],
+)
+def test_cabal_test_and_shared_configuration_still_blocks_whole_patch(rig, repository, content):
+    harness, agent, executor = rig
+    dependency_base(repository)
+    specification(harness)
+    agent.responses["implementer"].append(dependency_patch(content))
+    view = harness.run_phase("task", "implement")
+    assert view["stage"] == "test_change_review"
+    assert view["prompt"]["blocked_paths"] == [CABAL]
+    assert (Path(view["worktree"]) / CABAL).read_text() == CABAL_CONTENT
+    assert (Path(view["worktree"]) / SOURCE).read_text() == IMPLEMENTED
+    assert len(executor.calls) == 4
+
+
+def test_saved_blocked_patch_can_continue_coding_after_explanation(rig, repository):
+    harness, agent, executor = rig
+    dependency_base(repository)
+    specification(harness)
+    agent.responses["implementer"].append(
+        dependency_patch(
+            CABAL_CONTENT.replace("build-depends: base", "build-depends: base, servant")
+        )
+    )
+    view = harness.run_phase("task", "implement")
+    assert view["stage"] == "test_change_review"
+    # Old checkpoints have only these actions; inspection must add the recovery path.
+    assert harness._state("task")["prompt"]["actions"] == ["question", "revise", "reject"]
+    view = harness.respond("task", "question", text="When will implementation continue?")
+    assert agent.calls[-1][1]["intent"] == "explain"
+    assert len(executor.calls) == 4
+    assert "continue_implementation" in harness.inspect("task")["prompt"]["actions"]
+    with pytest.raises(ValueError, match="token"):
+        harness.respond("task", "continue_implementation", approval_token="stale")
+    content = CABAL_CONTENT.replace("build-depends: base", "build-depends: base, servant", 1)
+    agent.responses["implementer"].append(dependency_patch(content))
+    view = harness.respond(
+        "task", "continue_implementation", approval_token=view["prompt"]["approval_token"]
+    )
+    assert view["stage"] == "implementation_ready"
+    context = agent.calls[-1][1]
+    assert context.get("intent") != "explain"
+    assert context["messages"][-1]["action"] == "continue_implementation"
+    assert "rejected_test_change" in context["messages"][-1]
+    assert (Path(view["worktree"]) / TEST).read_text() == TEST_CONTENT
+    assert (Path(view["worktree"]) / CABAL).read_text() == content
+    assert len(executor.calls) == 8

@@ -66,6 +66,37 @@ def is_test_path(path):
     return bool({"test", "tests", "testlib", "golden", "goldens"} & set(PurePosixPath(path).parts))
 
 
+def cabal_library_dependencies_only(before, after):
+    """Allow main-library dependency edits, keeping test and shared settings exact."""
+    if before is None or after is None:
+        return False
+
+    def protected_lines(content):
+        # Braced layout and tabs need a Cabal parser; keep those edits under review.
+        if any(character in content for character in "{}\t"):
+            return None
+        result = []
+        library = False
+        dependency_indent = None
+        for line in content.splitlines(keepends=True):
+            stripped = line.strip()
+            indent = len(line) - len(line.lstrip(" "))
+            if stripped and not stripped.startswith("--") and indent == 0:
+                library = stripped.split("--", 1)[0].strip() == "library"
+            if dependency_indent is not None:
+                if not stripped or stripped.startswith("--") or indent > dependency_indent:
+                    continue
+                dependency_indent = None
+            if library and re.match(r" +build-depends\s*:", line, re.IGNORECASE):
+                dependency_indent = indent
+                continue
+            result.append(line)
+        return result
+
+    original = protected_lines(before)
+    return original is not None and original == protected_lines(after)
+
+
 def protected_configuration(path):
     path = path.lower()
     parts = PurePosixPath(path).parts

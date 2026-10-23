@@ -2488,3 +2488,43 @@ test("project removal is explicit, handles running work, and can remove the last
   assert.deepEqual(ui.pageLoads, ["/projects"]);
   assert.equal(ui.beforeUnload(), false);
 });
+
+test("blocked code patches expose an implementation continuation with its approval token", async () => {
+  const ui = await app();
+  const current = {
+    ...task(),
+    stage: "test_change_review",
+    prompt: {
+      actions: ["continue_implementation", "question", "revise", "reject"],
+      approval_token: "blocked-patch",
+      explanation:
+        "The patch has not been applied. Continue implementation with tests unchanged.",
+      blocked_paths: ["example-app/example-app.cabal"],
+    },
+  };
+  const commands = [];
+  ui.fetch(async (path, options) => {
+    if (path === "/api/command") {
+      commands.push(JSON.parse(options.body));
+      return response({ accepted: true });
+    }
+    return response(snapshot(current));
+  });
+  ui.run("selected = 'example'");
+  await ui.run("refresh()");
+  assert.match(
+    ui.elements.get("packet").textContent,
+    /patch has not been applied/,
+  );
+  assert.match(ui.elements.get("packet").textContent, /example-app.cabal/);
+  const control = ui.elements
+    .get("actions")
+    .children.find(
+      (node) =>
+        node.textContent === "Continue implementation with tests unchanged",
+    );
+  assert(control);
+  await control.onclick();
+  assert.equal(commands[0].action, "continue_implementation");
+  assert.equal(commands[0].token, "blocked-patch");
+});
